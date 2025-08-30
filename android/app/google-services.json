@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "6652139548",
+    "project_id": "smartdiet-3fc8b",
+    "storage_bucket": "smartdiet-3fc8b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:6652139548:android:ec619bee5e1dfe3762a7d9",
+        "android_client_info": {
+          "package_name": "com.example.my_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "6652139548-3vp3vkpvdto57ucmhuqm6reod6idug3i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.my_app",
+            "certificate_hash": "8958d6d67e5093ffc38f9a4e49e7c0bf1733b548"
+          }
+        },
+        {
+          "client_id": "6652139548-5po05ls29koq352hro9vhugalqp90tra.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDHthQILSmfP4Les5uKqHOrNH4TpIBCajY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "6652139548-5po05ls29koq352hro9vhugalqp90tra.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

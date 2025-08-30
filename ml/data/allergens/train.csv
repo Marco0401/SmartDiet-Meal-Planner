@@ -1,0 +1,11 @@
+id,text,peanuts,tree_nuts,milk,eggs,fish,shellfish,wheat_gluten,soy,sesame
+1,"greek yogurt parfait with granola and honey",0,0,1,0,0,0,1,0,0
+2,"peanut butter cookies with flour sugar eggs",1,0,0,1,0,0,1,0,0
+3,"stir fry tofu soy sauce broccoli brown rice",0,0,0,0,0,0,0,1,0
+4,"almond milk smoothie with banana and oats",0,1,0,0,0,0,1,0,0
+5,"scrambled eggs with cheese and toast",0,0,1,1,0,0,1,0,0
+6,"salmon with lemon and herbs served with couscous",0,0,0,0,1,0,1,0,0
+7,"shrimp pasta with garlic butter sauce",0,0,0,0,0,1,1,0,0
+8,"vegan quinoa bowl chickpeas avocado tomatoes",0,0,0,0,0,0,0,0,0
+9,"sesame chicken with broccoli and rice",0,0,0,0,0,0,0,0,1
+10,"gluten free pasta with tomato basil",0,0,0,0,0,0,0,0,0

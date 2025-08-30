@@ -1,0 +1,6 @@
+id,text,peanuts,tree_nuts,milk,eggs,fish,shellfish,wheat_gluten,soy,sesame
+101,"avocado toast with poached eggs",0,0,0,1,0,0,1,0,0
+102,"trail mix with peanuts almonds raisins",1,1,0,0,0,0,0,0,0
+103,"grilled cheese sandwich",0,0,1,0,0,0,1,0,0
+104,"sushi roll with salmon and sesame",0,0,0,0,1,0,0,0,1
+105,"tofu salad with soy dressing",0,0,0,0,0,0,0,1,0
