@@ -5,7 +5,9 @@ import joblib
 import re
 import numpy as np
 
-MODEL_PATH = "models/allergen_tfidf_logreg.joblib"
+import os
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "allergen_tfidf_logreg.joblib")
 ALLERGEN_COLS = [
   "peanuts","tree_nuts","milk","eggs","fish","shellfish","wheat_gluten","soy","sesame"
 ]
@@ -23,7 +25,18 @@ def clean_text(s: str) -> str:
   return s
 
 # Load model once at startup
-pipe = joblib.load(MODEL_PATH)
+try:
+    print(f"Loading model from: {MODEL_PATH}")
+    print(f"File exists: {os.path.exists(MODEL_PATH)}")
+    pipe = joblib.load(MODEL_PATH)
+    print("Model loaded successfully!")
+except Exception as e:
+    print(f"Error loading model: {e}")
+    print(f"Current directory: {os.getcwd()}")
+    print(f"Files in current directory: {os.listdir('.')}")
+    if os.path.exists('models'):
+        print(f"Files in models directory: {os.listdir('models')}")
+    raise
 
 @app.post("/predict_allergens")
 def predict_allergens(req: PredictRequest):
