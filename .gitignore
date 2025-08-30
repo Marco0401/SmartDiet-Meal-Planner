@@ -53,8 +53,7 @@ ml/venv/
 ml/env/
 ml/ENV/
 
-# ML model files (large files)
-ml/models/*.joblib
+# ML model files (large files) - exclude all except the deployed model
 ml/models/*.pkl
 ml/models/*.h5
 ml/models/*.tflite
