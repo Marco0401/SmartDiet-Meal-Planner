@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'recipe_service.dart';
+import 'filipino_recipe_service.dart';
 
 class AIMealPlannerService {
   static const Map<String, Map<String, dynamic>> _goalStrategies = {
@@ -233,26 +234,43 @@ class AIMealPlannerService {
       // Try multiple recipe sources with fallbacks
       Map<String, dynamic>? selectedRecipe;
       
-      // 1. Try Spoonacular API first
-      try {
-        final recipes = await RecipeService.fetchRecipes(searchQuery);
-        if (recipes.isNotEmpty) {
-          final filteredRecipes = _filterRecipesByPreferences(recipes, analysis);
-          if (filteredRecipes.isNotEmpty) {
-            selectedRecipe = _selectBestRecipe(filteredRecipes, targetCalories, analysis);
+      // 1. Try local database first (with enhanced instructions and nutrition)
+      selectedRecipe = _getLocalFallbackRecipe(mealType, analysis);
+      print('DEBUG: Local recipe selected: ${selectedRecipe?['title']} for $mealType');
+      
+      // 2. If no local recipe found, try Spoonacular API
+      if (selectedRecipe == null) {
+        try {
+          final recipes = await RecipeService.fetchRecipes(searchQuery);
+          if (recipes.isNotEmpty) {
+            final filteredRecipes = _filterRecipesByPreferences(recipes, analysis);
+            if (filteredRecipes.isNotEmpty) {
+              selectedRecipe = _selectBestRecipe(filteredRecipes, targetCalories, analysis);
+            }
           }
+        } catch (e) {
+          print('Spoonacular API failed: $e - likely rate limited');
         }
-      } catch (e) {
-        print('Spoonacular API failed: $e - likely rate limited');
       }
       
-      // 2. If no recipe found, try local fallback recipes
+      // 3. Try Filipino Recipe Service
       if (selectedRecipe == null) {
-        selectedRecipe = _getLocalFallbackRecipe(mealType, analysis);
+        try {
+          final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(searchQuery);
+          if (filipinoRecipes.isNotEmpty) {
+            final filteredFilipinoRecipes = _filterRecipesByPreferences(filipinoRecipes, analysis);
+            if (filteredFilipinoRecipes.isNotEmpty) {
+              selectedRecipe = _selectBestRecipe(filteredFilipinoRecipes, targetCalories, analysis);
+            }
+          }
+        } catch (e) {
+          print('Filipino Recipe Service failed: $e');
+        }
       }
       
-      // 3. If still no recipe, generate generic meal
+      // 4. If still no recipe, generate generic meal
       if (selectedRecipe == null) {
+        print('DEBUG: No recipe found, using fallback meal for $mealType');
         return _generateFallbackMeal(mealType, targetCalories, analysis);
       }
       
@@ -416,6 +434,30 @@ class AIMealPlannerService {
       'carbs': (recipe['carbs']?.toDouble() ?? 0) * portionSize,
       'fat': (recipe['fat']?.toDouble() ?? 0) * portionSize,
       'fiber': (recipe['fiber']?.toDouble() ?? 0) * portionSize,
+      'sugar': (recipe['sugar']?.toDouble() ?? 0) * portionSize,
+      'sodium': (recipe['sodium']?.toDouble() ?? 0) * portionSize,
+      'cholesterol': (recipe['cholesterol']?.toDouble() ?? 0) * portionSize,
+      'saturatedFat': (recipe['saturatedFat']?.toDouble() ?? 0) * portionSize,
+      'transFat': (recipe['transFat']?.toDouble() ?? 0) * portionSize,
+      'monounsaturatedFat': (recipe['monounsaturatedFat']?.toDouble() ?? 0) * portionSize,
+      'polyunsaturatedFat': (recipe['polyunsaturatedFat']?.toDouble() ?? 0) * portionSize,
+      'vitaminA': (recipe['vitaminA']?.toDouble() ?? 0) * portionSize,
+      'vitaminC': (recipe['vitaminC']?.toDouble() ?? 0) * portionSize,
+      'calcium': (recipe['calcium']?.toDouble() ?? 0) * portionSize,
+      'iron': (recipe['iron']?.toDouble() ?? 0) * portionSize,
+      'potassium': (recipe['potassium']?.toDouble() ?? 0) * portionSize,
+      'magnesium': (recipe['magnesium']?.toDouble() ?? 0) * portionSize,
+      'phosphorus': (recipe['phosphorus']?.toDouble() ?? 0) * portionSize,
+      'zinc': (recipe['zinc']?.toDouble() ?? 0) * portionSize,
+      'folate': (recipe['folate']?.toDouble() ?? 0) * portionSize,
+      'vitaminD': (recipe['vitaminD']?.toDouble() ?? 0) * portionSize,
+      'vitaminE': (recipe['vitaminE']?.toDouble() ?? 0) * portionSize,
+      'vitaminK': (recipe['vitaminK']?.toDouble() ?? 0) * portionSize,
+      'thiamin': (recipe['thiamin']?.toDouble() ?? 0) * portionSize,
+      'riboflavin': (recipe['riboflavin']?.toDouble() ?? 0) * portionSize,
+      'niacin': (recipe['niacin']?.toDouble() ?? 0) * portionSize,
+      'vitaminB6': (recipe['vitaminB6']?.toDouble() ?? 0) * portionSize,
+      'vitaminB12': (recipe['vitaminB12']?.toDouble() ?? 0) * portionSize,
     };
   }
 
@@ -547,6 +589,30 @@ class AIMealPlannerService {
     double totalCarbs = 0;
     double totalFat = 0;
     double totalFiber = 0;
+    double totalSugar = 0;
+    double totalSodium = 0;
+    double totalCholesterol = 0;
+    double totalSaturatedFat = 0;
+    double totalTransFat = 0;
+    double totalMonounsaturatedFat = 0;
+    double totalPolyunsaturatedFat = 0;
+    double totalVitaminA = 0;
+    double totalVitaminC = 0;
+    double totalCalcium = 0;
+    double totalIron = 0;
+    double totalPotassium = 0;
+    double totalMagnesium = 0;
+    double totalPhosphorus = 0;
+    double totalZinc = 0;
+    double totalFolate = 0;
+    double totalVitaminD = 0;
+    double totalVitaminE = 0;
+    double totalVitaminK = 0;
+    double totalThiamin = 0;
+    double totalRiboflavin = 0;
+    double totalNiacin = 0;
+    double totalVitaminB6 = 0;
+    double totalVitaminB12 = 0;
     
     for (final meal in meals.values) {
       if (meal is Map<String, dynamic> && meal['nutritionalInfo'] != null) {
@@ -556,6 +622,30 @@ class AIMealPlannerService {
         totalCarbs += nutrition['carbs']?.toDouble() ?? 0;
         totalFat += nutrition['fat']?.toDouble() ?? 0;
         totalFiber += nutrition['fiber']?.toDouble() ?? 0;
+        totalSugar += nutrition['sugar']?.toDouble() ?? 0;
+        totalSodium += nutrition['sodium']?.toDouble() ?? 0;
+        totalCholesterol += nutrition['cholesterol']?.toDouble() ?? 0;
+        totalSaturatedFat += nutrition['saturatedFat']?.toDouble() ?? 0;
+        totalTransFat += nutrition['transFat']?.toDouble() ?? 0;
+        totalMonounsaturatedFat += nutrition['monounsaturatedFat']?.toDouble() ?? 0;
+        totalPolyunsaturatedFat += nutrition['polyunsaturatedFat']?.toDouble() ?? 0;
+        totalVitaminA += nutrition['vitaminA']?.toDouble() ?? 0;
+        totalVitaminC += nutrition['vitaminC']?.toDouble() ?? 0;
+        totalCalcium += nutrition['calcium']?.toDouble() ?? 0;
+        totalIron += nutrition['iron']?.toDouble() ?? 0;
+        totalPotassium += nutrition['potassium']?.toDouble() ?? 0;
+        totalMagnesium += nutrition['magnesium']?.toDouble() ?? 0;
+        totalPhosphorus += nutrition['phosphorus']?.toDouble() ?? 0;
+        totalZinc += nutrition['zinc']?.toDouble() ?? 0;
+        totalFolate += nutrition['folate']?.toDouble() ?? 0;
+        totalVitaminD += nutrition['vitaminD']?.toDouble() ?? 0;
+        totalVitaminE += nutrition['vitaminE']?.toDouble() ?? 0;
+        totalVitaminK += nutrition['vitaminK']?.toDouble() ?? 0;
+        totalThiamin += nutrition['thiamin']?.toDouble() ?? 0;
+        totalRiboflavin += nutrition['riboflavin']?.toDouble() ?? 0;
+        totalNiacin += nutrition['niacin']?.toDouble() ?? 0;
+        totalVitaminB6 += nutrition['vitaminB6']?.toDouble() ?? 0;
+        totalVitaminB12 += nutrition['vitaminB12']?.toDouble() ?? 0;
       }
     }
     
@@ -565,6 +655,30 @@ class AIMealPlannerService {
       'carbs': totalCarbs,
       'fat': totalFat,
       'fiber': totalFiber,
+      'sugar': totalSugar,
+      'sodium': totalSodium,
+      'cholesterol': totalCholesterol,
+      'saturatedFat': totalSaturatedFat,
+      'transFat': totalTransFat,
+      'monounsaturatedFat': totalMonounsaturatedFat,
+      'polyunsaturatedFat': totalPolyunsaturatedFat,
+      'vitaminA': totalVitaminA,
+      'vitaminC': totalVitaminC,
+      'calcium': totalCalcium,
+      'iron': totalIron,
+      'potassium': totalPotassium,
+      'magnesium': totalMagnesium,
+      'phosphorus': totalPhosphorus,
+      'zinc': totalZinc,
+      'folate': totalFolate,
+      'vitaminD': totalVitaminD,
+      'vitaminE': totalVitaminE,
+      'vitaminK': totalVitaminK,
+      'thiamin': totalThiamin,
+      'riboflavin': totalRiboflavin,
+      'niacin': totalNiacin,
+      'vitaminB6': totalVitaminB6,
+      'vitaminB12': totalVitaminB12,
     };
   }
 
@@ -575,6 +689,7 @@ class AIMealPlannerService {
   ) {
     // Local recipe database - these are high-quality, curated recipes
     final localRecipes = _getLocalRecipeDatabase();
+    print('DEBUG: Total local recipes: ${localRecipes.length}');
     
     // Filter recipes based on meal type and dietary preferences
     final availableRecipes = localRecipes.where((recipe) {
@@ -595,17 +710,819 @@ class AIMealPlannerService {
       return true;
     }).toList();
     
+    print('DEBUG: Available recipes for $mealType: ${availableRecipes.length}');
+    print('DEBUG: Dietary prefs: ${analysis['dietaryPreferences']}');
+    print('DEBUG: Allergies: ${analysis['allergies']}');
+    
     if (availableRecipes.isEmpty) return null;
     
     // Return a random suitable recipe
     final random = Random();
-    return availableRecipes[random.nextInt(availableRecipes.length)];
+    final selectedRecipe = availableRecipes[random.nextInt(availableRecipes.length)];
+    print('DEBUG: Selected recipe: ${selectedRecipe['title']} with instructions: ${selectedRecipe['instructions']?.toString().substring(0, 50)}...');
+    return selectedRecipe;
   }
   
   /// Local recipe database with high-quality recipes
   static List<Map<String, dynamic>> _getLocalRecipeDatabase() {
     return [
-      // Breakfast Recipes
+      // Filipino Breakfast Recipes
+      {
+        'id': 'local_filipino_breakfast_1',
+        'title': 'Tapsilog',
+        'description': 'Traditional Filipino breakfast with cured beef, garlic rice, and fried egg',
+        'mealType': 'breakfast',
+        'calories': 450,
+        'protein': 25.0,
+        'carbs': 45.0,
+        'fat': 18.0,
+        'fiber': 3.0,
+        'sugar': 2.0,
+        'sodium': 600.0,
+        'cholesterol': 200.0,
+        'saturatedFat': 6.0,
+        'transFat': 0.0,
+        'monounsaturatedFat': 7.0,
+        'polyunsaturatedFat': 5.0,
+        'vitaminA': 400.0,
+        'vitaminC': 15.0,
+        'calcium': 80.0,
+        'iron': 3.0,
+        'potassium': 500.0,
+        'magnesium': 60.0,
+        'phosphorus': 300.0,
+        'zinc': 2.0,
+        'folate': 50.0,
+        'vitaminD': 2.0,
+        'vitaminE': 2.0,
+        'vitaminK': 30.0,
+        'thiamin': 0.5,
+        'riboflavin': 0.3,
+        'niacin': 8.0,
+        'vitaminB6': 0.4,
+        'vitaminB12': 1.5,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Eggs'],
+        'ingredients': ['Tapa (cured beef)', 'Garlic rice', 'Eggs', 'Soy sauce', 'Vinegar'],
+        'instructions': '1. Marinate beef strips in soy sauce, vinegar, garlic, and black pepper for at least 30 minutes.\n2. Heat oil in a pan and cook the marinated beef until tender and slightly caramelized.\n3. For garlic rice: Sauté minced garlic in oil until golden, add cooked rice and mix well.\n4. Fry eggs sunny-side up.\n5. Serve beef over garlic rice with fried egg on top.\n6. Garnish with chopped scallions and serve with vinegar dipping sauce.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_breakfast_2',
+        'title': 'Champorado',
+        'description': 'Sweet chocolate rice porridge with milk',
+        'mealType': 'breakfast',
+        'calories': 380,
+        'protein': 12.0,
+        'carbs': 68.0,
+        'fat': 8.0,
+        'fiber': 4.0,
+        'sugar': 25.0,
+        'sodium': 200.0,
+        'cholesterol': 20.0,
+        'saturatedFat': 4.0,
+        'transFat': 0.0,
+        'monounsaturatedFat': 2.0,
+        'polyunsaturatedFat': 2.0,
+        'vitaminA': 300.0,
+        'vitaminC': 5.0,
+        'calcium': 200.0,
+        'iron': 2.0,
+        'potassium': 300.0,
+        'magnesium': 40.0,
+        'phosphorus': 150.0,
+        'zinc': 1.0,
+        'folate': 30.0,
+        'vitaminD': 3.0,
+        'vitaminE': 1.0,
+        'vitaminK': 10.0,
+        'thiamin': 0.3,
+        'riboflavin': 0.4,
+        'niacin': 2.0,
+        'vitaminB6': 0.2,
+        'vitaminB12': 0.5,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Glutinous rice', 'Cocoa powder', 'Milk', 'Sugar', 'Salt'],
+        'instructions': '1. Rinse glutinous rice until water runs clear.\n2. In a pot, combine rice with water and bring to a boil.\n3. Reduce heat and simmer, stirring occasionally, until rice is tender (about 20 minutes).\n4. Add cocoa powder and mix well until fully incorporated.\n5. Gradually add milk while stirring continuously.\n6. Add sugar to taste and continue cooking until thick and creamy.\n7. Serve hot in bowls, topped with evaporated milk and sugar if desired.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_breakfast_3',
+        'title': 'Tocino with Garlic Rice',
+        'description': 'Sweet cured pork with garlic fried rice',
+        'mealType': 'breakfast',
+        'calories': 520,
+        'protein': 22.0,
+        'carbs': 58.0,
+        'fat': 24.0,
+        'fiber': 2.0,
+        'sugar': 8.0,
+        'sodium': 800.0,
+        'cholesterol': 60.0,
+        'saturatedFat': 8.0,
+        'transFat': 0.0,
+        'monounsaturatedFat': 10.0,
+        'polyunsaturatedFat': 6.0,
+        'vitaminA': 200.0,
+        'vitaminC': 10.0,
+        'calcium': 50.0,
+        'iron': 2.5,
+        'potassium': 400.0,
+        'magnesium': 50.0,
+        'phosphorus': 200.0,
+        'zinc': 1.5,
+        'folate': 40.0,
+        'vitaminD': 1.0,
+        'vitaminE': 1.5,
+        'vitaminK': 15.0,
+        'thiamin': 0.4,
+        'riboflavin': 0.2,
+        'niacin': 6.0,
+        'vitaminB6': 0.3,
+        'vitaminB12': 0.8,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Tocino (sweet cured pork)', 'Garlic rice', 'Soy sauce', 'Garlic'],
+        'instructions': '1. Heat oil in a pan over medium heat.\n2. Add tocino slices and cook for 3-4 minutes on each side.\n3. Add a splash of water and cover to steam for 2-3 minutes until fully cooked.\n4. Remove cover and continue cooking until caramelized and slightly crispy.\n5. For garlic rice: Sauté minced garlic in oil until golden brown.\n6. Add day-old rice and stir-fry for 2-3 minutes until heated through.\n7. Season with salt and pepper to taste.\n8. Serve tocino over garlic rice with atchara (pickled papaya) on the side.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_breakfast_4',
+        'title': 'Longsilog',
+        'description': 'Filipino sausage with garlic rice and fried egg',
+        'mealType': 'breakfast',
+        'calories': 480,
+        'protein': 28.0,
+        'carbs': 42.0,
+        'fat': 22.0,
+        'fiber': 2.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Eggs'],
+        'ingredients': ['Longganisa (Filipino sausage)', 'Garlic rice', 'Eggs', 'Vinegar'],
+        'instructions': '1. Prick longganisa sausages with a fork to prevent bursting.\n2. Heat oil in a pan over medium heat.\n3. Add longganisa and cook for 5-6 minutes, turning occasionally.\n4. Add a little water and cover to steam for 3-4 minutes until fully cooked.\n5. Remove cover and continue cooking until caramelized and slightly crispy.\n6. For garlic rice: Sauté minced garlic in oil until golden, add rice and stir-fry.\n7. Fry eggs sunny-side up in the same pan.\n8. Serve longganisa over garlic rice with fried egg and vinegar dipping sauce.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_breakfast_5',
+        'title': 'Bangusilog',
+        'description': 'Fried milkfish with garlic rice and fried egg',
+        'mealType': 'breakfast',
+        'calories': 420,
+        'protein': 32.0,
+        'carbs': 38.0,
+        'fat': 18.0,
+        'fiber': 2.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': ['Fish', 'Eggs'],
+        'ingredients': ['Bangus (milkfish)', 'Garlic rice', 'Eggs', 'Salt', 'Pepper'],
+        'instructions': 'Season and fry bangus, serve with garlic rice and fried egg.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_breakfast_6',
+        'title': 'Arroz Caldo',
+        'description': 'Filipino chicken rice porridge with ginger',
+        'mealType': 'breakfast',
+        'calories': 380,
+        'protein': 22.0,
+        'carbs': 52.0,
+        'fat': 12.0,
+        'fiber': 3.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Chicken', 'Rice', 'Ginger', 'Garlic', 'Fish sauce', 'Green onions'],
+        'instructions': 'Cook chicken with rice and ginger until creamy, season with fish sauce.',
+        'cuisine': 'Filipino',
+      },
+      
+      // Filipino Lunch Recipes
+      {
+        'id': 'local_filipino_lunch_1',
+        'title': 'Adobo',
+        'description': 'Classic Filipino dish with meat marinated in soy sauce and vinegar',
+        'mealType': 'lunch',
+        'calories': 480,
+        'protein': 35.0,
+        'carbs': 8.0,
+        'fat': 32.0,
+        'fiber': 2.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Soy'],
+        'ingredients': ['Chicken or pork', 'Soy sauce', 'Vinegar', 'Garlic', 'Bay leaves', 'Black pepper'],
+        'instructions': 'Marinate meat in soy sauce and vinegar, simmer until tender.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_2',
+        'title': 'Sinigang',
+        'description': 'Sour tamarind soup with meat and vegetables',
+        'mealType': 'lunch',
+        'calories': 420,
+        'protein': 28.0,
+        'carbs': 25.0,
+        'fat': 22.0,
+        'fiber': 8.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Fish'],
+        'ingredients': ['Pork or fish', 'Tamarind', 'Vegetables', 'Fish sauce', 'Garlic', 'Onion'],
+        'instructions': 'Boil meat with tamarind, add vegetables, season with fish sauce.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_3',
+        'title': 'Kare-kare',
+        'description': 'Peanut stew with meat and vegetables',
+        'mealType': 'lunch',
+        'calories': 580,
+        'protein': 32.0,
+        'carbs': 18.0,
+        'fat': 42.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Peanuts'],
+        'ingredients': ['Beef or pork', 'Peanut butter', 'Vegetables', 'Shrimp paste', 'Garlic'],
+        'instructions': 'Cook meat until tender, add peanut sauce and vegetables.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_4',
+        'title': 'Bicol Express',
+        'description': 'Spicy pork stew with coconut milk and chili peppers',
+        'mealType': 'lunch',
+        'calories': 520,
+        'protein': 28.0,
+        'carbs': 12.0,
+        'fat': 38.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Pork', 'Coconut milk', 'Chili peppers', 'Shrimp paste', 'Garlic', 'Onion'],
+        'instructions': 'Cook pork with coconut milk and chili peppers until tender.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_5',
+        'title': 'Laing',
+        'description': 'Taro leaves cooked in coconut milk with chili',
+        'mealType': 'lunch',
+        'calories': 380,
+        'protein': 8.0,
+        'carbs': 22.0,
+        'fat': 32.0,
+        'fiber': 8.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Taro leaves', 'Coconut milk', 'Chili peppers', 'Shrimp paste', 'Garlic'],
+        'instructions': 'Cook taro leaves in coconut milk with chili and shrimp paste.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_6',
+        'title': 'Paksiw na Bangus',
+        'description': 'Milkfish cooked in vinegar and fish sauce',
+        'mealType': 'lunch',
+        'calories': 320,
+        'protein': 28.0,
+        'carbs': 8.0,
+        'fat': 18.0,
+        'fiber': 2.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': ['Fish'],
+        'ingredients': ['Bangus (milkfish)', 'Vinegar', 'Fish sauce', 'Garlic', 'Ginger'],
+        'instructions': 'Cook bangus in vinegar and fish sauce with garlic and ginger.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_7',
+        'title': 'Ginataang Manok',
+        'description': 'Chicken cooked in coconut milk with vegetables',
+        'mealType': 'lunch',
+        'calories': 480,
+        'protein': 32.0,
+        'carbs': 18.0,
+        'fat': 32.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Chicken', 'Coconut milk', 'Vegetables', 'Garlic', 'Onion', 'Ginger'],
+        'instructions': 'Cook chicken in coconut milk with vegetables and aromatics.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_lunch_8',
+        'title': 'Pinakbet',
+        'description': 'Mixed vegetables stew with shrimp paste',
+        'mealType': 'lunch',
+        'calories': 280,
+        'protein': 12.0,
+        'carbs': 32.0,
+        'fat': 12.0,
+        'fiber': 12.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': ['Fish'],
+        'ingredients': ['Mixed vegetables', 'Shrimp paste', 'Pork', 'Garlic', 'Onion'],
+        'instructions': 'Cook vegetables with shrimp paste and pork until tender.',
+        'cuisine': 'Filipino',
+      },
+      
+      // Filipino Dinner Recipes
+      {
+        'id': 'local_filipino_dinner_1',
+        'title': 'Lechon Kawali',
+        'description': 'Crispy fried pork belly',
+        'mealType': 'dinner',
+        'calories': 650,
+        'protein': 28.0,
+        'carbs': 12.0,
+        'fat': 52.0,
+        'fiber': 2.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Pork belly', 'Garlic', 'Bay leaves', 'Salt', 'Pepper'],
+        'instructions': 'Boil pork until tender, then deep fry until crispy.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_2',
+        'title': 'Pancit Canton',
+        'description': 'Stir-fried noodles with meat and vegetables',
+        'mealType': 'dinner',
+        'calories': 480,
+        'protein': 22.0,
+        'carbs': 68.0,
+        'fat': 16.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Wheat Gluten', 'Soy'],
+        'ingredients': ['Canton noodles', 'Pork or chicken', 'Vegetables', 'Soy sauce', 'Garlic'],
+        'instructions': 'Stir-fry meat and vegetables, add noodles and seasonings.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_3',
+        'title': 'Tinolang Manok',
+        'description': 'Chicken soup with ginger and vegetables',
+        'mealType': 'dinner',
+        'calories': 380,
+        'protein': 32.0,
+        'carbs': 18.0,
+        'fat': 18.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Chicken', 'Ginger', 'Vegetables', 'Fish sauce', 'Garlic'],
+        'instructions': 'Sauté ginger and garlic, add chicken and vegetables, simmer.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_4',
+        'title': 'Crispy Pata',
+        'description': 'Deep-fried pork leg with crispy skin',
+        'mealType': 'dinner',
+        'calories': 720,
+        'protein': 35.0,
+        'carbs': 8.0,
+        'fat': 58.0,
+        'fiber': 2.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Pork leg', 'Garlic', 'Bay leaves', 'Salt', 'Pepper'],
+        'instructions': 'Boil pork leg until tender, then deep fry until crispy.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_5',
+        'title': 'Sisig',
+        'description': 'Sizzling pork face and ears with chili and calamansi',
+        'mealType': 'dinner',
+        'calories': 520,
+        'protein': 32.0,
+        'carbs': 8.0,
+        'fat': 38.0,
+        'fiber': 2.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Pork face and ears', 'Chili peppers', 'Calamansi', 'Onion', 'Garlic'],
+        'instructions': 'Cook pork until crispy, mix with chili, calamansi, and aromatics.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_6',
+        'title': 'Kaldereta',
+        'description': 'Beef stew with tomato sauce and vegetables',
+        'mealType': 'dinner',
+        'calories': 580,
+        'protein': 38.0,
+        'carbs': 22.0,
+        'fat': 38.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Beef', 'Tomato sauce', 'Vegetables', 'Cheese', 'Garlic', 'Onion'],
+        'instructions': 'Cook beef with tomato sauce and vegetables, add cheese.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_7',
+        'title': 'Mechado',
+        'description': 'Beef stew with tomato sauce and potatoes',
+        'mealType': 'dinner',
+        'calories': 520,
+        'protein': 35.0,
+        'carbs': 28.0,
+        'fat': 32.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Beef', 'Tomato sauce', 'Potatoes', 'Carrots', 'Garlic', 'Onion'],
+        'instructions': 'Cook beef with tomato sauce and vegetables until tender.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_8',
+        'title': 'Pork Menudo',
+        'description': 'Pork stew with tomato sauce and vegetables',
+        'mealType': 'dinner',
+        'calories': 480,
+        'protein': 32.0,
+        'carbs': 22.0,
+        'fat': 28.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Pork', 'Tomato sauce', 'Vegetables', 'Garlic', 'Onion', 'Bay leaves'],
+        'instructions': 'Cook pork with tomato sauce and vegetables until tender.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_9',
+        'title': 'Pancit Bihon',
+        'description': 'Rice noodles stir-fried with meat and vegetables',
+        'mealType': 'dinner',
+        'calories': 420,
+        'protein': 18.0,
+        'carbs': 68.0,
+        'fat': 12.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Soy'],
+        'ingredients': ['Bihon noodles', 'Pork or chicken', 'Vegetables', 'Soy sauce', 'Garlic'],
+        'instructions': 'Soak noodles, stir-fry meat and vegetables, add noodles and seasonings.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_dinner_10',
+        'title': 'Chicken Inasal',
+        'description': 'Grilled chicken marinated in calamansi and annatto',
+        'mealType': 'dinner',
+        'calories': 450,
+        'protein': 42.0,
+        'carbs': 8.0,
+        'fat': 28.0,
+        'fiber': 2.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Chicken', 'Calamansi', 'Annatto', 'Garlic', 'Ginger', 'Vinegar'],
+        'instructions': 'Marinate chicken in calamansi and annatto, grill until cooked.',
+        'cuisine': 'Filipino',
+      },
+      
+      // Filipino Snacks & Desserts
+      {
+        'id': 'local_filipino_snack_1',
+        'title': 'Lumpia',
+        'description': 'Fresh spring rolls with vegetables and meat',
+        'mealType': 'snack',
+        'calories': 280,
+        'protein': 12.0,
+        'carbs': 32.0,
+        'fat': 14.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Wheat Gluten'],
+        'ingredients': ['Lumpia wrapper', 'Ground pork', 'Vegetables', 'Garlic', 'Soy sauce'],
+        'instructions': 'Fill wrapper with meat and vegetables, roll and serve fresh.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_2',
+        'title': 'Turon',
+        'description': 'Fried banana spring rolls',
+        'mealType': 'snack',
+        'calories': 320,
+        'protein': 4.0,
+        'carbs': 58.0,
+        'fat': 8.0,
+        'fiber': 6.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': ['Wheat Gluten'],
+        'ingredients': ['Lumpia wrapper', 'Banana', 'Brown sugar', 'Jackfruit'],
+        'instructions': 'Wrap banana and jackfruit in wrapper, fry until golden.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_3',
+        'title': 'Halo-halo',
+        'description': 'Filipino shaved ice dessert with mixed ingredients',
+        'mealType': 'snack',
+        'calories': 420,
+        'protein': 8.0,
+        'carbs': 68.0,
+        'fat': 12.0,
+        'fiber': 4.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Shaved ice', 'Sweet beans', 'Jelly', 'Fruit', 'Evaporated milk', 'Ice cream'],
+        'instructions': 'Layer ingredients in glass, top with shaved ice and milk.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_4',
+        'title': 'Bibingka',
+        'description': 'Filipino rice cake with coconut and cheese',
+        'mealType': 'snack',
+        'calories': 380,
+        'protein': 12.0,
+        'carbs': 58.0,
+        'fat': 12.0,
+        'fiber': 4.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk', 'Eggs'],
+        'ingredients': ['Rice flour', 'Coconut milk', 'Cheese', 'Eggs', 'Sugar'],
+        'instructions': 'Mix ingredients, bake until golden and set.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_5',
+        'title': 'Puto',
+        'description': 'Steamed rice cakes',
+        'mealType': 'snack',
+        'calories': 280,
+        'protein': 6.0,
+        'carbs': 58.0,
+        'fat': 4.0,
+        'fiber': 2.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Rice flour', 'Sugar', 'Coconut milk', 'Baking powder'],
+        'instructions': 'Mix ingredients, steam until cooked through.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_6',
+        'title': 'Kutsinta',
+        'description': 'Brown rice cakes with coconut',
+        'mealType': 'snack',
+        'calories': 320,
+        'protein': 4.0,
+        'carbs': 68.0,
+        'fat': 6.0,
+        'fiber': 2.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Rice flour', 'Brown sugar', 'Coconut', 'Lye water'],
+        'instructions': 'Mix ingredients, steam until set, top with coconut.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_7',
+        'title': 'Sapin-sapin',
+        'description': 'Layered rice cake with different colors',
+        'mealType': 'snack',
+        'calories': 380,
+        'protein': 6.0,
+        'carbs': 68.0,
+        'fat': 8.0,
+        'fiber': 2.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Rice flour', 'Coconut milk', 'Sugar', 'Food coloring'],
+        'instructions': 'Layer different colored rice mixtures, steam until set.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_8',
+        'title': 'Buko Pandan',
+        'description': 'Coconut and pandan jelly dessert',
+        'mealType': 'snack',
+        'calories': 320,
+        'protein': 4.0,
+        'carbs': 58.0,
+        'fat': 8.0,
+        'fiber': 4.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Coconut', 'Pandan jelly', 'Evaporated milk', 'Condensed milk'],
+        'instructions': 'Mix coconut with jelly, add milk and chill.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_9',
+        'title': 'Leche Flan',
+        'description': 'Filipino caramel custard',
+        'mealType': 'snack',
+        'calories': 280,
+        'protein': 8.0,
+        'carbs': 32.0,
+        'fat': 14.0,
+        'fiber': 0.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk', 'Eggs'],
+        'ingredients': ['Eggs', 'Condensed milk', 'Evaporated milk', 'Sugar', 'Vanilla'],
+        'instructions': 'Make caramel, mix custard ingredients, steam until set.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_10',
+        'title': 'Ube Halaya',
+        'description': 'Purple yam jam dessert',
+        'mealType': 'snack',
+        'calories': 320,
+        'protein': 4.0,
+        'carbs': 68.0,
+        'fat': 8.0,
+        'fiber': 6.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Purple yam', 'Coconut milk', 'Condensed milk', 'Butter', 'Sugar'],
+        'instructions': 'Cook purple yam with milk and sugar until thick and smooth.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_11',
+        'title': 'Polvoron',
+        'description': 'Powdered milk candy',
+        'mealType': 'snack',
+        'calories': 180,
+        'protein': 4.0,
+        'carbs': 22.0,
+        'fat': 8.0,
+        'fiber': 2.0,
+        'containsMeat': false,
+        'containsDairy': true,
+        'allergens': ['Milk'],
+        'ingredients': ['Powdered milk', 'Flour', 'Sugar', 'Butter', 'Nuts'],
+        'instructions': 'Mix ingredients, form into shapes, wrap in paper.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_snack_12',
+        'title': 'Chicharon',
+        'description': 'Crispy pork rinds',
+        'mealType': 'snack',
+        'calories': 520,
+        'protein': 28.0,
+        'carbs': 0.0,
+        'fat': 48.0,
+        'fiber': 0.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Pork skin', 'Salt', 'Oil'],
+        'instructions': 'Deep fry pork skin until crispy and golden.',
+        'cuisine': 'Filipino',
+      },
+      
+      // Filipino Soups & Stews
+      {
+        'id': 'local_filipino_soup_1',
+        'title': 'Bulalo',
+        'description': 'Beef bone marrow soup with vegetables',
+        'mealType': 'lunch',
+        'calories': 480,
+        'protein': 35.0,
+        'carbs': 18.0,
+        'fat': 28.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Beef bones', 'Beef shank', 'Vegetables', 'Garlic', 'Onion', 'Fish sauce'],
+        'instructions': 'Simmer beef bones until tender, add vegetables and season.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_soup_2',
+        'title': 'Nilaga',
+        'description': 'Boiled meat and vegetables soup',
+        'mealType': 'lunch',
+        'calories': 420,
+        'protein': 32.0,
+        'carbs': 22.0,
+        'fat': 22.0,
+        'fiber': 8.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Beef or pork', 'Vegetables', 'Garlic', 'Onion', 'Fish sauce'],
+        'instructions': 'Boil meat with vegetables until tender, season with fish sauce.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_soup_3',
+        'title': 'Pochero',
+        'description': 'Beef stew with tomato sauce and vegetables',
+        'mealType': 'lunch',
+        'calories': 520,
+        'protein': 38.0,
+        'carbs': 28.0,
+        'fat': 28.0,
+        'fiber': 6.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': [],
+        'ingredients': ['Beef', 'Tomato sauce', 'Vegetables', 'Garlic', 'Onion', 'Bay leaves'],
+        'instructions': 'Cook beef with tomato sauce and vegetables until tender.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_soup_4',
+        'title': 'Batchoy',
+        'description': 'Noodle soup with pork and liver',
+        'mealType': 'lunch',
+        'calories': 480,
+        'protein': 32.0,
+        'carbs': 42.0,
+        'fat': 22.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Wheat Gluten'],
+        'ingredients': ['Noodles', 'Pork', 'Liver', 'Garlic', 'Onion', 'Fish sauce'],
+        'instructions': 'Cook noodles with pork and liver, season with fish sauce.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_soup_5',
+        'title': 'Pancit Malabon',
+        'description': 'Thick rice noodles with seafood and vegetables',
+        'mealType': 'lunch',
+        'calories': 520,
+        'protein': 28.0,
+        'carbs': 68.0,
+        'fat': 18.0,
+        'fiber': 6.0,
+        'containsMeat': false,
+        'containsDairy': false,
+        'allergens': ['Fish', 'Shellfish'],
+        'ingredients': ['Thick rice noodles', 'Seafood', 'Vegetables', 'Shrimp paste', 'Garlic'],
+        'instructions': 'Cook noodles with seafood and vegetables, season with shrimp paste.',
+        'cuisine': 'Filipino',
+      },
+      {
+        'id': 'local_filipino_soup_6',
+        'title': 'Lomi',
+        'description': 'Thick egg noodle soup with meat and vegetables',
+        'mealType': 'lunch',
+        'calories': 480,
+        'protein': 25.0,
+        'carbs': 58.0,
+        'fat': 18.0,
+        'fiber': 4.0,
+        'containsMeat': true,
+        'containsDairy': false,
+        'allergens': ['Wheat Gluten', 'Eggs'],
+        'ingredients': ['Thick egg noodles', 'Pork or chicken', 'Vegetables', 'Garlic', 'Onion'],
+        'instructions': 'Cook noodles with meat and vegetables in rich broth.',
+        'cuisine': 'Filipino',
+      },
+      
+      // Western Breakfast Recipes (existing)
       {
         'id': 'local_breakfast_1',
         'title': 'Greek Yogurt Parfait',
@@ -621,6 +1538,7 @@ class AIMealPlannerService {
         'allergens': ['Milk'],
         'ingredients': ['Greek yogurt', 'Honey', 'Granola', 'Mixed berries'],
         'instructions': 'Layer yogurt, honey, granola, and berries in a glass. Repeat layers and serve.',
+        'cuisine': 'Western',
       },
       {
         'id': 'local_breakfast_2',
@@ -637,9 +1555,10 @@ class AIMealPlannerService {
         'allergens': ['Eggs'],
         'ingredients': ['Whole grain bread', 'Avocado', 'Eggs', 'Salt', 'Pepper'],
         'instructions': 'Toast bread, mash avocado, poach eggs, and assemble.',
+        'cuisine': 'Western',
       },
       
-      // Lunch Recipes
+      // Western Lunch Recipes (existing)
       {
         'id': 'local_lunch_1',
         'title': 'Mediterranean Quinoa Bowl',
@@ -655,6 +1574,7 @@ class AIMealPlannerService {
         'allergens': ['Milk'],
         'ingredients': ['Quinoa', 'Cherry tomatoes', 'Cucumber', 'Kalamata olives', 'Feta cheese'],
         'instructions': 'Cook quinoa, chop vegetables, mix with olive oil and lemon juice.',
+        'cuisine': 'Western',
       },
       {
         'id': 'local_lunch_2',
@@ -666,14 +1586,39 @@ class AIMealPlannerService {
         'carbs': 12.0,
         'fat': 28.0,
         'fiber': 6.0,
+        'sugar': 4.0,
+        'sodium': 800.0,
+        'cholesterol': 120.0,
+        'saturatedFat': 8.0,
+        'transFat': 0.0,
+        'monounsaturatedFat': 12.0,
+        'polyunsaturatedFat': 8.0,
+        'vitaminA': 1200.0,
+        'vitaminC': 45.0,
+        'calcium': 300.0,
+        'iron': 3.5,
+        'potassium': 600.0,
+        'magnesium': 80.0,
+        'phosphorus': 400.0,
+        'zinc': 3.0,
+        'folate': 80.0,
+        'vitaminD': 5.0,
+        'vitaminE': 4.0,
+        'vitaminK': 150.0,
+        'thiamin': 0.8,
+        'riboflavin': 0.6,
+        'niacin': 12.0,
+        'vitaminB6': 1.2,
+        'vitaminB12': 2.0,
         'containsMeat': true,
         'containsDairy': true,
         'allergens': ['Eggs', 'Milk'],
         'ingredients': ['Romaine lettuce', 'Grilled chicken breast', 'Parmesan cheese', 'Caesar dressing'],
-        'instructions': 'Grill chicken, chop lettuce, assemble salad with dressing and cheese.',
+        'instructions': '1. Season chicken breast with salt, pepper, and herbs.\n2. Grill chicken for 6-8 minutes per side until cooked through.\n3. Let chicken rest for 5 minutes, then slice.\n4. Wash and chop romaine lettuce into bite-sized pieces.\n5. Grate parmesan cheese.\n6. Prepare caesar dressing by mixing mayonnaise, garlic, lemon juice, and anchovies.\n7. Toss lettuce with dressing in a large bowl.\n8. Top with sliced chicken and grated parmesan.\n9. Serve immediately with croutons if desired.',
+        'cuisine': 'Western',
       },
       
-      // Dinner Recipes
+      // Western Dinner Recipes (existing)
       {
         'id': 'local_dinner_1',
         'title': 'Salmon with Roasted Vegetables',
@@ -684,11 +1629,36 @@ class AIMealPlannerService {
         'carbs': 32.0,
         'fat': 28.0,
         'fiber': 14.0,
+        'sugar': 8.0,
+        'sodium': 400.0,
+        'cholesterol': 80.0,
+        'saturatedFat': 6.0,
+        'transFat': 0.0,
+        'monounsaturatedFat': 10.0,
+        'polyunsaturatedFat': 12.0,
+        'vitaminA': 800.0,
+        'vitaminC': 60.0,
+        'calcium': 150.0,
+        'iron': 4.5,
+        'potassium': 800.0,
+        'magnesium': 120.0,
+        'phosphorus': 500.0,
+        'zinc': 2.5,
+        'folate': 100.0,
+        'vitaminD': 15.0,
+        'vitaminE': 6.0,
+        'vitaminK': 200.0,
+        'thiamin': 0.6,
+        'riboflavin': 0.8,
+        'niacin': 15.0,
+        'vitaminB6': 1.5,
+        'vitaminB12': 8.0,
         'containsMeat': false,
         'containsDairy': false,
         'allergens': ['Fish'],
         'ingredients': ['Salmon fillet', 'Broccoli', 'Carrots', 'Olive oil', 'Lemon'],
-        'instructions': 'Season salmon, roast vegetables, bake salmon until flaky.',
+        'instructions': '1. Preheat oven to 425°F (220°C).\n2. Season salmon fillet with salt, pepper, and herbs.\n3. Cut vegetables (broccoli, carrots) into uniform pieces.\n4. Toss vegetables with olive oil, salt, and pepper.\n5. Place vegetables on a baking sheet and roast for 15 minutes.\n6. Add salmon to the baking sheet with vegetables.\n7. Bake for 12-15 minutes until salmon is flaky and vegetables are tender.\n8. Squeeze lemon juice over salmon before serving.\n9. Serve hot with additional lemon wedges.',
+        'cuisine': 'Western',
       },
       {
         'id': 'local_dinner_2',
@@ -705,9 +1675,10 @@ class AIMealPlannerService {
         'allergens': ['Soy'],
         'ingredients': ['Tofu', 'Broccoli', 'Bell peppers', 'Brown rice', 'Soy sauce'],
         'instructions': 'Cook rice, stir-fry vegetables and tofu, combine with sauce.',
+        'cuisine': 'Western',
       },
       
-      // Snack Recipes
+      // Western Snack Recipes (existing)
       {
         'id': 'local_snack_1',
         'title': 'Trail Mix',
@@ -723,6 +1694,7 @@ class AIMealPlannerService {
         'allergens': ['Tree Nuts'],
         'ingredients': ['Almonds', 'Pumpkin seeds', 'Dried cranberries', 'Dark chocolate chips'],
         'instructions': 'Mix all ingredients in a bowl and store in an airtight container.',
+        'cuisine': 'Western',
       },
     ];
   }

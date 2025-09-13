@@ -2,12 +2,16 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 buildscript {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
+        maven { url = uri("https://jitpack.io") }
     }
     dependencies {
         classpath("com.android.tools.build:gradle:8.2.2")

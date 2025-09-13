@@ -10,6 +10,10 @@ import 'services/recipe_service.dart';
 import 'recipe_detail_page.dart';
 import 'meal_planner_page.dart';
 import 'ai_meal_planner_page.dart';
+import 'meal_suggestions_page.dart';
+import 'nutrition_analytics_page.dart';
+import 'meal_favorites_page.dart';
+import 'progress_tracking_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -173,11 +177,9 @@ class _MyHomePageState extends State<MyHomePage> {
             _drawerOption(0, "Meal Planner", Icons.calendar_month),
             _drawerOption(1, "AI Meal Planner", Icons.psychology),
             _drawerOption(2, "Get Meal Suggestions", Icons.lightbulb),
-            _drawerOption(
-              3,
-              "Analyze Nutrition & Track Meals",
-              Icons.analytics,
-            ),
+            _drawerOption(3, "Analyze Nutrition & Track Meals", Icons.analytics),
+            _drawerOption(4, "Favorite Meals", Icons.favorite),
+            _drawerOption(5, "Progress Tracking", Icons.trending_up),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.account_circle, color: Colors.green),
@@ -1126,15 +1128,34 @@ class _MyHomePageState extends State<MyHomePage> {
         if (number == 0) {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => MealPlannerPage()),
+            MaterialPageRoute(builder: (context) => const MealPlannerPage()),
           );
         } else if (number == 1) {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const AIMealPlannerPage()),
           );
+        } else if (number == 2) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
+          );
+        } else if (number == 3) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const NutritionAnalyticsPage()),
+          );
+        } else if (number == 4) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
+          );
+        } else if (number == 5) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ProgressTrackingPage()),
+          );
         }
-        // Add more navigation for other options if needed
       },
     );
   }

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import 'services/recipe_service.dart';
 import 'recipe_detail_page.dart';
+import 'manual_meal_entry_page.dart';
+import 'barcode_scanner_page.dart';
 import 'nutrition_analytics_page.dart';
 
 class MealPlannerPage extends StatefulWidget {
@@ -460,7 +463,9 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => const QuickAddMealSheet(),
+      builder: (context) => QuickAddMealSheet(
+        onMealAdded: () => _loadWeeklyMeals(),
+      ),
     );
   }
 
@@ -597,7 +602,9 @@ class _AddMealDialogState extends State<AddMealDialog> {
 }
 
 class QuickAddMealSheet extends StatelessWidget {
-  const QuickAddMealSheet({super.key});
+  final VoidCallback? onMealAdded;
+  
+  const QuickAddMealSheet({super.key, this.onMealAdded});
 
   @override
   Widget build(BuildContext context) {
@@ -618,9 +625,17 @@ class QuickAddMealSheet extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.pop(context);
-                    // TODO: Implement manual meal entry
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ManualMealEntryPage(),
+                      ),
+                    );
+                    if (result == true && onMealAdded != null) {
+                      onMealAdded!();
+                    }
                   },
                   icon: const Icon(Icons.edit),
                   label: const Text('Manual Entry'),
@@ -633,9 +648,17 @@ class QuickAddMealSheet extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.pop(context);
-                    // TODO: Implement barcode scanning
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const BarcodeScannerPage(),
+                      ),
+                    );
+                    if (result == true && onMealAdded != null) {
+                      onMealAdded!();
+                    }
                   },
                   icon: const Icon(Icons.qr_code_scanner),
                   label: const Text('Scan Barcode'),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'services/recipe_service.dart';
+import 'services/filipino_recipe_service.dart';
 import 'services/allergen_service.dart';
 import 'services/allergen_ml_service.dart';
+import 'meal_favorites_page.dart';
 
 class RecipeDetailPage extends StatefulWidget {
   final Map<String, dynamic> recipe;
@@ -19,6 +21,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   Map<String, int>? _mlAllergens;
   String? _mlStatus; // debug/status of ML call
   String _mlSourceText = '';
+  bool _isFavorited = false;
+  bool _isCheckingFavorite = true;
 
   // Lightweight keyword hints to explain ML detections
   static const Map<String, List<String>> _mlKeywordMap = {
@@ -47,6 +51,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   void initState() {
     super.initState();
     _loadRecipeDetails();
+    _checkIfFavorited();
   }
 
   Future<void> _loadRecipeDetails() async {
@@ -72,8 +77,20 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         return;
       }
       
-      // This is an API recipe, fetch details
-      final details = await RecipeService.fetchRecipeDetails(recipeId);
+      // Try Filipino Recipe Service first for Filipino recipes
+      Map<String, dynamic>? details;
+      if (widget.recipe['cuisine'] == 'Filipino' || 
+          recipeId.toString().startsWith('curated_') ||
+          recipeId.toString().startsWith('themealdb_') ||
+          recipeId.toString().startsWith('local_filipino_')) {
+        details = await FilipinoRecipeService.getRecipeDetails(recipeId.toString());
+      }
+      
+      // Fallback to regular Recipe Service
+      if (details == null) {
+        details = await RecipeService.fetchRecipeDetails(recipeId);
+      }
+      
       setState(() {
         _recipeDetails = details;
         _isLoading = false;
@@ -119,6 +136,40 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
+  Future<void> _checkIfFavorited() async {
+    if (widget.recipe['id'] != null) {
+      final isFavorited = await FavoriteService.isFavorited(widget.recipe['id'].toString());
+      setState(() {
+        _isFavorited = isFavorited;
+        _isCheckingFavorite = false;
+      });
+    } else {
+      setState(() {
+        _isCheckingFavorite = false;
+      });
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_isFavorited) {
+      await FavoriteService.removeFromFavorites(widget.recipe['id'].toString());
+      setState(() {
+        _isFavorited = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Removed from favorites'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } else {
+      await FavoriteService.addToFavorites(context, widget.recipe);
+      setState(() {
+        _isFavorited = true;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -126,6 +177,17 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         title: Text(widget.recipe['title'] ?? 'Recipe Details'),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
+        actions: [
+          if (!_isCheckingFavorite && widget.recipe['id'] != null)
+            IconButton(
+              onPressed: _toggleFavorite,
+              icon: Icon(
+                _isFavorited ? Icons.favorite : Icons.favorite_border,
+                color: _isFavorited ? Colors.red : Colors.white,
+              ),
+              tooltip: _isFavorited ? 'Remove from favorites' : 'Add to favorites',
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
