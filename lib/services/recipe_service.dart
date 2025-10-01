@@ -19,7 +19,7 @@ class RecipeService {
           final data = json.decode(response.body);
           final results = data['results'] as List<dynamic>? ?? [];
           
-          // Validate and fix image URLs
+          // Validate and fix image URLs, ensure nutrition data
           final spoonacularRecipes = results.map((recipe) {
             final recipeMap = Map<String, dynamic>.from(recipe);
             final imageUrl = recipeMap['image'] as String?;
@@ -29,6 +29,11 @@ class RecipeService {
             if (imageUrl == null || imageUrl.isEmpty || 
                 (imageUrl.contains('spoonacular.com') && !imageUrl.contains('https://'))) {
               recipeMap['image'] = null;
+            }
+            
+            // Ensure nutrition data exists
+            if (recipeMap['nutrition'] == null) {
+              recipeMap['nutrition'] = _estimateNutritionFromTitle(recipeMap['title'] ?? '');
             }
             
             return recipeMap;
@@ -95,7 +100,7 @@ class RecipeService {
       
       // Try Spoonacular for other recipes
       if (_apiKey.isNotEmpty) {
-        final url = '$_baseUrl/$id/information?apiKey=$_apiKey';
+        final url = '$_baseUrl/$id/information?includeNutrition=true&apiKey=$_apiKey';
         final response = await http.get(Uri.parse(url));
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
@@ -103,6 +108,9 @@ class RecipeService {
           // Add nutrition information if available
           if (data['nutrition'] != null) {
             data['nutrition'] = _extractNutritionInfo(data['nutrition']);
+          } else {
+            // Estimate nutrition from title if API doesn't provide it
+            data['nutrition'] = _estimateNutritionFromTitle(data['title'] ?? '');
           }
           
           return data;
@@ -235,6 +243,69 @@ class RecipeService {
     nutritionMap['polyunsaturatedFat'] ??= 0.0;
     
     return nutritionMap;
+  }
+
+  /// Estimate nutrition information from recipe title
+  static Map<String, dynamic> _estimateNutritionFromTitle(String title) {
+    double calories = 350; // Base calories
+    double protein = 18;   // Base protein
+    double carbs = 40;     // Base carbs
+    double fat = 14;       // Base fat
+    
+    final titleLower = title.toLowerCase();
+    
+    // Adjust based on recipe type
+    if (titleLower.contains('salad') || titleLower.contains('vegetable')) {
+      calories = 180;
+      protein = 8;
+      carbs = 25;
+      fat = 6;
+    } else if (titleLower.contains('pasta') || titleLower.contains('noodle')) {
+      calories = 420;
+      protein = 15;
+      carbs = 65;
+      fat = 12;
+    } else if (titleLower.contains('chicken')) {
+      calories = 380;
+      protein = 35;
+      carbs = 20;
+      fat = 16;
+    } else if (titleLower.contains('beef') || titleLower.contains('steak')) {
+      calories = 450;
+      protein = 40;
+      carbs = 15;
+      fat = 25;
+    } else if (titleLower.contains('fish') || titleLower.contains('salmon')) {
+      calories = 320;
+      protein = 30;
+      carbs = 18;
+      fat = 14;
+    } else if (titleLower.contains('soup')) {
+      calories = 220;
+      protein = 12;
+      carbs = 28;
+      fat = 8;
+    } else if (titleLower.contains('pizza')) {
+      calories = 520;
+      protein = 22;
+      carbs = 55;
+      fat = 24;
+    } else if (titleLower.contains('burger')) {
+      calories = 580;
+      protein = 28;
+      carbs = 45;
+      fat = 32;
+    }
+    
+    return {
+      'calories': calories.round(),
+      'protein': protein.round(),
+      'carbs': carbs.round(),
+      'fat': fat.round(),
+      'fiber': (calories * 0.02).round(),
+      'sugar': (carbs * 0.3).round(),
+      'sodium': (calories * 2).round(),
+    };
   }
 
   static Future<Map<String, dynamic>> _fetchRecipeDetailsFallback(dynamic id) async {

@@ -112,9 +112,15 @@ class _RegisterPageState extends State<RegisterPage> {
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFFB2FFB2), Color(0xFF4CAF50)],
+                colors: [
+                  Color(0xFF2E7D32),
+                  Color(0xFF388E3C),
+                  Color(0xFF4CAF50),
+                  Color(0xFF66BB6A),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
+                stops: [0.0, 0.3, 0.7, 1.0],
               ),
             ),
           ),
@@ -126,42 +132,106 @@ class _RegisterPageState extends State<RegisterPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Logo/Icon
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.white,
-                      child: Icon(Icons.restaurant_menu, size: 48, color: Color(0xFF4CAF50)),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            Colors.green[50]!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(25),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withOpacity(0.3),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.restaurant_menu,
+                        size: 48,
+                        color: const Color(0xFF2E7D32),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Text(
                       'SmartDiet',
-                      style: TextStyle(
-                        fontSize: 32,
+                      style: const TextStyle(
+                        fontSize: 36,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF388E3C),
-                        letterSpacing: 1.2,
+                        color: Colors.white,
+                        letterSpacing: 1.5,
+                        shadows: [
+                          Shadow(
+                            offset: Offset(0, 3),
+                            blurRadius: 8,
+                            color: Colors.black26,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Create your SmartDiet account',
-                      style: TextStyle(fontSize: 18, color: Colors.grey[800]),
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white.withOpacity(0.9),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     Card(
-                      elevation: 8,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
+                      elevation: 15,
+                      shadowColor: Colors.green.withOpacity(0.3),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.white,
+                              Colors.green[50]!,
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(25),
+                          border: Border.all(
+                            color: Colors.green[200]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(28.0),
                         child: Column(
                           children: [
                             TextField(
                               controller: _emailController,
                               decoration: InputDecoration(
                                 labelText: 'Email',
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                prefixIcon: const Icon(Icons.email_outlined),
+                                prefixIcon: Icon(
+                                  Icons.email_outlined,
+                                  color: Colors.green[600],
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[300]!),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[300]!),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[600]!, width: 2),
+                                ),
                                 filled: true,
                                 fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                               ),
                               keyboardType: TextInputType.emailAddress,
                             ),
@@ -170,12 +240,30 @@ class _RegisterPageState extends State<RegisterPage> {
                               controller: _passwordController,
                               decoration: InputDecoration(
                                 labelText: 'Password',
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                prefixIcon: const Icon(Icons.lock_outline),
+                                prefixIcon: Icon(
+                                  Icons.lock_outline,
+                                  color: Colors.green[600],
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[300]!),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[300]!),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[600]!, width: 2),
+                                ),
                                 filled: true,
                                 fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                                 suffixIcon: IconButton(
-                                  icon: Icon(_passwordVisible ? Icons.visibility : Icons.visibility_off),
+                                  icon: Icon(
+                                    _passwordVisible ? Icons.visibility : Icons.visibility_off,
+                                    color: Colors.green[600],
+                                  ),
                                   onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
                                 ),
                               ),
@@ -194,12 +282,30 @@ class _RegisterPageState extends State<RegisterPage> {
                               controller: _confirmController,
                               decoration: InputDecoration(
                                 labelText: 'Confirm Password',
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                prefixIcon: const Icon(Icons.lock_outline),
+                                prefixIcon: Icon(
+                                  Icons.lock_outline,
+                                  color: Colors.green[600],
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[300]!),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[300]!),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  borderSide: BorderSide(color: Colors.green[600]!, width: 2),
+                                ),
                                 filled: true,
                                 fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                                 suffixIcon: IconButton(
-                                  icon: Icon(_confirmPasswordVisible ? Icons.visibility : Icons.visibility_off),
+                                  icon: Icon(
+                                    _confirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                                    color: Colors.green[600],
+                                  ),
                                   onPressed: () => setState(() => _confirmPasswordVisible = !_confirmPasswordVisible),
                                 ),
                               ),
@@ -231,19 +337,28 @@ class _RegisterPageState extends State<RegisterPage> {
                             if (!_showVerify)
                               SizedBox(
                                 width: double.infinity,
-                                child: ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF4CAF50),
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF2E7D32),
+                                  padding: const EdgeInsets.symmetric(vertical: 18),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(15),
                                   ),
-                                  onPressed: _isLoading ? null : _register,
-                                  child: _isLoading
-                                      ? const CircularProgressIndicator(color: Colors.white)
-                                      : const Text('Register', style: TextStyle(fontSize: 18, color: Colors.white)),
+                                  elevation: 8,
+                                  shadowColor: Colors.green.withOpacity(0.4),
                                 ),
+                                onPressed: _isLoading ? null : _register,
+                                child: _isLoading
+                                    ? const CircularProgressIndicator(color: Colors.white)
+                                    : const Text(
+                                        'Register',
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                              ),
                               ),
                             if (_showVerify)
                               Column(
@@ -287,6 +402,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               child: const Text('Already have an account? Log in'),
                             ),
                           ],
+                        ),
                         ),
                       ),
                     ),

@@ -11,29 +11,37 @@ class AccountSettingsPage extends StatefulWidget {
 }
 
 class _AccountSettingsPageState extends State<AccountSettingsPage> {
-  final _formKey = GlobalKey<FormState>();
-  final _fullNameController = TextEditingController();
-  final _heightController = TextEditingController();
-  final _weightController = TextEditingController();
-  final _medicationController = TextEditingController();
-  final _otherConditionController = TextEditingController();
-  final _otherDietController = TextEditingController();
+  // Basic Information
+  final TextEditingController _fullNameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  String? _email;
   DateTime? _birthday;
   String? _gender;
-  String? _email;
-  bool _loading = true;
-  bool _saving = false;
-  String? _error;
+  final TextEditingController _heightController = TextEditingController();
+  final TextEditingController _weightController = TextEditingController();
 
-  // Onboarding fields
+  // Health Information
   List<String> _healthConditions = [];
   List<String> _allergies = [];
+  final TextEditingController _otherConditionController = TextEditingController();
+  final TextEditingController _medicationController = TextEditingController();
+  final TextEditingController _customAllergyController = TextEditingController();
+
+  // Dietary Preferences
   List<String> _dietaryPreferences = [];
+  final TextEditingController _otherDietController = TextEditingController();
+
+  // Body Goals
   String? _goal;
   String? _activityLevel;
+
+  // Notifications
   List<String> _notifications = [];
 
-  // Options
+  bool _loading = true;
+  bool _saving = false;
+
+  // Constants from onboarding steps
   static const List<String> conditionsList = [
     'None',
     'Diabetes',
@@ -45,6 +53,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     'Lactose Intolerance',
     'Gluten Sensitivity',
   ];
+
   static const List<String> allergiesList = [
     'None',
     'Peanuts',
@@ -57,6 +66,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     'Soy',
     'Sesame',
   ];
+
   static const List<String> dietList = [
     'None',
     'Vegetarian',
@@ -68,6 +78,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     'Halal',
     'No Preference',
   ];
+
   static const List<String> goals = [
     'None',
     'Lose weight',
@@ -76,6 +87,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     'Build muscle',
     'Eat healthier / clean eating',
   ];
+
   static const List<String> activityLevels = [
     'None',
     'Sedentary (little or no exercise)',
@@ -83,12 +95,13 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     'Moderately active (moderate exercise/sports 3–5 days/week)',
     'Very active (hard exercise 6–7 days/week)',
   ];
+
   static const List<String> notificationTypes = [
     'None',
     'Meal reminders',
-    'Allergy warnings',
-    'New healthy recipes',
-    'Nutrition tips',
+    'Tips',
+    'Updates',
+    'News',
   ];
 
   @override
@@ -97,83 +110,149 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     _loadProfile();
   }
 
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _emailController.dispose();
+    _heightController.dispose();
+    _weightController.dispose();
+    _otherConditionController.dispose();
+    _medicationController.dispose();
+    _customAllergyController.dispose();
+    _otherDietController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadProfile() async {
-    setState(() {
-      _loading = true;
-    });
+    try {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    _email = user.email;
+      if (user != null) {
     final doc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
         .get();
-    final data = doc.data();
-    if (data != null) {
+
+        if (doc.exists) {
+          final data = doc.data()!;
+          setState(() {
+            // Basic Information
       _fullNameController.text = data['fullName'] ?? '';
-      _heightController.text = (data['height']?.toString() ?? '');
-      _weightController.text = (data['weight']?.toString() ?? '');
-      _gender = data['gender'] ?? '';
+            _email = data['email'] ?? user.email;
+            _emailController.text = _email ?? '';
       if (data['birthday'] != null) {
         _birthday = DateTime.tryParse(data['birthday']);
       }
+            _gender = data['gender'];
+            _heightController.text = data['height']?.toString() ?? '';
+            _weightController.text = data['weight']?.toString() ?? '';
+
+            // Health Information
       _healthConditions = List<String>.from(data['healthConditions'] ?? []);
       _allergies = List<String>.from(data['allergies'] ?? []);
-      _medicationController.text = data['medication'] ?? '';
       _otherConditionController.text = data['otherCondition'] ?? '';
+            _medicationController.text = data['medication'] ?? '';
+
+            // Dietary Preferences
       _dietaryPreferences = List<String>.from(data['dietaryPreferences'] ?? []);
       _otherDietController.text = data['otherDiet'] ?? '';
-      _goal = data['goal'] ?? '';
-      _activityLevel = data['activityLevel'] ?? '';
+
+            // Body Goals
+            _goal = data['goal'];
+            _activityLevel = data['activityLevel'];
+
+            // Notifications
       _notifications = List<String>.from(data['notifications'] ?? []);
-    }
+
+            _loading = false;
+          });
+        } else {
+          // Document doesn't exist, use Firebase Auth email
+          setState(() {
+            _email = user.email;
+            _emailController.text = user.email ?? '';
+            _loading = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading profile: $e');
     setState(() {
       _loading = false;
     });
+    }
   }
 
   Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) return;
     setState(() {
       _saving = true;
-      _error = null;
     });
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .update({
-            'fullName': _fullNameController.text,
-            'height': double.tryParse(_heightController.text) ?? 0,
-            'weight': double.tryParse(_weightController.text) ?? 0,
-            'gender': _gender,
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final profileData = {
+          'fullName': _fullNameController.text.trim(),
             'birthday': _birthday?.toIso8601String(),
+          'gender': _gender,
+          'height': double.tryParse(_heightController.text),
+          'weight': double.tryParse(_weightController.text),
             'healthConditions': _healthConditions,
             'allergies': _allergies,
-            'medication': _medicationController.text,
-            'otherCondition': _otherConditionController.text,
+          'otherCondition': _otherConditionController.text.trim(),
+          'medication': _medicationController.text.trim(),
             'dietaryPreferences': _dietaryPreferences,
-            'otherDiet': _otherDietController.text,
+          'otherDiet': _otherDietController.text.trim(),
             'goal': _goal,
             'activityLevel': _activityLevel,
             'notifications': _notifications,
-          });
+          'notificationPreferences': _notifications, // Also save to the field used by NotificationService
+          'lastUpdated': FieldValue.serverTimestamp(),
+        };
+
+        // Calculate age if birthday is provided
+        if (_birthday != null) {
+          final now = DateTime.now();
+          int age = now.year - _birthday!.year;
+          if (now.month < _birthday!.month ||
+              (now.month == _birthday!.month && now.day < _birthday!.day)) {
+            age--;
+          }
+          profileData['age'] = age;
+        }
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update(profileData);
+
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Profile updated!')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile updated successfully!')),
+          );
+        }
       }
     } catch (e) {
-      setState(() {
-        _error = 'Failed to update profile.';
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating profile: $e')),
+        );
+      }
     } finally {
       setState(() {
         _saving = false;
       });
     }
+  }
+
+  int? get age {
+    if (_birthday == null) return null;
+    final now = DateTime.now();
+    int years = now.year - _birthday!.year;
+    if (now.month < _birthday!.month ||
+        (now.month == _birthday!.month && now.day < _birthday!.day)) {
+      years--;
+    }
+    return years;
   }
 
   Future<void> _pickBirthday() async {
@@ -191,191 +270,153 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     }
   }
 
-  Widget _buildChips({
-    required List<String> options,
-    required List<String> selected,
-    required void Function(List<String>) onChanged,
-    String? label,
-    IconData? icon,
-    bool allowCustom = false,
-    TextEditingController? customController,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (label != null)
-          Row(
-            children: [
-              if (icon != null) Icon(icon, size: 20, color: Colors.green),
-              if (icon != null) const SizedBox(width: 6),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: options.map((opt) {
-            final isSelected = selected.contains(opt);
-            return FilterChip(
-              label: Text(opt),
-              selected: isSelected,
-              onSelected: (v) {
-                final newSelected = List<String>.from(selected);
-                if (opt == 'None') {
-                  if (v) {
-                    newSelected.clear();
-                    newSelected.add('None');
-                  } else {
-                    newSelected.remove('None');
-                  }
-                } else {
-                  if (v) {
-                    newSelected.remove('None');
-                    newSelected.add(opt);
-                  } else {
-                    newSelected.remove(opt);
-                  }
-                }
-                onChanged(newSelected);
-              },
-              selectedColor: Colors.green[100],
-              checkmarkColor: Colors.green[800],
-            );
-          }).toList(),
-        ),
-        if (allowCustom && customController != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: customController,
-                    decoration: const InputDecoration(hintText: 'Add your own'),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: () {
-                    if (customController.text.isNotEmpty) {
-                      final newSelected = List<String>.from(selected);
-                      newSelected.remove('None');
-                      newSelected.add(customController.text);
-                      onChanged(newSelected);
-                      customController.clear();
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildRadioGroup({
-    required List<String> options,
-    required String? value,
-    required void Function(String?) onChanged,
-    String? label,
-    IconData? icon,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (label != null)
-          Row(
-            children: [
-              if (icon != null) Icon(icon, size: 20, color: Colors.green),
-              if (icon != null) const SizedBox(width: 6),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-        const SizedBox(height: 8),
-        ...options.map(
-          (opt) => RadioListTile<String>(
-            value: opt,
-            groupValue: value,
-            title: Text(opt),
-            onChanged: onChanged,
-            activeColor: Colors.green,
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildNotificationChips() {
-    return _buildChips(
-      options: notificationTypes,
-      selected: _notifications,
-      onChanged: (v) => setState(() => _notifications = v),
-      label: 'Notifications',
-      icon: Icons.notifications,
-    );
-  }
-
-  @override
-  void dispose() {
-    _fullNameController.dispose();
-    _heightController.dispose();
-    _weightController.dispose();
-    _medicationController.dispose();
-    _otherConditionController.dispose();
-    _otherDietController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Account Settings')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  children: [
-                    if (_error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
+        body: Stack(
+          children: [
+            // Background gradient
+            Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+                  colors: [
+                    Color(0xFF2E7D32),
+                    Color(0xFF388E3C),
+                    Color(0xFF4CAF50),
+                    Color(0xFF66BB6A),
+                  ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+                  stops: [0.0, 0.3, 0.7, 1.0],
+                ),
+              ),
+            ),
+            const Center(child: CircularProgressIndicator(color: Colors.white)),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(80),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+            colors: [
+                Color(0xFF2E7D32),
+                Color(0xFF388E3C),
+              Color(0xFF4CAF50),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(25),
+              bottomRight: Radius.circular(25),
+            ),
+          ),
+          child: AppBar(
+                      backgroundColor: Colors.transparent,
+                      elevation: 0,
+                        title: const Text(
+                          'Account Settings',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                fontSize: 22,
+                color: Colors.white,
+                            shadows: [
+                              Shadow(
+                    offset: Offset(0, 2),
+                    blurRadius: 4,
+                                color: Colors.black26,
+                              ),
+                            ],
+                          ),
+                        ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+                            ),
+                          ),
                         ),
                       ),
-                    const Text(
-                      'Profile',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF8FFF4), Color(0xFFE8F5E9)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+                          child: Column(
+                            children: [
+                // Basic Information Section
+                _buildSectionCard(
+                  title: '👤 Basic Information',
+                  icon: Icons.person,
+                  children: [
+                    TextField(
+                      controller: _fullNameController,
+                      decoration: InputDecoration(
+                        labelText: 'Full Name',
+                        prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF4CAF50)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
                       ),
                     ),
-                    const Divider(),
-                    TextFormField(
-                      controller: _fullNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name',
-                        prefixIcon: Icon(Icons.person),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _emailController,
+                      enabled: false,
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        helperText: 'Email cannot be changed',
+                        helperStyle: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
                       ),
-                      validator: (v) =>
-                          v == null || v.isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
                     GestureDetector(
                       onTap: _pickBirthday,
                       child: AbsorbPointer(
-                        child: TextFormField(
+                        child: TextField(
                           decoration: InputDecoration(
                             labelText: 'Birthday',
                             hintText: 'Select your birthday',
-                            prefixIcon: const Icon(Icons.cake),
-                            suffixIcon: const Icon(Icons.calendar_today),
+                            prefixIcon: const Icon(Icons.calendar_today, color: Color(0xFF4CAF50)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[50],
                           ),
                           controller: TextEditingController(
                             text: _birthday != null
@@ -385,166 +426,508 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                         ),
                       ),
                     ),
+                    if (age != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text('Age: $age', style: const TextStyle(fontSize: 16)),
+                      ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: _gender?.isNotEmpty == true ? _gender : null,
+                      value: _gender,
                       items: const [
                         DropdownMenuItem(value: 'Male', child: Text('Male')),
-                        DropdownMenuItem(
-                          value: 'Female',
-                          child: Text('Female'),
-                        ),
+                        DropdownMenuItem(value: 'Female', child: Text('Female')),
                         DropdownMenuItem(value: 'Other', child: Text('Other')),
                       ],
-                      onChanged: (v) => setState(() {
-                        _gender = v;
-                      }),
-                      decoration: const InputDecoration(
+                      onChanged: (v) => setState(() => _gender = v),
+                      decoration: InputDecoration(
                         labelText: 'Sex/Gender',
-                        prefixIcon: Icon(Icons.wc),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _heightController,
-                      decoration: const InputDecoration(
-                        labelText: 'Height (cm)',
-                        prefixIcon: Icon(Icons.height),
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: (v) =>
-                          v == null || v.isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _weightController,
-                      decoration: const InputDecoration(
-                        labelText: 'Weight (kg)',
-                        prefixIcon: Icon(Icons.monitor_weight),
-                      ),
-                      keyboardType: TextInputType.number,
-                      validator: (v) =>
-                          v == null || v.isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      initialValue: _email,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: Icon(Icons.email),
-                      ),
-                      enabled: false,
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Health Information',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(),
-                    _buildChips(
-                      options: conditionsList,
-                      selected: _healthConditions,
-                      onChanged: (v) => setState(() => _healthConditions = v),
-                      label: 'Health Conditions',
-                      icon: Icons.local_hospital,
-                      allowCustom: true,
-                      customController: _otherConditionController,
-                    ),
-                    _buildChips(
-                      options: allergiesList,
-                      selected: _allergies,
-                      onChanged: (v) => setState(() => _allergies = v),
-                      label: 'Allergies',
-                      icon: Icons.warning,
-                      allowCustom: true,
-                      customController: TextEditingController(),
-                    ),
-                    TextFormField(
-                      controller: _medicationController,
-                      decoration: const InputDecoration(
-                        labelText: 'Medication (optional)',
-                        prefixIcon: Icon(Icons.medication),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Dietary Preferences',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(),
-                    _buildChips(
-                      options: dietList,
-                      selected: _dietaryPreferences,
-                      onChanged: (v) => setState(() => _dietaryPreferences = v),
-                      label: 'Dietary Preferences',
-                      icon: Icons.restaurant,
-                      allowCustom: true,
-                      customController: _otherDietController,
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Body Goals',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(),
-                    _buildRadioGroup(
-                      options: goals,
-                      value: _goal,
-                      onChanged: (v) => setState(() => _goal = v),
-                      label: 'Goal',
-                      icon: Icons.flag,
-                    ),
-                    _buildRadioGroup(
-                      options: activityLevels,
-                      value: _activityLevel,
-                      onChanged: (v) => setState(() => _activityLevel = v),
-                      label: 'Activity Level',
-                      icon: Icons.directions_run,
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Notifications',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Divider(),
-                    _buildNotificationChips(),
-                    const SizedBox(height: 32),
-                    ElevatedButton.icon(
-                      onPressed: _saving ? null : _saveProfile,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save),
-                      label: const Text('Save'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        textStyle: const TextStyle(fontSize: 18),
-                        shape: RoundedRectangleBorder(
+                        prefixIcon: const Icon(Icons.wc, color: Color(0xFF4CAF50)),
+                        border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                                  ),
+                                  const SizedBox(height: 16),
+                    TextField(
+                                          controller: _heightController,
+                      decoration: InputDecoration(
+                        labelText: 'Height (cm)',
+                        prefixIcon: const Icon(Icons.height, color: Color(0xFF4CAF50)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                                          keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _weightController,
+                      decoration: InputDecoration(
+                        labelText: 'Weight (kg)',
+                        prefixIcon: const Icon(Icons.monitor_weight, color: Color(0xFF4CAF50)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      keyboardType: TextInputType.number,
+                                  ),
+                                ],
+                              ),
+                              
+                              // Health Information Section
+                              _buildSectionCard(
+                  title: '💪 Health Information',
+                  icon: Icons.health_and_safety,
+                                children: [
+                    const Text('Do you have any of the following conditions?'),
+                    const SizedBox(height: 8),
+                    ...conditionsList.map((c) => CheckboxListTile(
+                          value: _healthConditions.contains(c),
+                          title: Text(c),
+                          onChanged: (v) {
+                            setState(() {
+                              if (c == 'None') {
+                                if (v == true) {
+                                  _healthConditions.clear();
+                                  _healthConditions.add('None');
+                                } else {
+                                  _healthConditions.remove('None');
+                                }
+                              } else {
+                                if (v == true) {
+                                  _healthConditions.remove('None');
+                                  _healthConditions.add(c);
+                                } else {
+                                  _healthConditions.remove(c);
+                                }
+                              }
+                            });
+                          },
+                        )),
+                    CheckboxListTile(
+                      value: _otherConditionController.text.isNotEmpty,
+                      title: const Text('Other'),
+                      onChanged: (v) {},
+                      secondary: SizedBox(
+                        width: 180,
+                        child: TextField(
+                          controller: _otherConditionController,
+                          decoration: InputDecoration(
+                            hintText: 'Specify',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[50],
+                          ),
+                          onChanged: (val) => setState(() {}),
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    const Text('Known Food Allergies?'),
+                    const SizedBox(height: 8),
+                    ...allergiesList.map((a) => CheckboxListTile(
+                          value: _allergies.contains(a),
+                          title: Text(a),
+                          onChanged: (v) {
+                            setState(() {
+                              if (a == 'None') {
+                                if (v == true) {
+                                  _allergies.clear();
+                                  _allergies.add('None');
+                                } else {
+                                  _allergies.remove('None');
+                                }
+                              } else {
+                                if (v == true) {
+                                  _allergies.remove('None');
+                                  _allergies.add(a);
+                                } else {
+                                  _allergies.remove(a);
+                                }
+                              }
+                            });
+                          },
+                        )),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _customAllergyController,
+                            decoration: InputDecoration(
+                              hintText: 'Add your own',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[50],
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          onPressed: () {
+                            if (_customAllergyController.text.isNotEmpty) {
+                              setState(() {
+                                _allergies.add(_customAllergyController.text);
+                                _customAllergyController.clear();
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Are you taking any medication that affects your diet?'),
+                    const SizedBox(height: 8),
+                    TextField(
+                                    controller: _medicationController,
+                      decoration: InputDecoration(
+                        labelText: 'Medication (optional)',
+                        prefixIcon: const Icon(Icons.medication, color: Color(0xFF4CAF50)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                                  ),
+                                ],
+                              ),
+                              
+                              // Dietary Preferences Section
+                              _buildSectionCard(
+                  title: '🥗 Dietary Preferences',
+                                    icon: Icons.restaurant,
+                  children: [
+                    const Text('Are you following a specific diet?'),
+                    const SizedBox(height: 8),
+                    ...dietList.map((d) => CheckboxListTile(
+                          value: _dietaryPreferences.contains(d),
+                          title: Text(d),
+                          onChanged: (v) {
+                            setState(() {
+                              if (d == 'None') {
+                                if (v == true) {
+                                  _dietaryPreferences.clear();
+                                  _dietaryPreferences.add('None');
+                                } else {
+                                  _dietaryPreferences.remove('None');
+                                }
+                              } else {
+                                if (v == true) {
+                                  _dietaryPreferences.remove('None');
+                                  _dietaryPreferences.add(d);
+                                } else {
+                                  _dietaryPreferences.remove(d);
+                                }
+                              }
+                            });
+                          },
+                        )),
+                    CheckboxListTile(
+                      value: _otherDietController.text.isNotEmpty,
+                      title: const Text('Other'),
+                      onChanged: (v) {},
+                      secondary: SizedBox(
+                        width: 180,
+                        child: TextField(
+                          controller: _otherDietController,
+                          decoration: InputDecoration(
+                            hintText: 'Specify',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[50],
+                          ),
+                        ),
+                      ),
+                                  ),
+                                ],
+                              ),
+                              
+                              // Body Goals Section
+                              _buildSectionCard(
+                  title: '🎯 Body Goals',
+                  icon: Icons.fitness_center,
+                                children: [
+                    const Text('What is your goal?'),
+                    const SizedBox(height: 8),
+                    ...goals.map((g) => RadioListTile<String>(
+                          value: g,
+                          groupValue: _goal,
+                          title: Text(g),
+                                    onChanged: (v) => setState(() => _goal = v),
+                        )),
+                    const SizedBox(height: 16),
+                    const Text('Activity Level'),
+                    const SizedBox(height: 8),
+                    ...activityLevels.map((a) => RadioListTile<String>(
+                          value: a,
+                          groupValue: _activityLevel,
+                          title: Text(a),
+                                    onChanged: (v) => setState(() => _activityLevel = v),
+                        )),
+                                ],
+                              ),
+                              
+                // Notifications Section
+                _buildSectionCard(
+                  title: '🔔 Push Notifications',
+                  icon: Icons.notifications,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue[600], size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'These settings control push notifications. In-app notifications are always shown.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue[700],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ...notificationTypes.map((n) => CheckboxListTile(
+                          value: _notifications.contains(n),
+                          title: Text(n),
+                          onChanged: (v) {
+                            setState(() {
+                              if (n == 'None') {
+                                if (v == true) {
+                                  _notifications.clear();
+                                  _notifications.add('None');
+                                } else {
+                                  _notifications.remove('None');
+                                }
+                              } else {
+                                if (v == true) {
+                                  _notifications.remove('None');
+                                  _notifications.add(n);
+                                } else {
+                                  _notifications.remove(n);
+                                }
+                              }
+                            });
+                          },
+                        )),
                   ],
                 ),
-              ),
+
+                const SizedBox(height: 32),
+                              
+                              // Save Button
+                              Container(
+                                width: double.infinity,
+                  height: 60,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFF4CAF50),
+                        Color(0xFF66BB6A),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.green.withOpacity(0.3),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5),
+                        spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                  child: ElevatedButton(
+                                  onPressed: _saving ? null : _saveProfile,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    child: _saving
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.save, color: Colors.white, size: 24),
+                              SizedBox(width: 12),
+                              Text(
+                                'Save Changes',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  shadows: [
+                                    Shadow(
+                                      offset: Offset(0, 1),
+                                      blurRadius: 2,
+                                      color: Colors.black26,
+                                    ),
+                            ],
+                          ),
+                        ),
+                            ],
+                      ),
+                    ),
+                ),
+
+                const SizedBox(height: 32),
+                  ],
             ),
+                ),
+              ),
+        ),
+      );
+  }
+  
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            Colors.green[50]!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.green.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+              padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF4CAF50),
+                    Color(0xFF66BB6A),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+                    color: Colors.green.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+      children: [
+                  Icon(icon, color: Colors.white, size: 24),
+                  const SizedBox(width: 12),
+            Text(
+                    title,
+              style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          offset: Offset(0, 1),
+                          blurRadius: 2,
+                          color: Colors.black26,
+                        ),
+                      ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+            const SizedBox(height: 24),
+            ...children,
+          ],
+        ),
+      ),
     );
   }
 }

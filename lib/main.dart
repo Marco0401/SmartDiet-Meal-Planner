@@ -3,22 +3,30 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
 import 'login_page.dart';
 import 'account_settings_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/recipe_service.dart';
+import 'services/filipino_recipe_service.dart';
 import 'recipe_detail_page.dart';
 import 'meal_planner_page.dart';
-import 'ai_meal_planner_page.dart';
-import 'meal_suggestions_page.dart';
 import 'nutrition_analytics_page.dart';
+import 'meal_suggestions_page.dart';
 import 'meal_favorites_page.dart';
+import 'dashboard_page.dart';
 import 'progress_tracking_page.dart';
+import 'ai_meal_planner_page.dart';
+import 'unified_meal_planner_page.dart';
+import 'notifications_page.dart';
+import 'widgets/notification_badge.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load();
   await Firebase.initializeApp();
+  
   runApp(const MyApp());
 }
 
@@ -30,10 +38,11 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'SmartDiet',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        primarySwatch: Colors.green,
         useMaterial3: true,
       ),
       home: const LoginPage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -47,6 +56,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  int _currentBottomNavIndex = 0;
+  final GlobalKey<NotificationBadgeState> _notificationBadgeKey = GlobalKey<NotificationBadgeState>();
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     await GoogleSignIn().signOut();
@@ -71,7 +82,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _fetchRecipes('chicken'); // Default query
+    _fetchRecipes('adobo'); // Default query for Filipino dishes
   }
 
   void _fetchRecipes(String query) async {
@@ -80,6 +91,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _error = null;
     });
     try {
+      // Use comprehensive recipe service for all sources (Spoonacular + TheMealDB + Filipino)
       final recipes = await RecipeService.fetchRecipes(query);
       setState(() {
         _recipes = recipes;
@@ -106,7 +118,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _performSearch() {
     String query = _searchQuery.trim();
     if (query.isEmpty) {
-      query = 'chicken'; // Default query
+      query = 'adobo'; // Default query for Filipino dishes
     }
 
     // Add ingredient filter to query if provided
@@ -128,72 +140,171 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(80),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF2E7D32),
+                Color(0xFF388E3C),
+                Color(0xFF4CAF50),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(25),
+              bottomRight: Radius.circular(25),
+            ),
+          ),
+          child: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
           widget.title,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 22,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    offset: Offset(0, 2),
+                    blurRadius: 4,
+                    color: Colors.black26,
+                  ),
+                ],
+              ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: NotificationBadge(
+                  key: _notificationBadgeKey,
+                  child: IconButton(
+                    icon: const Icon(
+                      Icons.notifications,
+                      color: Colors.white,
+                    ),
+                    tooltip: 'Notifications',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => NotificationsPage(
+                            onNotificationRead: () {
+                              _notificationBadgeKey.currentState?.refreshCount();
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              Container(
+                margin: const EdgeInsets.only(right: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.logout,
+                    color: Colors.white,
+                  ),
             tooltip: 'Logout',
             onPressed: _logout,
+                ),
           ),
         ],
+          ),
+        ),
       ),
       drawer: Drawer(
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            topRight: Radius.circular(25),
+            bottomRight: Radius.circular(25),
+          ),
+        ),
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFB2FFB2), Color(0xFF4CAF50)],
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFF2E7D32),
+                    Color(0xFF388E3C),
+                    Color(0xFF4CAF50),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.only(
+                  topRight: Radius.circular(25),
               ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
                     Icons.restaurant_menu,
-                    size: 48,
+                        size: 24,
                     color: Colors.white,
+                      ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    'SmartDiet Menu',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    const Text(
+                      'SmartDiet',
+                      style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
-                    ),
+                        fontSize: 18,
+                        shadows: [
+                          Shadow(
+                            offset: Offset(0, 2),
+                            blurRadius: 4,
+                            color: Colors.black26,
                   ),
                 ],
               ),
             ),
-            _drawerOption(0, "Meal Planner", Icons.calendar_month),
-            _drawerOption(1, "AI Meal Planner", Icons.psychology),
-            _drawerOption(2, "Get Meal Suggestions", Icons.lightbulb),
-            _drawerOption(3, "Analyze Nutrition & Track Meals", Icons.analytics),
-            _drawerOption(4, "Favorite Meals", Icons.favorite),
-            _drawerOption(5, "Progress Tracking", Icons.trending_up),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.account_circle, color: Colors.green),
-              title: const Text("Account Settings"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AccountSettingsPage(),
-                  ),
-                );
-              },
+                    const SizedBox(height: 2),
+                    Text(
+                      'Nutrition Assistant',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
             ),
+            _drawerOption(1, "App Settings", Icons.settings),
+            _drawerOption(2, "Get Meal Suggestions", Icons.lightbulb),
+            _drawerOption(3, "Data & Privacy", Icons.privacy_tip),
+            _drawerOption(4, "About SmartDiet", Icons.info),
+            _drawerOption(5, "Design Showcase", Icons.palette),
+            const Divider(),
           ],
         ),
       ),
@@ -216,29 +327,39 @@ class _MyHomePageState extends State<MyHomePage> {
                     // Main Search Bar
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(30),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            Colors.green[50]!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(25),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.green.withOpacity(0.07),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                            color: Colors.green.withOpacity(0.15),
+                            blurRadius: 15,
+                            offset: const Offset(0, 5),
+                            spreadRadius: 2,
+                          ),
+                          BoxShadow(
+                            color: Colors.white,
+                            blurRadius: 0,
+                            offset: const Offset(0, -1),
                           ),
                         ],
+                        border: Border.all(
+                          color: Colors.green[200]!,
+                          width: 1.5,
+                        ),
                       ),
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          hintText: 'Search recipes... ',
-                          prefixIcon: const Icon(
-                            Icons.search,
-                            color: Colors.green,
-                          ),
+                          hintText: 'Search recipes...',
+                          prefixIcon: Icon(Icons.search),
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 16,
-                            horizontal: 0,
-                          ),
                         ),
                         onChanged: (value) {
                           setState(() {
@@ -252,15 +373,32 @@ class _MyHomePageState extends State<MyHomePage> {
                     // Ingredient Filter
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(30),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            Colors.blue[50]!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(25),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.green.withOpacity(0.07),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                            color: Colors.blue.withOpacity(0.15),
+                            blurRadius: 15,
+                            offset: const Offset(0, 5),
+                            spreadRadius: 2,
+                          ),
+                          BoxShadow(
+                            color: Colors.white,
+                            blurRadius: 0,
+                            offset: const Offset(0, -1),
                           ),
                         ],
+                        border: Border.all(
+                          color: Colors.blue[200]!,
+                          width: 1.5,
+                        ),
                       ),
                       child: TextField(
                         controller: _ingredientFilterController,
@@ -298,9 +436,26 @@ class _MyHomePageState extends State<MyHomePage> {
                         Padding(
                           padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                           child: Card(
-                            elevation: 2,
+                            elevation: 12,
+                            shadowColor: Colors.green.withOpacity(0.3),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.white,
+                                    Colors.green[50]!,
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(25),
+                                border: Border.all(
+                                  color: Colors.green[200]!,
+                                  width: 1,
+                                ),
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
@@ -382,6 +537,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                   );
                                 },
                               ),
+                              ),
                             ),
                           ),
                         ),
@@ -406,7 +562,50 @@ class _MyHomePageState extends State<MyHomePage> {
                                             _recipes[0]['image']
                                                 .toString()
                                                 .isNotEmpty
-                                        ? Image.network(
+                                        ? _recipes[0]['image'].toString().startsWith('assets/')
+                                            ? Image.asset(
+                                                _recipes[0]['image'],
+                                                height: 160,
+                                                width: double.infinity,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  return Container(
+                                                    height: 160,
+                                                    decoration: BoxDecoration(
+                                                      gradient: LinearGradient(
+                                                        colors: [
+                                                          Colors.green[50]!,
+                                                          Colors.green[100]!,
+                                                        ],
+                                                        begin: Alignment.topLeft,
+                                                        end: Alignment.bottomRight,
+                                                      ),
+                                                    ),
+                                                    child: const Center(
+                                                      child: Column(
+                                                        mainAxisAlignment: MainAxisAlignment.center,
+                                                        children: [
+                                                          Icon(
+                                                            Icons.restaurant_menu,
+                                                            size: 48,
+                                                            color: Colors.green,
+                                                          ),
+                                                          SizedBox(height: 8),
+                                                          Text(
+                                                            'Recipe Image',
+                                                            style: TextStyle(
+                                                              color: Colors.green,
+                                                              fontSize: 16,
+                                                              fontWeight: FontWeight.w500,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              )
+                                            : Image.network(
                                             _recipes[0]['image'],
                                             height: 160,
                                             width: double.infinity,
@@ -555,83 +754,6 @@ class _MyHomePageState extends State<MyHomePage> {
                             ),
                           ),
                         const SizedBox(height: 24),
-                        // AI Meal Planner Quick Access
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Card(
-                            elevation: 3,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const AIMealPlannerPage(),
-                                  ),
-                                );
-                              },
-                              borderRadius: BorderRadius.circular(18),
-                              child: Container(
-                                padding: const EdgeInsets.all(20),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(18),
-                                  gradient: LinearGradient(
-                                    colors: [Colors.green[400]!, Colors.green[600]!],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: const Icon(
-                                        Icons.psychology,
-                                        color: Colors.white,
-                                        size: 32,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'AI Meal Planner',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Get personalized meal plans based on your goals and preferences',
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(0.9),
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Icon(
-                                      Icons.arrow_forward_ios,
-                                      color: Colors.white,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
                         // Recipes List Section - only show when not searching
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -645,8 +767,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                               const SizedBox(height: 12),
                               SizedBox(
-                                height:
-                                    160, // Increased height for horizontal list
+                                height: MediaQuery.of(context).size.width * 0.55 + 20, // Responsive height based on card height + margin
                                 child: _isLoading
                                     ? const Center(
                                         child: CircularProgressIndicator(),
@@ -738,7 +859,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                     _ingredientFilter = '';
                                     _ingredientFilterController.clear();
                                   });
-                                  _fetchRecipes('chicken'); // Reset to default
+                                  _fetchRecipes('adobo'); // Reset to default
                                 },
                                 tooltip: 'Clear search',
                               ),
@@ -838,7 +959,34 @@ class _MyHomePageState extends State<MyHomePage> {
                                                         recipe['image']
                                                             .toString()
                                                             .isNotEmpty
-                                                    ? Image.network(
+                                                    ? recipe['image'].toString().startsWith('assets/')
+                                                        ? Image.asset(
+                                                            recipe['image'],
+                                                            width: 60,
+                                                            height: 60,
+                                                            fit: BoxFit.cover,
+                                                            errorBuilder: (context, error, stackTrace) {
+                                                              return Container(
+                                                                width: 60,
+                                                                height: 60,
+                                                                decoration: BoxDecoration(
+                                                                  gradient: LinearGradient(
+                                                                    colors: [
+                                                                      Colors.green[50]!,
+                                                                      Colors.green[100]!,
+                                                                    ],
+                                                                    begin: Alignment.topLeft,
+                                                                    end: Alignment.bottomRight,
+                                                                  ),
+                                                                ),
+                                                                child: const Icon(
+                                                                  Icons.restaurant_menu,
+                                                                  color: Colors.green,
+                                                                ),
+                                                              );
+                                                            },
+                                                          )
+                                                        : Image.network(
                                                         recipe['image'],
                                                         width: 60,
                                                         height: 60,
@@ -974,22 +1122,120 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.white,
+              Colors.green[50]!,
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(25),
+            topRight: Radius.circular(25),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(25),
+            topRight: Radius.circular(25),
+          ),
+          child: BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            currentIndex: _currentBottomNavIndex,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            onTap: (index) {
+              setState(() {
+                _currentBottomNavIndex = index;
+              });
+              
+              // Navigate to different pages based on selected tab
+              switch (index) {
+                case 0:
+                  // Already on search page, do nothing
+                  break;
+                case 1:
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => MealPlannerPage()),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text("Add Meal"),
-        backgroundColor: Colors.green,
+                    MaterialPageRoute(builder: (context) => const MealPlannerPage()),
+                  );
+                  break;
+                case 2:
+                  _showMyRecipesOptionsDialog();
+                  break;
+                case 3:
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ProgressTrackingPage()),
+                  );
+                  break;
+                case 4:
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
+                  );
+                  break;
+              }
+            },
+            selectedItemColor: const Color(0xFF2E7D32),
+            unselectedItemColor: Colors.grey[600],
+            selectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 11,
+            ),
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.search, size: 24),
+                label: 'Search',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.calendar_today, size: 24),
+                label: 'Plan',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.restaurant, size: 24),
+                label: 'My Recipes',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.trending_up, size: 24),
+                label: 'Progress',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.account_circle, size: 24),
+                label: 'Account',
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _recipeCard(dynamic recipe) {
-    return InkWell(
+    final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final cardWidth = screenWidth * 0.45; // 45% of screen width
+    final cardHeight = screenWidth * 0.55; // Responsive height based on width
+    
+    return Container(
+      width: cardWidth,
+      height: cardHeight,
+      margin: const EdgeInsets.only(right: 12),
+      child: GestureDetector(
       onTap: () {
         Navigator.push(
           context,
@@ -998,164 +1244,321 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         );
       },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: 180,
-        margin: const EdgeInsets.only(right: 12),
         child: Card(
-          color: Colors.green[50],
+          elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          elevation: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image container with responsive height
+              Container(
+                height: cardHeight * 0.6, // 60% of card height
+                width: double.infinity,
+                child: _buildRecipeImage(recipe),
+              ),
+              // Content container with flexible height
+              Expanded(
           child: Padding(
-            padding: const EdgeInsets.all(8.0), // Reduced padding
+                  padding: const EdgeInsets.all(8.0),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start, // Changed to start
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                recipe['image'] != null && recipe['image'].toString().isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          recipe['image'],
-                          width: 120,
-                          height: 70, // Reduced height
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 120,
-                              height: 70, // Reduced height
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.green[50]!,
-                                    Colors.green[100]!,
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Center(
-                                child: Icon(
-                                  Icons.restaurant_menu,
-                                  size: 28, // Reduced icon size
-                                  color: Colors.green,
-                                ),
-                              ),
-                            );
-                          },
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return Container(
-                              width: 120,
-                              height: 70, // Reduced height
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.green[50]!,
-                                    Colors.green[100]!,
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Center(
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.green,
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                    : Container(
-                        width: 120,
-                        height: 70, // Reduced height
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.green[50]!, Colors.green[100]!],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.restaurant_menu,
-                            size: 28, // Reduced icon size
-                            color: Colors.green,
-                          ),
+                      Text(
+                        recipe['title'] ?? 'Unknown Recipe',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: screenWidth * 0.035, // Responsive font size
                         ),
                       ),
-                const SizedBox(height: 8), // Reduced spacing
+                      const SizedBox(height: 4),
+                      if (recipe['nutrition'] != null && recipe['nutrition']['calories'] != null)
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.local_fire_department,
+                              size: 14,
+                              color: Colors.orange,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${recipe['nutrition']['calories']} cal',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      );
+  }
+
+  Widget _buildRecipeImage(dynamic recipe) {
+    final theme = Theme.of(context);
+
+    if (recipe['image'] != null && recipe['image'].toString().isNotEmpty) {
+      return ClipRRect(
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(12),
+        ),
+        child: recipe['image'].toString().startsWith('assets/')
+            ? Image.asset(
+                          recipe['image'],
+                width: double.infinity,
+                height: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                  return _buildImagePlaceholder(theme);
+                },
+              )
+            : Image.network(
+                recipe['image'],
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return _buildImagePlaceholder(theme);
+                },
+              ),
+      );
+    }
+    return _buildImagePlaceholder(theme);
+  }
+
+  Widget _buildImagePlaceholder(ThemeData theme) {
+                            return Container(
+      width: double.infinity,
+      height: double.infinity,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+            theme.colorScheme.surfaceVariant,
+            theme.colorScheme.surfaceVariant.withOpacity(0.7),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(12),
+                              ),
+      ),
+      child: Center(
+                                child: Icon(
+                                  Icons.restaurant_menu,
+          size: 32,
+          color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            );
+  }
+
+  Widget _drawerOption(int number, String text, IconData icon) {
+                            return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        color: Colors.grey[50],
+        border: Border.all(
+          color: Colors.grey[200]!,
+          width: 1,
+        ),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.green[100]!,
+                Colors.green[200]!,
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: Colors.green[700],
+            size: 20,
+          ),
+        ),
+        title: Text(
+          text,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+          ),
+        ),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          color: Colors.grey[400],
+          size: 16,
+        ),
+        onTap: () {
+          Navigator.pop(context);
+          if (number == 1) {
+            _showAppSettingsDialog();
+          } else if (number == 2) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
+            );
+          } else if (number == 5) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const Scaffold(
+                body: Center(child: Text('Design Showcase coming soon!')),
+              )),
+            );
+          } else {
+            _showComingSoonDialog(text);
+          }
+        },
+      ),
+    );
+  }
+  
+  void _showAppSettingsDialog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const Scaffold(
+        body: Center(child: Text('App Settings coming soon!')),
+      )),
+    );
+  }
+
+
+  void _showComingSoonDialog(String feature) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(feature),
+          content: Text('$feature will be available in a future update!'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
+
+  void _showMyRecipesOptionsDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'My Recipes & Plans',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'What would you like to view?',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 20),
+              // Saved Recipes Option
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  border: Border.all(color: Colors.orange[200]!),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: InkWell(
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[100],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                          child: Icon(
+                            Icons.restaurant_menu,
+                            color: Colors.orange[600],
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
                 Expanded(
-                  // Wrap in Expanded to prevent overflow
-                  child: Text(
-                    recipe['title'] ?? '',
-                    style: const TextStyle(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Saved Recipes',
+                                style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 13, // Slightly smaller font
-                    ),
-                    maxLines: 3, // Allow 3 lines
-                    overflow: TextOverflow.ellipsis,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'View your favorite recipes',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 14,
                   ),
                 ),
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _drawerOption(int number, String text, IconData icon) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Colors.green[100],
-        child: Icon(icon, color: Colors.green),
-      ),
-      title: Text(text),
-      onTap: () {
-        Navigator.pop(context);
-        if (number == 0) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const MealPlannerPage()),
-          );
-        } else if (number == 1) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const AIMealPlannerPage()),
-          );
-        } else if (number == 2) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
-          );
-        } else if (number == 3) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const NutritionAnalyticsPage()),
-          );
-        } else if (number == 4) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
-          );
-        } else if (number == 5) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const ProgressTrackingPage()),
-          );
-        }
+                        Icon(
+                          Icons.arrow_forward_ios,
+                          color: Colors.grey[400],
+                          size: 16,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
       },
     );
   }

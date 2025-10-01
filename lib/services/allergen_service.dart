@@ -102,15 +102,31 @@ class AllergenService {
     final foundAllergens = <String, List<String>>{};
     
     for (final ingredient in ingredients) {
-      final ingredientName = ingredient['name']?.toString().toLowerCase() ?? '';
+      // Handle both object format (API recipes) and string format (manual/substituted recipes)
+      String ingredientName;
+      if (ingredient is Map<String, dynamic>) {
+        // API recipe format with name field
+        ingredientName = ingredient['name']?.toString().toLowerCase() ?? '';
+      } else {
+        // String format (manual meals or substituted recipes)
+        ingredientName = ingredient.toString().toLowerCase();
+      }
+      
       final ingredientText = ingredientName;
+      
+      // Skip common false positives
+      if (_isFalsePositive(ingredientText)) {
+        continue;
+      }
       
       for (final allergenEntry in _allergens.entries) {
         final allergenType = allergenEntry.key;
         final allergenKeywords = allergenEntry.value;
         
         for (final keyword in allergenKeywords) {
-          if (ingredientText.contains(keyword.toLowerCase())) {
+          // Use word boundary matching to avoid false positives
+          final regex = RegExp(r'\b' + RegExp.escape(keyword.toLowerCase()) + r'\b');
+          if (regex.hasMatch(ingredientText)) {
             if (!foundAllergens.containsKey(allergenType)) {
               foundAllergens[allergenType] = [];
             }
@@ -182,6 +198,23 @@ class AllergenService {
       default:
         return '⚠️';
     }
+  }
+
+  /// Check if an ingredient is a false positive for allergen detection
+  static bool _isFalsePositive(String ingredientText) {
+    // Common false positives that contain allergen keywords but aren't actually allergens
+    final falsePositives = [
+      'eggplant', 'egg plants', 'egg plant', 'eggplants',
+      'egg noodles', 'egg pasta', // These might actually contain eggs, but let's be conservative
+    ];
+    
+    for (final falsePositive in falsePositives) {
+      if (ingredientText.contains(falsePositive)) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   /// Check if a recipe is safe for a user's allergen profile

@@ -37,7 +37,7 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('User not authenticated');
 
-      // Load user goals
+      // Load user goals from main user document (Account Settings data)
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -46,6 +46,15 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
       if (userDoc.exists) {
         final userData = userDoc.data()!;
         _userGoals = _calculateUserGoals(userData);
+      } else {
+        // Set default goals if no profile exists
+        _userGoals = {
+          'calories': 2000.0,
+          'protein': 150.0,
+          'carbs': 225.0,
+          'fat': 67.0,
+          'fiber': 25.0,
+        };
       }
 
       // Load weekly progress
@@ -66,49 +75,73 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
   }
 
   Map<String, dynamic> _calculateUserGoals(Map<String, dynamic> userData) {
-    // Basic goal calculation based on user profile
+    // Basic goal calculation based on user profile from Account Settings
     final weight = userData['weight']?.toDouble() ?? 70.0;
     final height = userData['height']?.toDouble() ?? 170.0;
-    final age = _calculateAge(userData['birthday']) ?? 25;
-    final gender = userData['gender'] ?? 'Other';
-    final activityLevel = userData['activityLevel'] ?? 'Moderately active';
-    final goal = userData['goal'] ?? 'Maintain current weight';
+    final gender = userData['gender']?.toString().toLowerCase() ?? 'other';
+    final activityLevel = userData['activityLevel'] ?? '';
+    final goal = userData['goal'] ?? '';
+
+    // Calculate age from birthday
+    int age = 25;
+    if (userData['birthday'] != null) {
+      try {
+        final birthday = DateTime.parse(userData['birthday']);
+        age = DateTime.now().difference(birthday).inDays ~/ 365;
+      } catch (e) {
+        age = 25; // Default age
+      }
+    }
 
     // Calculate BMR using Mifflin-St Jeor Equation
     double bmr;
-    if (gender == 'Male') {
+    if (gender == 'male') {
       bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5;
-    } else {
+    } else if (gender == 'female') {
       bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
+    } else {
+      // Use average for other genders
+      bmr = (10 * weight) + (6.25 * height) - (5 * age) - 78;
     }
 
-    // Activity multipliers
+    // Activity multipliers based on Account Settings options
     double activityMultiplier = 1.2;
-    if (activityLevel.contains('Lightly active')) {
+    if (activityLevel.contains('Sedentary')) {
+      activityMultiplier = 1.2;
+    } else if (activityLevel.contains('Lightly active')) {
       activityMultiplier = 1.375;
     } else if (activityLevel.contains('Moderately active')) {
       activityMultiplier = 1.55;
     } else if (activityLevel.contains('Very active')) {
       activityMultiplier = 1.725;
-    } else if (activityLevel.contains('Extremely active')) {
-      activityMultiplier = 1.9;
     }
 
     double dailyCalories = bmr * activityMultiplier;
 
-    // Adjust based on goal
+    // Adjust based on goal from Account Settings
     if (goal.contains('Lose weight')) {
       dailyCalories *= 0.85; // 15% deficit
     } else if (goal.contains('Gain weight') || goal.contains('Build muscle')) {
       dailyCalories *= 1.15; // 15% surplus
     }
+    // No adjustment for 'Maintain current weight' or 'Eat healthier'
+
+    // Calculate macronutrient targets
+    double proteinTarget;
+    if (goal.contains('Build muscle')) {
+      proteinTarget = weight * 2.4; // Higher protein for muscle building
+    } else if (goal.contains('Lose weight')) {
+      proteinTarget = weight * 2.0; // Higher protein for weight loss
+    } else {
+      proteinTarget = weight * 1.6; // Standard protein intake
+    }
 
     return {
       'calories': dailyCalories,
-      'protein': weight * 2.2, // 2.2g per kg body weight
+      'protein': proteinTarget,
       'carbs': dailyCalories * 0.45 / 4, // 45% of calories from carbs
       'fat': dailyCalories * 0.25 / 9, // 25% of calories from fat
-      'fiber': gender == 'Male' ? 38.0 : 25.0,
+      'fiber': gender == 'male' ? 38.0 : 25.0,
       'water': weight * 35, // 35ml per kg body weight
     };
   }
@@ -164,21 +197,70 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
           .where('date', isEqualTo: dateKey)
           .get();
 
+      print('DEBUG: Looking for meals on date: $dateKey');
+      print('DEBUG: Found ${mealsQuery.docs.length} meals');
+
       if (mealsQuery.docs.isNotEmpty) {
         daysWithData++;
         for (final doc in mealsQuery.docs) {
-          final nutrition = doc.data()['nutrition'] as Map<String, dynamic>? ?? {};
-          final calories = nutrition['calories'];
-          final protein = nutrition['protein'];
-          final carbs = nutrition['carbs'];
-          final fat = nutrition['fat'];
-          final fiber = nutrition['fiber'];
+          print('DEBUG: Meal data: ${doc.data()}');
+          final docData = doc.data();
           
-          weeklyTotals['calories'] = (weeklyTotals['calories'] ?? 0) + _safeToDouble(calories);
-          weeklyTotals['protein'] = (weeklyTotals['protein'] ?? 0) + _safeToDouble(protein);
-          weeklyTotals['carbs'] = (weeklyTotals['carbs'] ?? 0) + _safeToDouble(carbs);
-          weeklyTotals['fat'] = (weeklyTotals['fat'] ?? 0) + _safeToDouble(fat);
-          weeklyTotals['fiber'] = (weeklyTotals['fiber'] ?? 0) + _safeToDouble(fiber);
+          // Check if this is the old format (meals array) or new format (individual meal)
+          if (docData['meals'] != null) {
+            // Old format: meals stored as array
+            final meals = docData['meals'] as List<dynamic>? ?? [];
+            for (final meal in meals) {
+              final mealData = meal is Map<String, dynamic> ? meal : Map<String, dynamic>.from(meal as Map);
+              final nutritionData = mealData['nutrition'];
+              final nutrition = nutritionData is Map<String, dynamic> 
+                  ? nutritionData 
+                  : nutritionData is Map 
+                      ? Map<String, dynamic>.from(nutritionData) 
+                      : <String, dynamic>{};
+              print('DEBUG: Old format nutrition data: $nutrition');
+              
+              final calories = nutrition['calories'];
+              final protein = nutrition['protein'];
+              final carbs = nutrition['carbs'];
+              final fat = nutrition['fat'];
+              final fiber = nutrition['fiber'];
+              
+              weeklyTotals['calories'] = (weeklyTotals['calories'] ?? 0) + _safeToDouble(calories);
+              weeklyTotals['protein'] = (weeklyTotals['protein'] ?? 0) + _safeToDouble(protein);
+              weeklyTotals['carbs'] = (weeklyTotals['carbs'] ?? 0) + _safeToDouble(carbs);
+              weeklyTotals['fat'] = (weeklyTotals['fat'] ?? 0) + _safeToDouble(fat);
+              weeklyTotals['fiber'] = (weeklyTotals['fiber'] ?? 0) + _safeToDouble(fiber);
+            }
+          } else {
+            // New format: individual meal document
+            final nutritionData = docData['nutrition'];
+            final nutrition = nutritionData is Map<String, dynamic> 
+                ? nutritionData 
+                : nutritionData is Map 
+                    ? Map<String, dynamic>.from(nutritionData) 
+                    : <String, dynamic>{};
+            print('DEBUG: New format nutrition data: $nutrition');
+            
+            final calories = nutrition['calories'];
+            final protein = nutrition['protein'];
+            final carbs = nutrition['carbs'];
+            final fat = nutrition['fat'];
+            final fiber = nutrition['fiber'];
+            
+            // Estimate fiber if missing (calories * 0.02)
+            final fiberValue = fiber != null ? _safeToDouble(fiber) : (_safeToDouble(calories) * 0.02);
+            
+            print('DEBUG: Processing meal nutrition - fiber: $fiber (${fiber.runtimeType}), estimated: $fiberValue');
+            
+            weeklyTotals['calories'] = (weeklyTotals['calories'] ?? 0) + _safeToDouble(calories);
+            weeklyTotals['protein'] = (weeklyTotals['protein'] ?? 0) + _safeToDouble(protein);
+            weeklyTotals['carbs'] = (weeklyTotals['carbs'] ?? 0) + _safeToDouble(carbs);
+            weeklyTotals['fat'] = (weeklyTotals['fat'] ?? 0) + _safeToDouble(fat);
+            weeklyTotals['fiber'] = (weeklyTotals['fiber'] ?? 0) + fiberValue;
+            
+            print('DEBUG: Weekly fiber total so far: ${weeklyTotals['fiber']}');
+          }
         }
       }
     }
@@ -228,18 +310,57 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
       if (mealsQuery.docs.isNotEmpty) {
         daysWithData++;
         for (final doc in mealsQuery.docs) {
-          final nutrition = doc.data()['nutrition'] as Map<String, dynamic>? ?? {};
-          final calories = nutrition['calories'];
-          final protein = nutrition['protein'];
-          final carbs = nutrition['carbs'];
-          final fat = nutrition['fat'];
-          final fiber = nutrition['fiber'];
+          final docData = doc.data();
           
-          monthlyTotals['calories'] = (monthlyTotals['calories'] ?? 0) + _safeToDouble(calories);
-          monthlyTotals['protein'] = (monthlyTotals['protein'] ?? 0) + _safeToDouble(protein);
-          monthlyTotals['carbs'] = (monthlyTotals['carbs'] ?? 0) + _safeToDouble(carbs);
-          monthlyTotals['fat'] = (monthlyTotals['fat'] ?? 0) + _safeToDouble(fat);
-          monthlyTotals['fiber'] = (monthlyTotals['fiber'] ?? 0) + _safeToDouble(fiber);
+          // Check if this is the old format (meals array) or new format (individual meal)
+          if (docData['meals'] != null) {
+            // Old format: meals stored as array
+            final meals = docData['meals'] as List<dynamic>? ?? [];
+            for (final meal in meals) {
+              final mealData = meal is Map<String, dynamic> ? meal : Map<String, dynamic>.from(meal as Map);
+              final nutritionData = mealData['nutrition'];
+              final nutrition = nutritionData is Map<String, dynamic> 
+                  ? nutritionData 
+                  : nutritionData is Map 
+                      ? Map<String, dynamic>.from(nutritionData) 
+                      : <String, dynamic>{};
+              
+              final calories = nutrition['calories'];
+              final protein = nutrition['protein'];
+              final carbs = nutrition['carbs'];
+              final fat = nutrition['fat'];
+              final fiber = nutrition['fiber'];
+              
+              monthlyTotals['calories'] = (monthlyTotals['calories'] ?? 0) + _safeToDouble(calories);
+              monthlyTotals['protein'] = (monthlyTotals['protein'] ?? 0) + _safeToDouble(protein);
+              monthlyTotals['carbs'] = (monthlyTotals['carbs'] ?? 0) + _safeToDouble(carbs);
+              monthlyTotals['fat'] = (monthlyTotals['fat'] ?? 0) + _safeToDouble(fat);
+              monthlyTotals['fiber'] = (monthlyTotals['fiber'] ?? 0) + _safeToDouble(fiber);
+            }
+          } else {
+            // New format: individual meal document
+            final nutritionData = docData['nutrition'];
+            final nutrition = nutritionData is Map<String, dynamic> 
+                ? nutritionData 
+                : nutritionData is Map 
+                    ? Map<String, dynamic>.from(nutritionData) 
+                    : <String, dynamic>{};
+            
+            final calories = nutrition['calories'];
+            final protein = nutrition['protein'];
+            final carbs = nutrition['carbs'];
+            final fat = nutrition['fat'];
+            final fiber = nutrition['fiber'];
+            
+            // Estimate fiber if missing (calories * 0.02)
+            final fiberValue = fiber != null ? _safeToDouble(fiber) : (_safeToDouble(calories) * 0.02);
+            
+            monthlyTotals['calories'] = (monthlyTotals['calories'] ?? 0) + _safeToDouble(calories);
+            monthlyTotals['protein'] = (monthlyTotals['protein'] ?? 0) + _safeToDouble(protein);
+            monthlyTotals['carbs'] = (monthlyTotals['carbs'] ?? 0) + _safeToDouble(carbs);
+            monthlyTotals['fat'] = (monthlyTotals['fat'] ?? 0) + _safeToDouble(fat);
+            monthlyTotals['fiber'] = (monthlyTotals['fiber'] ?? 0) + fiberValue;
+          }
         }
       }
     }
@@ -281,10 +402,60 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Progress Tracking'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(80),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF2E7D32),
+                Color(0xFF388E3C),
+                Color(0xFF4CAF50),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(25),
+              bottomRight: Radius.circular(25),
+            ),
+          ),
+          child: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            title: const Text(
+              'Progress Tracking',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 22,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    offset: Offset(0, 2),
+                    blurRadius: 4,
+                    color: Colors.black26,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              Container(
+                margin: const EdgeInsets.only(right: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.refresh,
+                    color: Colors.white,
+                  ),
+                  onPressed: _loadProgressData,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -311,34 +482,69 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
                     children: [
                       // Period Selection
                       Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              Text(
-                                'Time Period:',
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
+                        elevation: 8,
+                        shadowColor: Colors.green.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.white,
+                                Colors.green[50]!,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.green[200]!,
+                              width: 1,
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Row(
+                              children: [
+                                Text(
+                                  'Time Period:',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green[800],
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: SegmentedButton<int>(
-                                  segments: _periods.asMap().entries.map((entry) {
-                                    return ButtonSegment<int>(
-                                      value: entry.key,
-                                      label: Text(entry.value),
-                                    );
-                                  }).toList(),
-                                  selected: {_selectedPeriod},
-                                  onSelectionChanged: (Set<int> newSelection) {
-                                    setState(() {
-                                      _selectedPeriod = newSelection.first;
-                                    });
-                                  },
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: SegmentedButton<int>(
+                                    style: ButtonStyle(
+                                      backgroundColor: MaterialStateProperty.resolveWith<Color>((states) {
+                                        if (states.contains(MaterialState.selected)) {
+                                          return Colors.green[600]!;
+                                        }
+                                        return Colors.green[100]!;
+                                      }),
+                                      foregroundColor: MaterialStateProperty.resolveWith<Color>((states) {
+                                        if (states.contains(MaterialState.selected)) {
+                                          return Colors.white;
+                                        }
+                                        return Colors.green[700]!;
+                                      }),
+                                    ),
+                                    segments: _periods.asMap().entries.map((entry) {
+                                      return ButtonSegment<int>(
+                                        value: entry.key,
+                                        label: Text(entry.value),
+                                      );
+                                    }).toList(),
+                                    selected: {_selectedPeriod},
+                                    onSelectionChanged: (Set<int> newSelection) {
+                                      setState(() {
+                                        _selectedPeriod = newSelection.first;
+                                      });
+                                    },
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -354,6 +560,14 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
 
                       // Detailed Statistics
                       _buildDetailedStatsCard(),
+                      const SizedBox(height: 16),
+
+                      // Insights and Recommendations
+                      _buildInsightsCard(),
+                      const SizedBox(height: 16),
+
+                      // Streak and Consistency
+                      _buildConsistencyCard(),
                     ],
                   ),
                 ),
@@ -477,12 +691,12 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
+            AspectRatio(
+              aspectRatio: 1.3,
               child: PieChart(
                 PieChartData(
                   sections: _buildPieChartSections(averages),
-                  centerSpaceRadius: 40,
+                  centerSpaceRadius: 30,
                   sectionsSpace: 2,
                 ),
               ),
@@ -621,5 +835,261 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
       case 'fiber': return 'Fiber';
       default: return nutrient;
     }
+  }
+
+  Widget _buildInsightsCard() {
+    final progress = _selectedPeriod == 0 ? _weeklyProgress : _monthlyProgress;
+    final achievements = progress['goalAchievement'] as Map<String, double>? ?? {};
+    final daysWithData = progress['daysWithData'] as int? ?? 0;
+    
+    List<String> insights = [];
+    List<String> recommendations = [];
+    
+    if (daysWithData == 0) {
+      insights.add('No meal data available for analysis.');
+      recommendations.add('Start logging your meals to get personalized insights.');
+    } else {
+      // Analyze goal achievements
+      achievements.forEach((nutrient, percentage) {
+        if (percentage < 80) {
+          insights.add('You\'re consuming ${percentage.toStringAsFixed(0)}% of your ${_getNutrientDisplayName(nutrient).toLowerCase()} goal.');
+          if (nutrient == 'protein') {
+            recommendations.add('Add more protein-rich foods like lean meats, eggs, or legumes.');
+          } else if (nutrient == 'fiber') {
+            recommendations.add('Include more fruits, vegetables, and whole grains for fiber.');
+          } else if (nutrient == 'calories' && percentage < 70) {
+            recommendations.add('Consider eating more nutrient-dense foods to meet your calorie needs.');
+          }
+        } else if (percentage > 120) {
+          insights.add('You\'re exceeding your ${_getNutrientDisplayName(nutrient).toLowerCase()} goal by ${(percentage - 100).toStringAsFixed(0)}%.');
+          if (nutrient == 'calories') {
+            recommendations.add('Consider portion control or more physical activity.');
+          } else if (nutrient == 'fat') {
+            recommendations.add('Try reducing high-fat foods and cooking methods.');
+          }
+        }
+      });
+      
+      // Consistency insights
+      final periodDays = _selectedPeriod == 0 ? 7 : DateTime.now().day;
+      final consistencyRate = (daysWithData / periodDays) * 100;
+      
+      if (consistencyRate < 50) {
+        insights.add('You\'ve logged meals on ${consistencyRate.toStringAsFixed(0)}% of days.');
+        recommendations.add('Try to log meals more consistently for better tracking.');
+      } else if (consistencyRate >= 80) {
+        insights.add('Great job! You\'ve been consistent with meal logging.');
+      }
+      
+      // Default positive message if no issues
+      if (insights.isEmpty) {
+        insights.add('You\'re doing well with your nutrition goals!');
+        recommendations.add('Keep up the great work with balanced eating.');
+      }
+    }
+    
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.lightbulb, color: Colors.green[700]),
+                const SizedBox(width: 8),
+                Text(
+                  'Insights & Recommendations',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green[800],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Insights section
+            Text(
+              'Key Insights',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Colors.blue[800],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...insights.map((insight) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info, size: 16, color: Colors.blue[600]),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(insight)),
+                ],
+              ),
+            )),
+            
+            const SizedBox(height: 16),
+            
+            // Recommendations section
+            Text(
+              'Recommendations',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Colors.orange[800],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...recommendations.map((recommendation) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.star, size: 16, color: Colors.orange[600]),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(recommendation)),
+                ],
+              ),
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConsistencyCard() {
+    final progress = _selectedPeriod == 0 ? _weeklyProgress : _monthlyProgress;
+    final daysWithData = progress['daysWithData'] as int? ?? 0;
+    final periodDays = _selectedPeriod == 0 ? 7 : DateTime.now().day;
+    final consistencyRate = daysWithData > 0 ? (daysWithData / periodDays) * 100 : 0.0;
+    
+    Color consistencyColor;
+    String consistencyLabel;
+    IconData consistencyIcon;
+    
+    if (consistencyRate >= 80) {
+      consistencyColor = Colors.green;
+      consistencyLabel = 'Excellent';
+      consistencyIcon = Icons.emoji_events;
+    } else if (consistencyRate >= 60) {
+      consistencyColor = Colors.orange;
+      consistencyLabel = 'Good';
+      consistencyIcon = Icons.thumb_up;
+    } else if (consistencyRate >= 40) {
+      consistencyColor = Colors.amber;
+      consistencyLabel = 'Fair';
+      consistencyIcon = Icons.trending_up;
+    } else {
+      consistencyColor = Colors.red;
+      consistencyLabel = 'Needs Improvement';
+      consistencyIcon = Icons.flag;
+    }
+    
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.calendar_today, color: Colors.green[700]),
+                const SizedBox(width: 8),
+                Text(
+                  'Consistency Tracking',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green[800],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Consistency rate display
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Meal Logging Consistency',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(consistencyIcon, color: consistencyColor, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$consistencyLabel (${consistencyRate.toStringAsFixed(0)}%)',
+                            style: TextStyle(
+                              color: consistencyColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: consistencyRate / 100,
+                        backgroundColor: Colors.grey[300],
+                        valueColor: AlwaysStoppedAnimation<Color>(consistencyColor),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '$daysWithData out of $periodDays days logged',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Streak information (simplified)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.local_fire_department, color: Colors.orange[600]),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Current Streak',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.green[800],
+                          ),
+                        ),
+                        Text(
+                          '$daysWithData days of meal logging',
+                          style: TextStyle(color: Colors.green[700]),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

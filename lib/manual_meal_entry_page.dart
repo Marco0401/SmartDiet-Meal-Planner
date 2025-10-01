@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'services/nutrition_service.dart';
+import 'meal_favorites_page.dart';
 
 class ManualMealEntryPage extends StatefulWidget {
   final String? selectedDate;
@@ -30,6 +32,8 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
   final _sugarController = TextEditingController();
   final _sodiumController = TextEditingController();
   final _servingSizeController = TextEditingController();
+  final _ingredientsController = TextEditingController();
+  final _instructionsController = TextEditingController();
 
   String _selectedMealType = 'Breakfast';
   DateTime _selectedDate = DateTime.now();
@@ -82,25 +86,86 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     _sugarController.dispose();
     _sodiumController.dispose();
     _servingSizeController.dispose();
+    _ingredientsController.dispose();
+    _instructionsController.dispose();
     super.dispose();
   }
 
-  Future<void> _saveMealEntry() async {
-    if (!_formKey.currentState!.validate()) return;
+  void _calculateNutritionFromIngredients() {
+    if (_ingredientsController.text.trim().isEmpty) return;
+    
+    final ingredientsList = _ingredientsController.text
+        .split('\n')
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    
+    final nutrition = NutritionService.calculateRecipeNutrition(ingredientsList);
+    
+    setState(() {
+      _caloriesController.text = nutrition['calories']!.toStringAsFixed(1);
+      _proteinController.text = nutrition['protein']!.toStringAsFixed(1);
+      _carbsController.text = nutrition['carbs']!.toStringAsFixed(1);
+      _fatController.text = nutrition['fat']!.toStringAsFixed(1);
+      _fiberController.text = nutrition['fiber']!.toStringAsFixed(1);
+    });
+  }
+
+  Future<void> _saveMeal() async {
+    if (_foodNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a food name'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception('User not authenticated');
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
 
       final servingSize = double.tryParse(_servingSizeController.text) ?? 1.0;
+      final ingredientsList = _ingredientsController.text
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .toList();
+
+      // Use NutritionService to save meal with proper nutrition calculation
+      final dateString = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      final nutritionData = {
+        'calories': (double.tryParse(_caloriesController.text) ?? 0) * servingSize,
+        'protein': (double.tryParse(_proteinController.text) ?? 0) * servingSize,
+        'carbs': (double.tryParse(_carbsController.text) ?? 0) * servingSize,
+        'fat': (double.tryParse(_fatController.text) ?? 0) * servingSize,
+        'fiber': (double.tryParse(_fiberController.text) ?? 0) * servingSize,
+      };
       
-      final mealData = {
-        'foodName': _foodNameController.text.trim(),
-        'mealType': _selectedMealType,
-        'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
-        'servingSize': servingSize,
+      print('DEBUG: Saving meal with date: $dateString');
+      print('DEBUG: Nutrition data: $nutritionData');
+      
+      await NutritionService.saveMealWithNutrition(
+        title: _foodNameController.text.trim(),
+        date: dateString,
+        mealType: _selectedMealType.toLowerCase(),
+        ingredients: ingredientsList,
+        instructions: _instructionsController.text.trim(),
+        customNutrition: nutritionData,
+      );
+
+      // Also save to favorites (Manage Recipes) as a custom recipe
+      final customRecipe = {
+        'id': 'manual_${DateTime.now().millisecondsSinceEpoch}',
+        'title': _foodNameController.text.trim(),
+        'image': null,
+        'source': 'manual_entry',
+        'cuisine': 'Custom',
+        'ingredients': ingredientsList,
+        'instructions': _instructionsController.text.trim(),
         'nutrition': {
           'calories': (double.tryParse(_caloriesController.text) ?? 0) * servingSize,
           'protein': (double.tryParse(_proteinController.text) ?? 0) * servingSize,
@@ -110,15 +175,17 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
           'sugar': (double.tryParse(_sugarController.text) ?? 0) * servingSize,
           'sodium': (double.tryParse(_sodiumController.text) ?? 0) * servingSize,
         },
-        'isManualEntry': true,
-        'timestamp': FieldValue.serverTimestamp(),
+        'servings': servingSize,
+        'readyInMinutes': 0, // Manual entry, no prep time
+        'mealType': _selectedMealType.toLowerCase(),
       };
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('meals')
-          .add(mealData);
+      // Save to favorites collection
+      await FavoriteService.addToFavorites(
+        context,
+        customRecipe,
+        notes: 'Custom recipe created on ${DateFormat('MMM dd, yyyy').format(_selectedDate)}',
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -127,7 +194,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context, true); // Return true to indicate success
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
@@ -178,10 +245,10 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
                   ),
                 ),
               ),
-            )
-          else
+            ),
+          if (!_isLoading)
             TextButton(
-              onPressed: _saveMealEntry,
+              onPressed: _saveMeal,
               child: const Text(
                 'SAVE',
                 style: TextStyle(
@@ -201,56 +268,76 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             children: [
               // Food Name
               Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Food Information',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green[800],
+                elevation: 8,
+                shadowColor: Colors.green.withOpacity(0.3),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.white,
+                        Colors.green[50]!,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.green[200]!,
+                      width: 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Food Information',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[800],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _foodNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Food Name *',
-                          hintText: 'e.g., Grilled Chicken Breast',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.restaurant),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter a food name';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _servingSizeController,
-                        decoration: const InputDecoration(
-                          labelText: 'Serving Size',
-                          hintText: '1',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.straighten),
-                          suffixText: 'servings',
-                        ),
-                        keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value != null && value.isNotEmpty) {
-                            final parsed = double.tryParse(value);
-                            if (parsed == null || parsed <= 0) {
-                              return 'Please enter a valid serving size';
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _foodNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Food Name *',
+                            hintText: 'e.g., Grilled Chicken Breast',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.restaurant),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter a food name';
                             }
-                          }
-                          return null;
-                        },
-                      ),
-                    ],
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _servingSizeController,
+                          decoration: const InputDecoration(
+                            labelText: 'Serving Size',
+                            hintText: '1',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.straighten),
+                            suffixText: 'servings',
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: (value) {
+                            if (value != null && value.isNotEmpty) {
+                              final parsed = double.tryParse(value);
+                              if (parsed == null || parsed <= 0) {
+                                return 'Please enter a valid serving size';
+                              }
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -258,68 +345,91 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
 
               // Date and Meal Type
               Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Meal Details',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green[800],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: _selectDate,
-                              child: InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: 'Date',
-                                  border: OutlineInputBorder(),
-                                  prefixIcon: Icon(Icons.calendar_today),
-                                ),
-                                child: Text(
-                                  DateFormat('MMM dd, yyyy').format(_selectedDate),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedMealType,
-                              decoration: const InputDecoration(
-                                labelText: 'Meal Type',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.schedule),
-                              ),
-                              items: _mealTypes.map((type) {
-                                return DropdownMenuItem(
-                                  value: type,
-                                  child: Text(type),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() => _selectedMealType = value);
-                                }
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+  elevation: 8,
+  shadowColor: Colors.green.withOpacity(0.3),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  child: Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          Colors.white,
+          Colors.green[50]!,
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(
+        color: Colors.green[200]!,
+        width: 1,
+      ),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Meal Details',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.green[800],
+            ),
+          ), // ✅ fixed here
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: _selectDate,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Date',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.calendar_today),
+                    ),
+                    child: Text(
+                      DateFormat('MMM dd, yyyy').format(_selectedDate),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(width: 16),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _selectedMealType,
+                  decoration: const InputDecoration(
+                    labelText: 'Meal Type',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.schedule),
+                  ),
+                  items: _mealTypes.map((type) {
+                    return DropdownMenuItem(
+                      value: type,
+                      child: Text(type),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _selectedMealType = value);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  ),
+),
+const SizedBox(height: 16),
 
               // Nutrition Information
               Card(
+                elevation: 8,
+                shadowColor: Colors.green.withOpacity(0.3),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -331,6 +441,32 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
                           fontWeight: FontWeight.bold,
                           color: Colors.green[800],
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Ingredients section for auto-calculation
+                      TextFormField(
+                        controller: _ingredientsController,
+                        decoration: InputDecoration(
+                          labelText: 'Ingredients (one per line)',
+                          hintText: 'e.g., 200g chicken breast\n100g rice\n50g broccoli',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.calculate),
+                            onPressed: _calculateNutritionFromIngredients,
+                            tooltip: 'Calculate nutrition from ingredients',
+                          ),
+                        ),
+                        maxLines: 4,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _instructionsController,
+                        decoration: const InputDecoration(
+                          labelText: 'Instructions (optional)',
+                          hintText: 'e.g., 1. Heat oil in a pan\n2. Add chicken and cook for 5 minutes\n3. Add vegetables and stir-fry',
+                          border: OutlineInputBorder(),
+                        ),
+                        maxLines: 4,
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -446,7 +582,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _saveMealEntry,
+                  onPressed: _isLoading ? null : _saveMeal,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,

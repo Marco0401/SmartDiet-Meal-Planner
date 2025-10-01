@@ -171,6 +171,12 @@ class AIMealPlannerService {
     final mealFrequency = goalStrategy['mealFrequency'] ?? 3;
     
     final mealPlan = <String, dynamic>{};
+    final usedRecipes = <String, Set<String>>{
+      'breakfast': <String>{},
+      'lunch': <String>{},
+      'dinner': <String>{},
+      'snack': <String>{},
+    };
     
     for (int day = 1; day <= days; day++) {
       final dayPlan = <String, dynamic>{};
@@ -181,32 +187,36 @@ class AIMealPlannerService {
       
       // Generate meals for the day
       if (mealFrequency >= 3) {
-        dailyMeals['breakfast'] = await _generateMeal(
+        dailyMeals['breakfast'] = await _generateMealWithVariety(
           'breakfast',
           caloriesPerMeal * 0.3,
           analysis,
           goalStrategy,
+          usedRecipes['breakfast']!,
         );
-        dailyMeals['lunch'] = await _generateMeal(
+        dailyMeals['lunch'] = await _generateMealWithVariety(
           'lunch',
           caloriesPerMeal * 0.35,
           analysis,
           goalStrategy,
+          usedRecipes['lunch']!,
         );
-        dailyMeals['dinner'] = await _generateMeal(
+        dailyMeals['dinner'] = await _generateMealWithVariety(
           'dinner',
           caloriesPerMeal * 0.35,
           analysis,
           goalStrategy,
+          usedRecipes['dinner']!,
         );
       }
       
       if (mealFrequency >= 4) {
-        dailyMeals['snack'] = await _generateMeal(
+        dailyMeals['snack'] = await _generateMealWithVariety(
           'snack',
           caloriesPerMeal * 0.2,
           analysis,
           goalStrategy,
+          usedRecipes['snack']!,
         );
       }
       
@@ -218,6 +228,126 @@ class AIMealPlannerService {
     }
     
     return mealPlan;
+  }
+
+  /// Generate a meal with variety tracking to avoid repetition
+  static Future<Map<String, dynamic>> _generateMealWithVariety(
+    String mealType,
+    double targetCalories,
+    Map<String, dynamic> analysis,
+    Map<String, dynamic> goalStrategy,
+    Set<String> usedRecipes,
+  ) async {
+    try {
+      // Get recipes from Filipino Recipe Service
+      final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(mealType);
+      final localRecipes = _convertToAIMealPlannerFormat(filipinoRecipes);
+      
+      // Filter out already used recipes and apply dietary restrictions
+      final availableRecipes = localRecipes.where((recipe) {
+        final recipeTitle = recipe['title']?.toString() ?? '';
+        
+        // Skip if already used
+        if (usedRecipes.contains(recipeTitle)) return false;
+        
+        // Apply meal type and dietary filtering
+        return _isRecipeSuitable(recipe, mealType, analysis);
+      }).toList();
+      
+      Map<String, dynamic>? selectedRecipe;
+      
+      if (availableRecipes.isNotEmpty) {
+        // Select a random recipe from available options
+        final random = Random();
+        selectedRecipe = availableRecipes[random.nextInt(availableRecipes.length)];
+        
+        // Track the used recipe
+        final recipeTitle = selectedRecipe['title']?.toString() ?? '';
+        usedRecipes.add(recipeTitle);
+        
+        print('DEBUG: Selected new recipe: $recipeTitle for $mealType');
+      } else {
+        // If no new recipes available, allow reusing recipes but prefer less recently used
+        print('DEBUG: No new recipes available for $mealType, allowing reuse');
+        final allSuitableRecipes = localRecipes.where((recipe) => 
+          _isRecipeSuitable(recipe, mealType, analysis)).toList();
+        
+        if (allSuitableRecipes.isNotEmpty) {
+          final random = Random();
+          selectedRecipe = allSuitableRecipes[random.nextInt(allSuitableRecipes.length)];
+        }
+      }
+      
+      // If still no recipe found, try other sources
+      if (selectedRecipe == null) {
+        return await _generateMeal(mealType, targetCalories, analysis, goalStrategy);
+      }
+      
+      // Calculate portion size to meet calorie target
+      final portionSize = _calculatePortionSize(selectedRecipe, targetCalories);
+      
+      return {
+        'recipe': selectedRecipe,
+        'portionSize': portionSize,
+        'estimatedCalories': targetCalories,
+        'mealType': mealType,
+        'nutritionalInfo': _extractNutritionalInfo(selectedRecipe, portionSize),
+      };
+    } catch (e) {
+      print('Error generating meal with variety for $mealType: $e');
+      return _generateFallbackMeal(mealType, targetCalories, analysis);
+    }
+  }
+
+  /// Check if a recipe is suitable for the meal type and dietary restrictions
+  static bool _isRecipeSuitable(Map<String, dynamic> recipe, String mealType, Map<String, dynamic> analysis) {
+    // More flexible meal type matching
+    final recipeMealType = recipe['mealType']?.toString().toLowerCase() ?? '';
+    final targetMealType = mealType.toLowerCase();
+    final recipeTitle = recipe['title']?.toString().toLowerCase() ?? '';
+    
+    // Allow broader matching for meal types
+    bool mealTypeMatches = false;
+    if (targetMealType == 'breakfast') {
+      mealTypeMatches = recipeMealType.contains('breakfast') || 
+                       recipeTitle.contains('silog') ||
+                       recipeTitle.contains('champorado') ||
+                       recipeTitle.contains('tocino') ||
+                       recipeTitle.contains('longganisa') ||
+                       recipeTitle.contains('tapa');
+    } else if (targetMealType == 'lunch' || targetMealType == 'dinner') {
+      mealTypeMatches = recipeMealType.contains('lunch') || 
+                       recipeMealType.contains('dinner') ||
+                       recipeMealType.contains('main') ||
+                       recipeMealType == '' ||
+                       recipeTitle.contains('adobo') ||
+                       recipeTitle.contains('sinigang') ||
+                       recipeTitle.contains('kare-kare') ||
+                       recipeTitle.contains('bicol express') ||
+                       recipeTitle.contains('laing') ||
+                       recipeTitle.contains('pinakbet');
+    } else if (targetMealType == 'snack') {
+      mealTypeMatches = recipeMealType.contains('snack') || 
+                       recipeMealType.contains('dessert') ||
+                       recipeTitle.contains('halo') ||
+                       recipeTitle.contains('turon') ||
+                       recipeTitle.contains('biko');
+    }
+    
+    if (!mealTypeMatches) return false;
+    
+    // Check dietary restrictions
+    final dietaryPrefs = analysis['dietaryPreferences'] as List<String>? ?? [];
+    if (dietaryPrefs.contains('Vegetarian') && recipe['containsMeat'] == true) return false;
+    if (dietaryPrefs.contains('Vegan') && (recipe['containsMeat'] == true || recipe['containsDairy'] == true)) return false;
+    
+    // Check allergies
+    final allergies = analysis['allergies'] as List<String>? ?? [];
+    for (final allergy in allergies) {
+      if (allergy != 'None' && recipe['allergens']?.contains(allergy) == true) return false;
+    }
+    
+    return true;
   }
 
   /// Generate a specific meal based on requirements
@@ -428,36 +558,39 @@ class AIMealPlannerService {
     Map<String, dynamic> recipe,
     double portionSize,
   ) {
+    // Check if nutrition data is nested in a 'nutrition' object (Filipino recipes)
+    final nutritionData = recipe['nutrition'] ?? recipe;
+    
     return {
-      'calories': (recipe['calories']?.toDouble() ?? 0) * portionSize,
-      'protein': (recipe['protein']?.toDouble() ?? 0) * portionSize,
-      'carbs': (recipe['carbs']?.toDouble() ?? 0) * portionSize,
-      'fat': (recipe['fat']?.toDouble() ?? 0) * portionSize,
-      'fiber': (recipe['fiber']?.toDouble() ?? 0) * portionSize,
-      'sugar': (recipe['sugar']?.toDouble() ?? 0) * portionSize,
-      'sodium': (recipe['sodium']?.toDouble() ?? 0) * portionSize,
-      'cholesterol': (recipe['cholesterol']?.toDouble() ?? 0) * portionSize,
-      'saturatedFat': (recipe['saturatedFat']?.toDouble() ?? 0) * portionSize,
-      'transFat': (recipe['transFat']?.toDouble() ?? 0) * portionSize,
-      'monounsaturatedFat': (recipe['monounsaturatedFat']?.toDouble() ?? 0) * portionSize,
-      'polyunsaturatedFat': (recipe['polyunsaturatedFat']?.toDouble() ?? 0) * portionSize,
-      'vitaminA': (recipe['vitaminA']?.toDouble() ?? 0) * portionSize,
-      'vitaminC': (recipe['vitaminC']?.toDouble() ?? 0) * portionSize,
-      'calcium': (recipe['calcium']?.toDouble() ?? 0) * portionSize,
-      'iron': (recipe['iron']?.toDouble() ?? 0) * portionSize,
-      'potassium': (recipe['potassium']?.toDouble() ?? 0) * portionSize,
-      'magnesium': (recipe['magnesium']?.toDouble() ?? 0) * portionSize,
-      'phosphorus': (recipe['phosphorus']?.toDouble() ?? 0) * portionSize,
-      'zinc': (recipe['zinc']?.toDouble() ?? 0) * portionSize,
-      'folate': (recipe['folate']?.toDouble() ?? 0) * portionSize,
-      'vitaminD': (recipe['vitaminD']?.toDouble() ?? 0) * portionSize,
-      'vitaminE': (recipe['vitaminE']?.toDouble() ?? 0) * portionSize,
-      'vitaminK': (recipe['vitaminK']?.toDouble() ?? 0) * portionSize,
-      'thiamin': (recipe['thiamin']?.toDouble() ?? 0) * portionSize,
-      'riboflavin': (recipe['riboflavin']?.toDouble() ?? 0) * portionSize,
-      'niacin': (recipe['niacin']?.toDouble() ?? 0) * portionSize,
-      'vitaminB6': (recipe['vitaminB6']?.toDouble() ?? 0) * portionSize,
-      'vitaminB12': (recipe['vitaminB12']?.toDouble() ?? 0) * portionSize,
+      'calories': (nutritionData['calories']?.toDouble() ?? recipe['calories']?.toDouble() ?? 0) * portionSize,
+      'protein': (nutritionData['protein']?.toDouble() ?? recipe['protein']?.toDouble() ?? 0) * portionSize,
+      'carbs': (nutritionData['carbs']?.toDouble() ?? recipe['carbs']?.toDouble() ?? 0) * portionSize,
+      'fat': (nutritionData['fat']?.toDouble() ?? recipe['fat']?.toDouble() ?? 0) * portionSize,
+      'fiber': (nutritionData['fiber']?.toDouble() ?? recipe['fiber']?.toDouble() ?? 0) * portionSize,
+      'sugar': (nutritionData['sugar']?.toDouble() ?? recipe['sugar']?.toDouble() ?? 0) * portionSize,
+      'sodium': (nutritionData['sodium']?.toDouble() ?? recipe['sodium']?.toDouble() ?? 0) * portionSize,
+      'cholesterol': (nutritionData['cholesterol']?.toDouble() ?? recipe['cholesterol']?.toDouble() ?? 0) * portionSize,
+      'saturatedFat': (nutritionData['saturatedFat']?.toDouble() ?? recipe['saturatedFat']?.toDouble() ?? 0) * portionSize,
+      'transFat': (nutritionData['transFat']?.toDouble() ?? recipe['transFat']?.toDouble() ?? 0) * portionSize,
+      'monounsaturatedFat': (nutritionData['monounsaturatedFat']?.toDouble() ?? recipe['monounsaturatedFat']?.toDouble() ?? 0) * portionSize,
+      'polyunsaturatedFat': (nutritionData['polyunsaturatedFat']?.toDouble() ?? recipe['polyunsaturatedFat']?.toDouble() ?? 0) * portionSize,
+      'vitaminA': (nutritionData['vitaminA']?.toDouble() ?? recipe['vitaminA']?.toDouble() ?? 0) * portionSize,
+      'vitaminC': (nutritionData['vitaminC']?.toDouble() ?? recipe['vitaminC']?.toDouble() ?? 0) * portionSize,
+      'calcium': (nutritionData['calcium']?.toDouble() ?? recipe['calcium']?.toDouble() ?? 0) * portionSize,
+      'iron': (nutritionData['iron']?.toDouble() ?? recipe['iron']?.toDouble() ?? 0) * portionSize,
+      'potassium': (nutritionData['potassium']?.toDouble() ?? recipe['potassium']?.toDouble() ?? 0) * portionSize,
+      'magnesium': (nutritionData['magnesium']?.toDouble() ?? recipe['magnesium']?.toDouble() ?? 0) * portionSize,
+      'phosphorus': (nutritionData['phosphorus']?.toDouble() ?? recipe['phosphorus']?.toDouble() ?? 0) * portionSize,
+      'zinc': (nutritionData['zinc']?.toDouble() ?? recipe['zinc']?.toDouble() ?? 0) * portionSize,
+      'folate': (nutritionData['folate']?.toDouble() ?? recipe['folate']?.toDouble() ?? 0) * portionSize,
+      'vitaminD': (nutritionData['vitaminD']?.toDouble() ?? recipe['vitaminD']?.toDouble() ?? 0) * portionSize,
+      'vitaminE': (nutritionData['vitaminE']?.toDouble() ?? recipe['vitaminE']?.toDouble() ?? 0) * portionSize,
+      'vitaminK': (nutritionData['vitaminK']?.toDouble() ?? recipe['vitaminK']?.toDouble() ?? 0) * portionSize,
+      'thiamin': (nutritionData['thiamin']?.toDouble() ?? recipe['thiamin']?.toDouble() ?? 0) * portionSize,
+      'riboflavin': (nutritionData['riboflavin']?.toDouble() ?? recipe['riboflavin']?.toDouble() ?? 0) * portionSize,
+      'niacin': (nutritionData['niacin']?.toDouble() ?? recipe['niacin']?.toDouble() ?? 0) * portionSize,
+      'vitaminB6': (nutritionData['vitaminB6']?.toDouble() ?? recipe['vitaminB6']?.toDouble() ?? 0) * portionSize,
+      'vitaminB12': (nutritionData['vitaminB12']?.toDouble() ?? recipe['vitaminB12']?.toDouble() ?? 0) * portionSize,
     };
   }
 
@@ -682,19 +815,78 @@ class AIMealPlannerService {
     };
   }
 
-  /// Get a local fallback recipe when API fails
+  /// Get a recipe from local database for a specific meal type
   static Map<String, dynamic>? _getLocalFallbackRecipe(
     String mealType,
     Map<String, dynamic> analysis,
   ) {
-    // Local recipe database - these are high-quality, curated recipes
     final localRecipes = _getLocalRecipeDatabase();
+    print('DEBUG: Total local recipes: ${localRecipes.length}');
+    
+    final availableRecipes = localRecipes.where((recipe) {
+      if (recipe['mealType'] != mealType) return false;
+      
+      final dietaryPrefs = analysis['dietaryPreferences'] as List<String>? ?? [];
+      if (dietaryPrefs.contains('Vegetarian') && recipe['containsMeat'] == true) return false;
+      if (dietaryPrefs.contains('Vegan') && (recipe['containsMeat'] == true || recipe['containsDairy'] == true)) return false;
+      
+      final allergies = analysis['allergies'] as List<String>? ?? [];
+      for (final allergy in allergies) {
+        if (allergy != 'None' && recipe['allergens']?.contains(allergy) == true) return false;
+      }
+      
+      return true;
+    }).toList();
+    
+    print('DEBUG: Available recipes for $mealType: ${availableRecipes.length}');
+    print('DEBUG: Dietary prefs: ${analysis['dietaryPreferences']}');
+    print('DEBUG: Allergies: ${analysis['allergies']}');
+    
+    if (availableRecipes.isEmpty) return null;
+    
+    final random = Random();
+    final selectedRecipe = availableRecipes[random.nextInt(availableRecipes.length)];
+    print('DEBUG: Selected recipe: ${selectedRecipe['title']} with instructions: ${selectedRecipe['instructions']?.toString().substring(0, 50)}...');
+    return selectedRecipe;
+  }
+
+  /// Get a recipe for a specific meal type
+  static Future<Map<String, dynamic>?> _getRecipeForMealType(
+    String mealType,
+    Map<String, dynamic> analysis,
+  ) async {
+    // Get recipes from Filipino Recipe Service to ensure consistency
+    final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(mealType);
+    final localRecipes = _convertToAIMealPlannerFormat(filipinoRecipes);
     print('DEBUG: Total local recipes: ${localRecipes.length}');
     
     // Filter recipes based on meal type and dietary preferences
     final availableRecipes = localRecipes.where((recipe) {
-      // Check meal type
-      if (recipe['mealType'] != mealType) return false;
+      // More flexible meal type matching
+      final recipeMealType = recipe['mealType']?.toString().toLowerCase() ?? '';
+      final targetMealType = mealType.toLowerCase();
+      
+      // Allow broader matching for meal types
+      bool mealTypeMatches = false;
+      if (targetMealType == 'breakfast') {
+        mealTypeMatches = recipeMealType.contains('breakfast') || 
+                         recipe['title']?.toString().toLowerCase().contains('silog') == true ||
+                         recipe['title']?.toString().toLowerCase().contains('champorado') == true ||
+                         recipe['title']?.toString().toLowerCase().contains('tocino') == true;
+      } else if (targetMealType == 'lunch' || targetMealType == 'dinner') {
+        mealTypeMatches = recipeMealType.contains('lunch') || 
+                         recipeMealType.contains('dinner') ||
+                         recipeMealType.contains('main') ||
+                         recipeMealType == '' || // Allow recipes without specific meal type
+                         recipe['title']?.toString().toLowerCase().contains('adobo') == true ||
+                         recipe['title']?.toString().toLowerCase().contains('sinigang') == true;
+      } else if (targetMealType == 'snack') {
+        mealTypeMatches = recipeMealType.contains('snack') || 
+                         recipeMealType.contains('dessert') ||
+                         recipe['title']?.toString().toLowerCase().contains('halo') == true;
+      }
+      
+      if (!mealTypeMatches) return false;
       
       // Check dietary restrictions
       final dietaryPrefs = analysis['dietaryPreferences'] as List<String>? ?? [];
@@ -714,13 +906,134 @@ class AIMealPlannerService {
     print('DEBUG: Dietary prefs: ${analysis['dietaryPreferences']}');
     print('DEBUG: Allergies: ${analysis['allergies']}');
     
-    if (availableRecipes.isEmpty) return null;
+    // If no recipes match strict criteria, use broader selection
+    List<Map<String, dynamic>> recipesToChooseFrom = availableRecipes;
+    if (recipesToChooseFrom.isEmpty) {
+      print('DEBUG: No recipes match strict criteria, using broader selection');
+      recipesToChooseFrom = localRecipes.where((recipe) {
+        // Just check dietary restrictions, ignore meal type for broader selection
+        final dietaryPrefs = analysis['dietaryPreferences'] as List<String>? ?? [];
+        if (dietaryPrefs.contains('Vegetarian') && recipe['containsMeat'] == true) return false;
+        if (dietaryPrefs.contains('Vegan') && (recipe['containsMeat'] == true || recipe['containsDairy'] == true)) return false;
+        return true;
+      }).toList();
+    }
+    
+    if (recipesToChooseFrom.isEmpty) {
+      print('DEBUG: Still no recipes available, returning null');
+      return null;
+    }
     
     // Return a random suitable recipe
     final random = Random();
-    final selectedRecipe = availableRecipes[random.nextInt(availableRecipes.length)];
-    print('DEBUG: Selected recipe: ${selectedRecipe['title']} with instructions: ${selectedRecipe['instructions']?.toString().substring(0, 50)}...');
+    final selectedRecipe = recipesToChooseFrom[random.nextInt(recipesToChooseFrom.length)];
+    print('DEBUG: Selected recipe: ${selectedRecipe['title']} for $mealType');
     return selectedRecipe;
+  }
+
+  /// Convert Filipino recipes to AI meal planner format
+  static List<Map<String, dynamic>> _convertToAIMealPlannerFormat(List<dynamic> filipinoRecipes) {
+    return filipinoRecipes.map<Map<String, dynamic>>((recipe) {
+      final Map<String, dynamic> aiRecipe = Map<String, dynamic>.from(recipe);
+      
+      // Add meal type based on recipe analysis
+      if (!aiRecipe.containsKey('mealType')) {
+        aiRecipe['mealType'] = _determineMealType(recipe['title'] ?? '');
+      }
+      
+      // Add detailed nutritional data if missing
+      if (!aiRecipe.containsKey('fiber')) {
+        aiRecipe.addAll(_getDetailedNutrition(recipe));
+      }
+      
+      return aiRecipe;
+    }).toList();
+  }
+  
+  static String _determineMealType(String title) {
+    final breakfastKeywords = ['tapsilog', 'tocino', 'longsilog', 'bangusilog', 'champorado', 'arroz caldo'];
+    final lunchKeywords = ['adobo', 'sinigang', 'kare-kare', 'bicol express', 'laing', 'pinakbet'];
+    final dinnerKeywords = ['lechon', 'pancit', 'sisig', 'kaldereta', 'mechado', 'menudo'];
+    
+    final titleLower = title.toLowerCase();
+    
+    if (breakfastKeywords.any((keyword) => titleLower.contains(keyword))) {
+      return 'breakfast';
+    } else if (lunchKeywords.any((keyword) => titleLower.contains(keyword))) {
+      return 'lunch';
+    } else if (dinnerKeywords.any((keyword) => titleLower.contains(keyword))) {
+      return 'dinner';
+    }
+    
+    return 'lunch'; // Default
+  }
+  
+  static Map<String, dynamic> _getDetailedNutrition(Map<String, dynamic> recipe) {
+    // Add detailed nutrition data based on basic nutrition info
+    final nutrition = recipe['nutrition'] as Map<String, dynamic>? ?? {};
+    final calories = nutrition['calories']?.toDouble() ?? 400.0;
+    
+    return {
+      'fiber': calories * 0.01, // Rough estimate
+      'sugar': calories * 0.05,
+      'sodium': calories * 1.5,
+      'cholesterol': calories * 0.1,
+      'saturatedFat': (nutrition['fat']?.toDouble() ?? 10.0) * 0.3,
+      'transFat': 0.0,
+      'monounsaturatedFat': (nutrition['fat']?.toDouble() ?? 10.0) * 0.4,
+      'polyunsaturatedFat': (nutrition['fat']?.toDouble() ?? 10.0) * 0.3,
+      'vitaminA': calories * 0.5,
+      'vitaminC': calories * 0.02,
+      'calcium': calories * 0.2,
+      'iron': calories * 0.005,
+      'potassium': calories * 1.0,
+      'magnesium': calories * 0.1,
+      'phosphorus': calories * 0.3,
+      'zinc': calories * 0.003,
+      'folate': calories * 0.08,
+      'vitaminD': calories * 0.005,
+      'vitaminE': calories * 0.003,
+      'vitaminK': calories * 0.02,
+      'thiamin': calories * 0.0008,
+      'riboflavin': calories * 0.0006,
+      'niacin': calories * 0.01,
+      'vitaminB6': calories * 0.0008,
+      'vitaminB12': calories * 0.002,
+      'containsMeat': _containsMeat(recipe),
+      'containsDairy': _containsDairy(recipe),
+      'allergens': _getAllergens(recipe),
+    };
+  }
+  
+  static bool _containsMeat(Map<String, dynamic> recipe) {
+    final ingredients = (recipe['ingredients'] as List<dynamic>? ?? [])
+        .map((i) => i.toString().toLowerCase()).join(' ');
+    final meatKeywords = ['beef', 'pork', 'chicken', 'tapa', 'tocino', 'longganisa', 'meat'];
+    return meatKeywords.any((keyword) => ingredients.contains(keyword));
+  }
+  
+  static bool _containsDairy(Map<String, dynamic> recipe) {
+    final ingredients = (recipe['ingredients'] as List<dynamic>? ?? [])
+        .map((i) => i.toString().toLowerCase()).join(' ');
+    final dairyKeywords = ['milk', 'cheese', 'butter', 'cream', 'dairy'];
+    return dairyKeywords.any((keyword) => ingredients.contains(keyword));
+  }
+  
+  static List<String> _getAllergens(Map<String, dynamic> recipe) {
+    final ingredients = (recipe['ingredients'] as List<dynamic>? ?? [])
+        .map((i) => i.toString().toLowerCase()).join(' ');
+    final allergens = <String>[];
+    
+    if (ingredients.contains('egg')) allergens.add('Eggs');
+    if (ingredients.contains('milk') || ingredients.contains('dairy')) allergens.add('Milk');
+    if (ingredients.contains('wheat') || ingredients.contains('flour')) allergens.add('Wheat');
+    if (ingredients.contains('soy')) allergens.add('Soy');
+    if (ingredients.contains('fish')) allergens.add('Fish');
+    if (ingredients.contains('shellfish') || ingredients.contains('shrimp')) allergens.add('Shellfish');
+    if (ingredients.contains('peanut')) allergens.add('Peanuts');
+    if (ingredients.contains('nut')) allergens.add('Tree Nuts');
+    
+    return allergens;
   }
   
   /// Local recipe database with high-quality recipes
@@ -767,6 +1080,7 @@ class AIMealPlannerService {
         'ingredients': ['Tapa (cured beef)', 'Garlic rice', 'Eggs', 'Soy sauce', 'Vinegar'],
         'instructions': '1. Marinate beef strips in soy sauce, vinegar, garlic, and black pepper for at least 30 minutes.\n2. Heat oil in a pan and cook the marinated beef until tender and slightly caramelized.\n3. For garlic rice: Sauté minced garlic in oil until golden, add cooked rice and mix well.\n4. Fry eggs sunny-side up.\n5. Serve beef over garlic rice with fried egg on top.\n6. Garnish with chopped scallions and serve with vinegar dipping sauce.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/breakfast/tapsilog.jpg',
       },
       {
         'id': 'local_filipino_breakfast_2',
@@ -808,6 +1122,7 @@ class AIMealPlannerService {
         'ingredients': ['Glutinous rice', 'Cocoa powder', 'Milk', 'Sugar', 'Salt'],
         'instructions': '1. Rinse glutinous rice until water runs clear.\n2. In a pot, combine rice with water and bring to a boil.\n3. Reduce heat and simmer, stirring occasionally, until rice is tender (about 20 minutes).\n4. Add cocoa powder and mix well until fully incorporated.\n5. Gradually add milk while stirring continuously.\n6. Add sugar to taste and continue cooking until thick and creamy.\n7. Serve hot in bowls, topped with evaporated milk and sugar if desired.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/breakfast/champorado.jpg',
       },
       {
         'id': 'local_filipino_breakfast_3',
@@ -883,6 +1198,7 @@ class AIMealPlannerService {
         'ingredients': ['Bangus (milkfish)', 'Garlic rice', 'Eggs', 'Salt', 'Pepper'],
         'instructions': 'Season and fry bangus, serve with garlic rice and fried egg.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/breakfast/bangusilog.jpg',
       },
       {
         'id': 'local_filipino_breakfast_6',
@@ -900,6 +1216,7 @@ class AIMealPlannerService {
         'ingredients': ['Chicken', 'Rice', 'Ginger', 'Garlic', 'Fish sauce', 'Green onions'],
         'instructions': 'Cook chicken with rice and ginger until creamy, season with fish sauce.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/breakfast/arroz_caldo.jpg',
       },
       
       // Filipino Lunch Recipes
@@ -919,6 +1236,7 @@ class AIMealPlannerService {
         'ingredients': ['Chicken or pork', 'Soy sauce', 'Vinegar', 'Garlic', 'Bay leaves', 'Black pepper'],
         'instructions': 'Marinate meat in soy sauce and vinegar, simmer until tender.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/lunch/chicken_adobo.jpg',
       },
       {
         'id': 'local_filipino_lunch_2',
@@ -936,6 +1254,7 @@ class AIMealPlannerService {
         'ingredients': ['Pork or fish', 'Tamarind', 'Vegetables', 'Fish sauce', 'Garlic', 'Onion'],
         'instructions': 'Boil meat with tamarind, add vegetables, season with fish sauce.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/lunch/sinigang.jpg',
       },
       {
         'id': 'local_filipino_lunch_3',
@@ -953,6 +1272,7 @@ class AIMealPlannerService {
         'ingredients': ['Beef or pork', 'Peanut butter', 'Vegetables', 'Shrimp paste', 'Garlic'],
         'instructions': 'Cook meat until tender, add peanut sauce and vegetables.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/lunch/kare_kare.jpg',
       },
       {
         'id': 'local_filipino_lunch_4',
@@ -970,6 +1290,7 @@ class AIMealPlannerService {
         'ingredients': ['Pork', 'Coconut milk', 'Chili peppers', 'Shrimp paste', 'Garlic', 'Onion'],
         'instructions': 'Cook pork with coconut milk and chili peppers until tender.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/lunch/bicol_express.jpg',
       },
       {
         'id': 'local_filipino_lunch_5',
@@ -987,6 +1308,7 @@ class AIMealPlannerService {
         'ingredients': ['Taro leaves', 'Coconut milk', 'Chili peppers', 'Shrimp paste', 'Garlic'],
         'instructions': 'Cook taro leaves in coconut milk with chili and shrimp paste.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/lunch/laing.jpg',
       },
       {
         'id': 'local_filipino_lunch_6',
@@ -1004,6 +1326,7 @@ class AIMealPlannerService {
         'ingredients': ['Bangus (milkfish)', 'Vinegar', 'Fish sauce', 'Garlic', 'Ginger'],
         'instructions': 'Cook bangus in vinegar and fish sauce with garlic and ginger.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/lunch/pinakbet.jpg',
       },
       {
         'id': 'local_filipino_lunch_7',
@@ -1057,6 +1380,7 @@ class AIMealPlannerService {
         'ingredients': ['Pork belly', 'Garlic', 'Bay leaves', 'Salt', 'Pepper'],
         'instructions': 'Boil pork until tender, then deep fry until crispy.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/dinner/lechon_kawali.jpg',
       },
       {
         'id': 'local_filipino_dinner_2',
@@ -1142,6 +1466,7 @@ class AIMealPlannerService {
         'ingredients': ['Beef', 'Tomato sauce', 'Vegetables', 'Cheese', 'Garlic', 'Onion'],
         'instructions': 'Cook beef with tomato sauce and vegetables, add cheese.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/dinner/beef_caldereta.jpg',
       },
       {
         'id': 'local_filipino_dinner_7',
@@ -1229,6 +1554,7 @@ class AIMealPlannerService {
         'ingredients': ['Lumpia wrapper', 'Ground pork', 'Vegetables', 'Garlic', 'Soy sauce'],
         'instructions': 'Fill wrapper with meat and vegetables, roll and serve fresh.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/snacks/turon.jpg',
       },
       {
         'id': 'local_filipino_snack_2',
@@ -1246,6 +1572,7 @@ class AIMealPlannerService {
         'ingredients': ['Lumpia wrapper', 'Banana', 'Brown sugar', 'Jackfruit'],
         'instructions': 'Wrap banana and jackfruit in wrapper, fry until golden.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/snacks/turon.jpg',
       },
       {
         'id': 'local_filipino_snack_3',
@@ -1263,6 +1590,7 @@ class AIMealPlannerService {
         'ingredients': ['Shaved ice', 'Sweet beans', 'Jelly', 'Fruit', 'Evaporated milk', 'Ice cream'],
         'instructions': 'Layer ingredients in glass, top with shaved ice and milk.',
         'cuisine': 'Filipino',
+        'image': 'assets/images/filipino/snacks/halo_halo.jpg',
       },
       {
         'id': 'local_filipino_snack_4',
@@ -1704,40 +2032,84 @@ class AIMealPlannerService {
     double targetCalories,
     Map<String, dynamic> analysis,
   ) {
-    // Generate a simple fallback meal when recipe fetching fails
-    final mealTemplates = {
-      'breakfast': {
-        'title': 'Healthy Breakfast Bowl',
-        'description': 'A balanced breakfast with protein, whole grains, and fruits',
-        'estimatedCalories': targetCalories,
-        'ingredients': ['Oatmeal', 'Greek yogurt', 'Berries', 'Nuts', 'Honey'],
-      },
-      'lunch': {
-        'title': 'Nutritious Lunch Plate',
-        'description': 'A wholesome lunch with lean protein and vegetables',
-        'estimatedCalories': targetCalories,
-        'ingredients': ['Grilled chicken', 'Mixed greens', 'Quinoa', 'Vegetables', 'Olive oil'],
-      },
-      'dinner': {
-        'title': 'Balanced Dinner',
-        'description': 'A complete dinner with protein, complex carbs, and vegetables',
-        'estimatedCalories': targetCalories,
-        'ingredients': ['Salmon', 'Brown rice', 'Broccoli', 'Sweet potato', 'Herbs'],
-      },
-      'snack': {
-        'title': 'Healthy Snack',
-        'description': 'A nutritious snack to keep you energized',
-        'estimatedCalories': targetCalories,
-        'ingredients': ['Apple', 'Almonds', 'Greek yogurt'],
-      },
+    // Use hardcoded Filipino recipes as fallback to ensure actual recipes are always used
+    final filipinoFallbacks = {
+      'breakfast': [
+        {
+          'title': 'Tapsilog',
+          'description': 'Traditional Filipino breakfast with cured beef, garlic rice, and fried egg',
+          'ingredients': ['Tapa (cured beef)', 'Garlic rice', 'Eggs', 'Soy sauce', 'Vinegar'],
+          'instructions': '1. Marinate beef strips in soy sauce, vinegar, garlic, and black pepper for at least 30 minutes.\n2. Heat oil in a pan and cook the marinated beef until tender and slightly caramelized.\n3. For garlic rice: Sauté minced garlic in oil until golden, add cooked rice and mix well.\n4. Fry eggs sunny-side up.\n5. Serve beef over garlic rice with fried egg on top.',
+          'nutrition': {'calories': 450, 'protein': 25, 'carbs': 45, 'fat': 18}
+        },
+        {
+          'title': 'Champorado',
+          'description': 'Sweet chocolate rice porridge with milk',
+          'ingredients': ['Glutinous rice', 'Cocoa powder', 'Milk', 'Sugar', 'Salt'],
+          'instructions': '1. Rinse glutinous rice until water runs clear.\n2. In a pot, combine rice with water and bring to a boil.\n3. Reduce heat and simmer, stirring occasionally, until rice is tender (about 20 minutes).\n4. Add cocoa powder and mix well until fully incorporated.\n5. Gradually add milk while stirring continuously.\n6. Add sugar to taste and continue cooking until thick and creamy.',
+          'nutrition': {'calories': 380, 'protein': 12, 'carbs': 68, 'fat': 8}
+        },
+        {
+          'title': 'Tocino with Garlic Rice',
+          'description': 'Sweet cured pork with garlic fried rice',
+          'ingredients': ['Tocino (sweet cured pork)', 'Garlic rice', 'Soy sauce', 'Garlic'],
+          'instructions': '1. Heat oil in a pan over medium heat.\n2. Add tocino slices and cook for 3-4 minutes on each side.\n3. Add a splash of water and cover to steam for 2-3 minutes until fully cooked.\n4. Remove cover and continue cooking until caramelized and slightly crispy.',
+          'nutrition': {'calories': 520, 'protein': 22, 'carbs': 58, 'fat': 24}
+        }
+      ],
+      'lunch': [
+        {
+          'title': 'Chicken Adobo',
+          'description': 'Classic Filipino braised chicken in soy sauce and vinegar',
+          'ingredients': ['Chicken', 'Soy sauce', 'Vinegar', 'Garlic', 'Bay leaves', 'Black pepper'],
+          'instructions': '1. Marinate chicken in soy sauce, vinegar, garlic, and black pepper for 30 minutes.\n2. Heat oil in a pot and brown the chicken pieces.\n3. Add the marinade and bay leaves.\n4. Bring to a boil, then simmer covered for 30-40 minutes until chicken is tender.\n5. Remove cover and simmer until sauce thickens.',
+          'nutrition': {'calories': 420, 'protein': 35, 'carbs': 12, 'fat': 25}
+        },
+        {
+          'title': 'Sinigang na Baboy',
+          'description': 'Filipino pork soup with tamarind and vegetables',
+          'ingredients': ['Pork', 'Tamarind', 'Tomatoes', 'Onions', 'Kangkong', 'Radish', 'Eggplant'],
+          'instructions': '1. Boil pork until tender.\n2. Add tamarind paste, tomatoes, and onions.\n3. Add vegetables and simmer until cooked.\n4. Season with salt and pepper to taste.',
+          'nutrition': {'calories': 380, 'protein': 28, 'carbs': 22, 'fat': 20}
+        }
+      ],
+      'dinner': [
+        {
+          'title': 'Kare-kare',
+          'description': 'Filipino oxtail stew in peanut sauce',
+          'ingredients': ['Oxtail', 'Peanut butter', 'Rice flour', 'Vegetables', 'Shrimp paste'],
+          'instructions': '1. Boil oxtail until tender.\n2. Make peanut sauce with peanut butter and rice flour.\n3. Add vegetables and simmer.\n4. Serve with shrimp paste.',
+          'nutrition': {'calories': 480, 'protein': 32, 'carbs': 25, 'fat': 28}
+        },
+        {
+          'title': 'Bicol Express',
+          'description': 'Spicy Filipino dish with pork and coconut milk',
+          'ingredients': ['Pork', 'Coconut milk', 'Chili peppers', 'Onions', 'Garlic', 'Ginger'],
+          'instructions': '1. Sauté pork until browned.\n2. Add aromatics and chili peppers.\n3. Pour coconut milk and simmer until thick.\n4. Season to taste.',
+          'nutrition': {'calories': 520, 'protein': 30, 'carbs': 18, 'fat': 35}
+        }
+      ],
+      'snack': [
+        {
+          'title': 'Turon',
+          'description': 'Filipino spring roll with banana and jackfruit',
+          'ingredients': ['Banana', 'Jackfruit strips', 'Brown sugar', 'Spring roll wrapper'],
+          'instructions': '1. Place banana and jackfruit on wrapper.\n2. Sprinkle with brown sugar.\n3. Roll tightly and deep fry until golden.',
+          'nutrition': {'calories': 280, 'protein': 4, 'carbs': 45, 'fat': 12}
+        }
+      ]
     };
     
+    final fallbackRecipes = filipinoFallbacks[mealType] ?? filipinoFallbacks['lunch']!;
+    final random = Random();
+    final selectedFallback = fallbackRecipes[random.nextInt(fallbackRecipes.length)];
+    
     return {
-      'recipe': mealTemplates[mealType] ?? mealTemplates['lunch']!,
+      'recipe': selectedFallback,
       'portionSize': 1.0,
       'estimatedCalories': targetCalories,
       'mealType': mealType,
-      'nutritionalInfo': {
+      'nutritionalInfo': selectedFallback['nutrition'] ?? {
         'calories': targetCalories,
         'protein': targetCalories * 0.25 / 4,
         'carbs': targetCalories * 0.45 / 4,

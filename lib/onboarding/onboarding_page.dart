@@ -165,10 +165,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
       activityLevel: activityLevel!,
       notifications: notifications,
     );
+    // Save profile with additional birthday field for Account Settings
+    final profileData = profile.toMap();
+    profileData['birthday'] = birthday!.toIso8601String(); // Add birthday as ISO string
+    
     await FirebaseFirestore.instance
         .collection('users')
         .doc(widget.uid)
-        .set(profile.toMap());
+        .set(profileData);
     if (mounted) {
       Navigator.of(context).pushReplacementNamed('/');
     }

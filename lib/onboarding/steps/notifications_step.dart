@@ -13,9 +13,9 @@ class NotificationsStep extends StatelessWidget {
   static const List<String> notificationTypes = [
     'None',
     'Meal reminders',
-    'Allergy warnings',
-    'New healthy recipes',
-    'Nutrition tips',
+    'Tips',
+    'Updates',
+    'News',
   ];
 
   @override

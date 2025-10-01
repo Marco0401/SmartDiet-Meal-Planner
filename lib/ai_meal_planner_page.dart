@@ -43,6 +43,71 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
     super.dispose();
   }
 
+  Future<void> _saveMealPlan() async {
+    if (_mealPlanData == null) return;
+    
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // Convert meal plan to saveable format
+      final meals = <Map<String, dynamic>>[];
+      final mealPlan = _mealPlanData!['mealPlan'] as Map<String, dynamic>? ?? {};
+      
+      mealPlan.forEach((day, dayData) {
+        final dayMeals = dayData['meals'] as Map<String, dynamic>? ?? {};
+        dayMeals.forEach((mealType, mealData) {
+          final meal = mealData as Map<String, dynamic>;
+          meals.add({
+            'date': day,
+            'meal_type': mealType,
+            'title': meal['title'] ?? 'AI Generated Meal',
+            'nutrition': meal['nutritionalInfo'] ?? meal['nutrition'] ?? {},
+            'ingredients': meal['ingredients'] ?? [],
+            'instructions': meal['instructions'] ?? '',
+          });
+        });
+      });
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meal_plans')
+          .add({
+        'name': 'AI Meal Plan - ${_selectedDays} days',
+        'type': 'AI',
+        'goal': _selectedGoal ?? 'General health',
+        'days': _selectedDays,
+        'meals': meals,
+        'created_at': FieldValue.serverTimestamp(),
+        'user_id': user.uid,
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Meal plan saved successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving meal plan: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _getMealType(int index) {
+    switch (index) {
+      case 0: return 'breakfast';
+      case 1: return 'lunch';
+      case 2: return 'dinner';
+      default: return 'snack';
+    }
+  }
+
   Future<void> _generateMealPlan() async {
     setState(() {
       _isLoading = true;
@@ -117,20 +182,64 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
         }
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('AI Meal Planner'),
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-            bottom: TabBar(
-              controller: _tabController,
-              indicatorColor: Colors.white,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              tabs: const [
-                Tab(text: 'Meal Plan'),
-                Tab(text: 'Analysis'),
-                Tab(text: 'Recommendations'),
-              ],
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(120),
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFF2E7D32),
+                    Color(0xFF388E3C),
+                    Color(0xFF4CAF50),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(25),
+                  bottomRight: Radius.circular(25),
+                ),
+              ),
+              child: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: const Text(
+                  'AI Meal Planner',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 22,
+                    color: Colors.white,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 2),
+                        blurRadius: 4,
+                        color: Colors.black26,
+                      ),
+                    ],
+                  ),
+                ),
+                bottom: TabBar(
+                  controller: _tabController,
+                  indicatorColor: Colors.white,
+                  indicatorWeight: 3,
+                  indicatorSize: TabBarIndicatorSize.label,
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                  ),
+                  tabs: const [
+                    Tab(text: 'Meal Plan'),
+                    Tab(text: 'Analysis'),
+                    Tab(text: 'Recommendations'),
+                  ],
+                ),
+              ),
             ),
           ),
           body: Column(
@@ -158,16 +267,35 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
 
   Widget _buildControlPanel() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            Colors.green[50]!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.green.withOpacity(0.15),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.white,
+            blurRadius: 0,
+            offset: const Offset(0, -1),
           ),
         ],
+        border: Border.all(
+          color: Colors.green[200]!,
+          width: 1,
+        ),
       ),
       child: Column(
         children: [
@@ -192,11 +320,24 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
                           const SizedBox(height: 8),
                           DropdownButtonFormField<int>(
                             value: _selectedDays,
-                            decoration: const InputDecoration(
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.green[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.green[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.green[600]!, width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
                               ),
                             ),
                             items: _dayOptions.map((days) {
@@ -229,11 +370,24 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
                           const SizedBox(height: 8),
                           DropdownButtonFormField<String>(
                             value: _selectedGoal,
-                            decoration: const InputDecoration(
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.green[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.green[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.green[600]!, width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
                               ),
                               hintText: 'Auto-detect',
                             ),
@@ -312,11 +466,24 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
                           value: _selectedGoal,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.green[300]!),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.green[300]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.green[600]!, width: 2),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
                             ),
                             hintText: 'Auto-detect',
                           ),
@@ -368,24 +535,38 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isLoading ? null : _generateMealPlan,
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: Text(_isLoading ? 'Generating...' : 'Generate New Plan'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _generateMealPlan,
+                  icon: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: Text(_isLoading ? 'Generating...' : 'Generate New Plan'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: _mealPlanData != null && !_isLoading ? _saveMealPlan : null,
+                icon: const Icon(Icons.save),
+                label: const Text('Save'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                ),
+              ),
+            ],
           ),
         ],
       ),

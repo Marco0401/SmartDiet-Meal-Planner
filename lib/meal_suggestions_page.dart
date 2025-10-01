@@ -342,24 +342,7 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
                 top: Radius.circular(12),
               ),
               child: recipe['image'] != null && recipe['image'].toString().isNotEmpty
-                  ? Image.network(
-                      recipe['image'],
-                      height: 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _buildPlaceholderImage();
-                      },
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Container(
-                          height: 180,
-                          child: const Center(
-                            child: CircularProgressIndicator(color: Colors.green),
-                          ),
-                        );
-                      },
-                    )
+                  ? _buildRecipeImage(recipe['image'], height: 180)
                   : _buildPlaceholderImage(),
             ),
 
@@ -422,6 +405,41 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildRecipeImage(String imagePath, {double? width, double? height}) {
+    if (imagePath.startsWith('assets/')) {
+      // Local asset image
+      return Image.asset(
+        imagePath,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholderImage();
+        },
+      );
+    } else {
+      // Network image
+      return Image.network(
+        imagePath,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholderImage();
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            height: height ?? 180,
+            child: const Center(
+              child: CircularProgressIndicator(color: Colors.green),
+            ),
+          );
+        },
+      );
+    }
   }
 
   Widget _buildPlaceholderImage() {
