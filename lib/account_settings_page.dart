@@ -206,6 +206,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             'activityLevel': _activityLevel,
             'notifications': _notifications,
           'notificationPreferences': _notifications, // Also save to the field used by NotificationService
+          'email': user.email, // Preserve the email from Firebase Auth
           'lastUpdated': FieldValue.serverTimestamp(),
         };
 

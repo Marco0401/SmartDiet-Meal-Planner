@@ -1,5 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class AllergenService {
-  // Common allergens and their variations
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  // Common allergens and their variations (fallback data)
   static const Map<String, List<String>> _allergens = {
     'dairy': [
       'milk', 'cheese', 'yogurt', 'cream', 'butter', 'whey', 'casein',
@@ -41,7 +45,7 @@ class AllergenService {
     ],
   };
 
-  // Substitution suggestions
+  // Substitution suggestions (fallback data)
   static const Map<String, List<String>> _substitutions = {
     'dairy': [
       'Almond milk for cow milk',
@@ -130,8 +134,16 @@ class AllergenService {
             if (!foundAllergens.containsKey(allergenType)) {
               foundAllergens[allergenType] = [];
             }
-            if (!foundAllergens[allergenType]!.contains(ingredientName)) {
-              foundAllergens[allergenType]!.add(ingredientName);
+            // Extract just the ingredient name for display
+            String displayName;
+            if (ingredient is Map<String, dynamic>) {
+              displayName = ingredient['name']?.toString() ?? ingredientName;
+            } else {
+              displayName = ingredientName;
+            }
+            
+            if (!foundAllergens[allergenType]!.contains(displayName)) {
+              foundAllergens[allergenType]!.add(displayName);
             }
             break;
           }
@@ -143,8 +155,97 @@ class AllergenService {
   }
 
   /// Get substitution suggestions for a specific allergen
-  static List<String> getSubstitutions(String allergenType) {
+  static Future<List<String>> getSubstitutions(String allergenType) async {
+    try {
+      // First try to get from Firestore
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final substitutions = data?['data'] as Map<String, dynamic>? ?? {};
+        return List<String>.from(substitutions[allergenType] ?? []);
+      }
+    } catch (e) {
+      print('Error getting substitutions from Firestore: $e');
+    }
+    
+    // Fallback to hardcoded data
     return _substitutions[allergenType] ?? [];
+  }
+
+  /// Get all substitution suggestions (for admin interface)
+  static Future<Map<String, List<String>>> getAllSubstitutions() async {
+    try {
+      // First try to get from Firestore
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final substitutions = data?['data'] as Map<String, dynamic>? ?? {};
+        return substitutions.map((key, value) => MapEntry(key, List<String>.from(value)));
+      }
+    } catch (e) {
+      print('Error getting all substitutions from Firestore: $e');
+    }
+    
+    // Fallback to hardcoded data
+    return _substitutions;
+  }
+
+  /// Update system substitutions (admin only)
+  static Future<void> updateSystemSubstitutions(Map<String, List<String>> newSubstitutions) async {
+    try {
+      await _firestore
+          .collection('system_data')
+          .doc('substitutions')
+          .update({
+            'data': newSubstitutions,
+            'updatedAt': DateTime.now().toIso8601String(),
+          });
+      
+      // Data will be fetched fresh from Firestore on next call
+      
+      print('System substitutions updated successfully');
+    } catch (e) {
+      print('Error updating system substitutions: $e');
+      rethrow;
+    }
+  }
+
+  /// Get substitution suggestions for a specific allergen including admin-created ones
+  static Future<List<String>> getSubstitutionsWithAdmin(String allergenType) async {
+    try {
+      // Start with system substitutions
+      final systemSubstitutions = await getSubstitutions(allergenType);
+      final allSubstitutions = List<String>.from(systemSubstitutions);
+      
+      // Fetch admin-created substitutions from Firestore
+      final adminSubstitutionsSnapshot = await FirebaseFirestore.instance
+          .collection('admin_substitutions')
+          .where('allergenType', isEqualTo: allergenType)
+          .get();
+      
+      // Add admin substitutions to the list
+      for (final doc in adminSubstitutionsSnapshot.docs) {
+        final data = doc.data();
+        final substitution = data['substitution'] as String?;
+        if (substitution != null && !allSubstitutions.contains(substitution)) {
+          allSubstitutions.add(substitution);
+        }
+      }
+      
+      return allSubstitutions;
+    } catch (e) {
+      print('Error fetching admin substitutions: $e');
+      // Return system substitutions as fallback
+      return await getSubstitutions(allergenType);
+    }
   }
 
   /// Get all available allergen types

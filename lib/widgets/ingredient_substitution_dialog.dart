@@ -19,6 +19,7 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
   String? _selectedIngredient;
   String? _selectedSubstitution;
   bool _isApplying = false;
+  bool _isLoading = true;
   List<String> _substitutableIngredients = [];
   Map<String, List<String>> _substitutionOptions = {};
 
@@ -28,9 +29,7 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
     _findSubstitutableIngredients();
   }
 
-  void _findSubstitutableIngredients() {
-    print('DEBUG: Finding substitutable ingredients for recipe: ${widget.recipe['title']}');
-    print('DEBUG: Detected allergens: ${widget.detectedAllergens}');
+  void _findSubstitutableIngredients() async {
     
     // Get ingredients from the recipe
     List<dynamic> ingredients = [];
@@ -73,11 +72,10 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
         if (allergen == 'Soy') allergenType = 'soy';
         
         if (foundAllergens.containsKey(allergenType)) {
-          print('DEBUG: Found allergen $allergenType in ingredient $ingredientName');
           if (!_substitutableIngredients.contains(ingredientName)) {
             _substitutableIngredients.add(ingredientName);
-            _substitutionOptions[ingredientName] = AllergenService.getSubstitutions(allergenType);
-            print('DEBUG: Added $ingredientName with substitutions: ${AllergenService.getSubstitutions(allergenType)}');
+            // Use the new method that includes admin substitutions
+            _substitutionOptions[ingredientName] = await AllergenService.getSubstitutionsWithAdmin(allergenType);
           }
         }
       }
@@ -100,13 +98,17 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
         
         final allergenName = AllergenService.getDisplayName(allergenType);
         _substitutableIngredients.add(allergenName);
-        _substitutionOptions[allergenName] = AllergenService.getSubstitutions(allergenType);
-        print('DEBUG: Added $allergenName with substitutions: ${AllergenService.getSubstitutions(allergenType)}');
+        _substitutionOptions[allergenName] = await AllergenService.getSubstitutionsWithAdmin(allergenType);
       }
     }
     
-    print('DEBUG: Substitutable ingredients: $_substitutableIngredients');
-    print('DEBUG: Substitution options: $_substitutionOptions');
+    
+    // Update UI
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   void _applySubstitution() async {
@@ -285,8 +287,21 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
                 const SizedBox(height: 20),
               ],
               
-              // Select Ingredient
-              if (_substitutableIngredients.isNotEmpty) ...[
+              // Loading indicator
+              if (_isLoading) ...[
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Column(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Loading substitution options...'),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else if (_substitutableIngredients.isNotEmpty) ...[
                 const Text(
                   'Select Ingredient to Substitute:',
                   style: TextStyle(

@@ -169,6 +169,31 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final profileData = profile.toMap();
     profileData['birthday'] = birthday!.toIso8601String(); // Add birthday as ISO string
     
+    // Get the current user's email from Firebase Auth to preserve it
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser?.email != null) {
+      profileData['email'] = currentUser!.email;
+    }
+    
+    // Also preserve the original createdAt timestamp if it exists
+    final existingDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.uid)
+        .get();
+    
+    if (existingDoc.exists) {
+      final existingData = existingDoc.data() as Map<String, dynamic>;
+      if (existingData['createdAt'] != null) {
+        profileData['createdAt'] = existingData['createdAt'];
+      }
+      if (existingData['email'] != null) {
+        profileData['email'] = existingData['email']; // Preserve existing email if available
+      }
+    }
+    
+    // Add lastUpdated timestamp
+    profileData['lastUpdated'] = FieldValue.serverTimestamp();
+    
     await FirebaseFirestore.instance
         .collection('users')
         .doc(widget.uid)

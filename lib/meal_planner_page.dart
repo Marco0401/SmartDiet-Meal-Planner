@@ -62,6 +62,31 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     }
   }
 
+  // Helper function to extract all ingredient names from a recipe
+  List<String> _extractAllIngredientNames(Map<String, dynamic> recipe) {
+    final ingredients = recipe['ingredients'] as List<dynamic>? ?? [];
+    final extendedIngredients = recipe['extendedIngredients'] as List<dynamic>? ?? [];
+    
+    final allIngredientNames = <String>[];
+    
+    // Add basic ingredients
+    allIngredientNames.addAll(ingredients.map((ing) => ing.toString().toLowerCase()));
+    
+    // Add extended ingredients
+    for (final ing in extendedIngredients) {
+      if (ing is Map<String, dynamic>) {
+        final name = (ing['name'] ?? ing['originalName'] ?? '').toString().toLowerCase();
+        if (name.isNotEmpty) {
+          allIngredientNames.add(name);
+        }
+      } else {
+        allIngredientNames.add(ing.toString().toLowerCase());
+      }
+    }
+    
+    return allIngredientNames;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2093,9 +2118,13 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
   Future<Map<String, List<Map<String, dynamic>>>> _createPersonalizedMealPlan(UserProfile? userProfile) async {
     // Get available recipes
     final allRecipes = await _getAllAvailableRecipes();
+    print('DEBUG: Total recipes fetched: ${allRecipes.length}');
     
     // Filter recipes based on user preferences
     final filteredRecipes = _filterRecipesByPreferences(allRecipes, userProfile);
+    print('DEBUG: Recipes after filtering: ${filteredRecipes.length}');
+    print('DEBUG: User allergies: ${userProfile?.allergies ?? []}');
+    print('DEBUG: User dietary preferences: ${userProfile?.dietaryPreferences ?? []}');
     
     // Calculate daily nutrition targets
     final nutritionTargets = _calculateNutritionTargets(userProfile);
@@ -2111,6 +2140,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       // Generate meals for this day
       final dayMeals = _generateDayMeals(filteredRecipes, nutritionTargets, day);
       mealPlan[dateKey] = dayMeals;
+      print('DEBUG: Generated ${dayMeals.length} meals for $dateKey');
     }
     
     return mealPlan;
@@ -2120,13 +2150,56 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     List<Map<String, dynamic>> allRecipes = [];
     
     try {
-      // Get Filipino recipes
+      // Get Filipino recipes (these already have full details)
       final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes('');
       allRecipes.addAll(filipinoRecipes.cast<Map<String, dynamic>>());
       
-      // Get some API recipes for variety
-      final apiRecipes = await RecipeService.fetchRecipes('healthy meal');
-      allRecipes.addAll(apiRecipes.cast<Map<String, dynamic>>());
+      // Get API recipes with full details - use multiple search terms for better variety
+      final searchTerms = ['healthy meal', 'dinner', 'lunch', 'breakfast', 'main course', 'chicken', 'beef', 'fish', 'vegetarian', 'pasta'];
+      final apiRecipes = <Map<String, dynamic>>[];
+      
+      for (final term in searchTerms) {
+        try {
+          final recipes = await RecipeService.fetchRecipes(term);
+          apiRecipes.addAll(recipes.cast<Map<String, dynamic>>());
+        } catch (e) {
+          print('Error fetching recipes for term "$term": $e');
+        }
+      }
+      
+      // Remove duplicates based on ID
+      final uniqueApiRecipes = <String, Map<String, dynamic>>{};
+      for (final recipe in apiRecipes) {
+        final id = recipe['id']?.toString();
+        if (id != null && !uniqueApiRecipes.containsKey(id)) {
+          uniqueApiRecipes[id] = recipe;
+        }
+      }
+      final uniqueRecipes = uniqueApiRecipes.values.toList();
+      
+      // Fetch full details for each API recipe
+      for (final recipe in uniqueRecipes) {
+        try {
+          final recipeId = recipe['id'];
+          if (recipeId != null && !recipeId.toString().startsWith('curated_') && !recipeId.toString().startsWith('local_')) {
+            // Fetch full recipe details
+            final fullDetails = await RecipeService.fetchRecipeDetails(recipeId);
+            if (fullDetails != null) {
+              allRecipes.add(fullDetails);
+            } else {
+              // If full details fail, use basic recipe with estimated nutrition
+              allRecipes.add(recipe);
+            }
+          } else {
+            // For Filipino/local recipes, use as-is
+            allRecipes.add(recipe);
+          }
+        } catch (e) {
+          print('Error fetching details for recipe ${recipe['id']}: $e');
+          // Use basic recipe if details fetch fails
+          allRecipes.add(recipe);
+        }
+      }
       
       print('DEBUG: Total recipes available for AI planning: ${allRecipes.length}');
       return allRecipes;
@@ -2148,11 +2221,13 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       // Filter by allergies
       final allergens = userProfile.allergies;
       if (allergens.isNotEmpty) {
-        final ingredients = recipe['ingredients'] as List<dynamic>? ?? [];
-        final ingredientText = ingredients.join(' ').toLowerCase();
+        final allIngredientNames = _extractAllIngredientNames(recipe);
+        final allIngredientText = allIngredientNames.join(' ').toLowerCase();
         
         for (final allergen in allergens) {
-          if (ingredientText.contains(allergen.toLowerCase())) {
+          if (allIngredientText.contains(allergen.toLowerCase())) {
+            print('DEBUG: Filtering out recipe "${recipe['title']}" due to allergen: $allergen');
+            print('DEBUG: Recipe ingredients: $allIngredientNames');
             return false; // Skip recipes with allergens
           }
         }
@@ -2161,28 +2236,32 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       // Filter by dietary preferences
       final dietaryPrefs = userProfile.dietaryPreferences;
       if (dietaryPrefs.contains('Vegetarian')) {
-        final ingredientText = (recipe['ingredients'] as List<dynamic>? ?? [])
-            .join(' ').toLowerCase();
-        if (ingredientText.contains('meat') || 
-            ingredientText.contains('chicken') || 
-            ingredientText.contains('pork') || 
-            ingredientText.contains('beef') ||
-            ingredientText.contains('fish')) {
+        final allIngredientNames = _extractAllIngredientNames(recipe);
+        final allIngredientText = allIngredientNames.join(' ').toLowerCase();
+        
+        if (allIngredientText.contains('meat') || 
+            allIngredientText.contains('chicken') || 
+            allIngredientText.contains('pork') || 
+            allIngredientText.contains('beef') ||
+            allIngredientText.contains('fish')) {
+          print('DEBUG: Filtering out recipe "${recipe['title']}" due to vegetarian preference');
           return false;
         }
       }
       
       if (dietaryPrefs.contains('Vegan')) {
-        final ingredientText = (recipe['ingredients'] as List<dynamic>? ?? [])
-            .join(' ').toLowerCase();
-        if (ingredientText.contains('meat') || 
-            ingredientText.contains('chicken') || 
-            ingredientText.contains('pork') || 
-            ingredientText.contains('beef') ||
-            ingredientText.contains('fish') ||
-            ingredientText.contains('milk') ||
-            ingredientText.contains('cheese') ||
-            ingredientText.contains('egg')) {
+        final allIngredientNames = _extractAllIngredientNames(recipe);
+        final allIngredientText = allIngredientNames.join(' ').toLowerCase();
+        
+        if (allIngredientText.contains('meat') || 
+            allIngredientText.contains('chicken') || 
+            allIngredientText.contains('pork') || 
+            allIngredientText.contains('beef') ||
+            allIngredientText.contains('fish') ||
+            allIngredientText.contains('milk') ||
+            allIngredientText.contains('cheese') ||
+            allIngredientText.contains('egg')) {
+          print('DEBUG: Filtering out recipe "${recipe['title']}" due to vegan preference');
           return false;
         }
       }
@@ -2263,25 +2342,36 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     final dayMeals = <Map<String, dynamic>>[];
     final random = Random(dayIndex + DateTime.now().millisecondsSinceEpoch);
     
-    // Separate recipes by meal type preference
+    // Calculate target calories per meal type
+    final totalCalories = nutritionTargets['calories']!;
+    final breakfastCalories = totalCalories * 0.25; // 25% for breakfast
+    final lunchCalories = totalCalories * 0.35;     // 35% for lunch
+    final dinnerCalories = totalCalories * 0.30;    // 30% for dinner
+    final snackCalories = totalCalories * 0.10;     // 10% for snack
+    
+    // Separate recipes by meal type with calorie ranges
     final breakfastRecipes = recipes.where((r) => 
       r['mealType']?.toString().toLowerCase() == 'breakfast' ||
-      (r['nutrition']?['calories'] ?? 600) < 500
+      ((r['nutrition']?['calories'] ?? 600) >= breakfastCalories * 0.7 && 
+       (r['nutrition']?['calories'] ?? 600) <= breakfastCalories * 1.3)
     ).toList();
     
     final lunchRecipes = recipes.where((r) => 
       r['mealType']?.toString().toLowerCase() == 'lunch' ||
-      ((r['nutrition']?['calories'] ?? 600) >= 400 && (r['nutrition']?['calories'] ?? 600) <= 700)
+      ((r['nutrition']?['calories'] ?? 600) >= lunchCalories * 0.7 && 
+       (r['nutrition']?['calories'] ?? 600) <= lunchCalories * 1.3)
     ).toList();
     
     final dinnerRecipes = recipes.where((r) => 
       r['mealType']?.toString().toLowerCase() == 'dinner' ||
-      (r['nutrition']?['calories'] ?? 600) >= 450
+      ((r['nutrition']?['calories'] ?? 600) >= dinnerCalories * 0.7 && 
+       (r['nutrition']?['calories'] ?? 600) <= dinnerCalories * 1.3)
     ).toList();
     
     final snackRecipes = recipes.where((r) => 
       r['mealType']?.toString().toLowerCase() == 'snack' ||
-      (r['nutrition']?['calories'] ?? 600) < 350
+      ((r['nutrition']?['calories'] ?? 600) >= snackCalories * 0.5 && 
+       (r['nutrition']?['calories'] ?? 600) <= snackCalories * 1.5)
     ).toList();
     
     // Add breakfast
@@ -2290,6 +2380,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       dayMeals.add({
         ...breakfast,
         'mealType': 'Breakfast',
+        'mealTime': getDefaultTimeForMealType('Breakfast'),
         'servings': 1,
       });
     }
@@ -2300,6 +2391,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       dayMeals.add({
         ...lunch,
         'mealType': 'Lunch',
+        'mealTime': getDefaultTimeForMealType('Lunch'),
         'servings': 1,
       });
     }
@@ -2310,6 +2402,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       dayMeals.add({
         ...dinner,
         'mealType': 'Dinner',
+        'mealTime': getDefaultTimeForMealType('Dinner'),
         'servings': 1,
       });
     }
@@ -2320,8 +2413,15 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       dayMeals.add({
         ...snack,
         'mealType': 'Snack',
+        'mealTime': getDefaultTimeForMealType('Snack'),
         'servings': 1,
       });
+    }
+    
+    print('DEBUG: Generated meals for day $dayIndex:');
+    for (final meal in dayMeals) {
+      final calories = meal['nutrition']?['calories'] ?? 0;
+      print('DEBUG: - ${meal['mealType']}: ${meal['title']} (${calories} cal)');
     }
     
     return dayMeals;
@@ -2360,6 +2460,13 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           'addedAt': FieldValue.serverTimestamp(),
           'aiGenerated': true,
           'nutrition': _ensureNutritionWithFiber(meal['nutrition'] ?? {}),
+          'mealTime': meal['mealTime'] != null ? {
+            'hour': meal['mealTime'].hour,
+            'minute': meal['mealTime'].minute,
+          } : {
+            'hour': getDefaultTimeForMealType(meal['mealType'] ?? 'lunch').hour,
+            'minute': getDefaultTimeForMealType(meal['mealType'] ?? 'lunch').minute,
+          },
         };
         
         batch.set(mealRef, mealData);

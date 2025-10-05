@@ -1,67 +1,107 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'filipino_recipe_service.dart';
 
 class RecipeService {
   static final String _apiKey = dotenv.env['SPOONACULAR_API_KEY'] ?? '';
+  
+  static bool get isApiKeyConfigured => _apiKey.isNotEmpty && _apiKey != 'your_api_key_here';
   static const String _baseUrl = 'https://api.spoonacular.com/recipes';
 
   static Future<List<dynamic>> fetchRecipes(String query) async {
     List<dynamic> allRecipes = [];
     
+    print('DEBUG: fetchRecipes called with query: "$query"');
+    print('DEBUG: API key configured: $isApiKeyConfigured');
+    print('DEBUG: API key: ${_apiKey.substring(0, 8)}...');
+    
     try {
-      // 1. Try Spoonacular first
-      if (_apiKey.isNotEmpty) {
-        final url = '$_baseUrl/complexSearch?query=$query&number=10&apiKey=$_apiKey';
-        final response = await http.get(Uri.parse(url));
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          final results = data['results'] as List<dynamic>? ?? [];
-          
-          // Validate and fix image URLs, ensure nutrition data
-          final spoonacularRecipes = results.map((recipe) {
-            final recipeMap = Map<String, dynamic>.from(recipe);
-            final imageUrl = recipeMap['image'] as String?;
+      // 1. Try Spoonacular first (only if API key is available)
+      if (isApiKeyConfigured) {
+        try {
+          final url = '$_baseUrl/complexSearch?query=$query&number=10&apiKey=$_apiKey';
+          print('DEBUG: Spoonacular URL: $url');
+          final response = await http.get(Uri.parse(url));
+          print('DEBUG: Spoonacular response status: ${response.statusCode}');
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            final results = data['results'] as List<dynamic>? ?? [];
             
-            // If image URL is null or empty, or if it's a Spoonacular URL that might fail,
-            // set it to null so the UI can show a placeholder
-            if (imageUrl == null || imageUrl.isEmpty || 
-                (imageUrl.contains('spoonacular.com') && !imageUrl.contains('https://'))) {
-              recipeMap['image'] = null;
-            }
+            // Validate and fix image URLs, ensure nutrition data
+            final spoonacularRecipes = results.map((recipe) {
+              final recipeMap = Map<String, dynamic>.from(recipe);
+              final imageUrl = recipeMap['image'] as String?;
+              
+              // If image URL is null or empty, or if it's a Spoonacular URL that might fail,
+              // set it to null so the UI can show a placeholder
+              if (imageUrl == null || imageUrl.isEmpty || 
+                  (imageUrl.contains('spoonacular.com') && !imageUrl.contains('https://'))) {
+                recipeMap['image'] = null;
+              }
+              
+              // Ensure nutrition data exists
+              if (recipeMap['nutrition'] == null) {
+                recipeMap['nutrition'] = _estimateNutritionFromTitle(recipeMap['title'] ?? '');
+              }
+              
+              return recipeMap;
+            }).toList();
             
-            // Ensure nutrition data exists
-            if (recipeMap['nutrition'] == null) {
-              recipeMap['nutrition'] = _estimateNutritionFromTitle(recipeMap['title'] ?? '');
-            }
-            
-            return recipeMap;
-          }).toList();
-          
-          allRecipes.addAll(spoonacularRecipes);
-        } else if (response.statusCode == 402) {
-          // API limit reached, continue to other sources
+            allRecipes.addAll(spoonacularRecipes);
+            print('DEBUG: Spoonacular API: Successfully fetched ${spoonacularRecipes.length} recipes');
+          } else if (response.statusCode == 402) {
+            // API limit reached, continue to other sources
+            print('Spoonacular API limit reached, trying other sources...');
+          } else {
+            print('Spoonacular API error: ${response.statusCode} - ${response.body}');
+          }
+        } catch (e) {
+          print('Spoonacular API error: $e');
         }
+      } else {
+        print('Spoonacular API key not configured, using fallback APIs');
       }
       
-      // 2. Try Filipino Recipe Service
+      // 2. Try TheMealDB (always available, no API key required)
+      try {
+        final themealdbRecipes = await _fetchRecipesFallback(query);
+        allRecipes.addAll(themealdbRecipes);
+        print('DEBUG: TheMealDB: Successfully fetched ${themealdbRecipes.length} recipes');
+      } catch (e) {
+        print('TheMealDB error: $e');
+      }
+      
+      // 3. Try Filipino Recipe Service (local recipes)
       try {
         final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(query);
         allRecipes.addAll(filipinoRecipes);
+        print('Filipino Recipe Service: Successfully fetched ${filipinoRecipes.length} recipes');
       } catch (e) {
         print('Filipino Recipe Service error: $e');
       }
       
-      // 3. If no recipes found, use TheMealDB fallback
-      if (allRecipes.isEmpty) {
-        allRecipes = await _fetchRecipesFallback(query);
+      // 4. Try Admin Recipes (from Firebase)
+      try {
+        final adminRecipes = await _fetchAdminRecipes(query);
+        allRecipes.addAll(adminRecipes);
+        print('Admin Recipes: Successfully fetched ${adminRecipes.length} recipes');
+      } catch (e) {
+        print('Admin Recipes error: $e');
       }
       
+      print('Total recipes fetched: ${allRecipes.length}');
       return allRecipes;
     } catch (e) {
+      print('Error in fetchRecipes: $e');
       // Use fallback on any error
-      return _fetchRecipesFallback(query);
+      try {
+        return await _fetchRecipesFallback(query);
+      } catch (fallbackError) {
+        print('Fallback also failed: $fallbackError');
+        return [];
+      }
     }
   }
 
@@ -76,7 +116,7 @@ class RecipeService {
       
       // Convert to similar format as Spoonacular
       return meals.map((meal) => {
-        'id': meal['idMeal'],
+        'id': 'themealdb_${meal['idMeal']}', // Prefix to identify TheMealDB recipes
         'title': meal['strMeal'],
         'image': meal['strMealThumb'],
         'sourceUrl': meal['strSource'],
@@ -88,14 +128,26 @@ class RecipeService {
 
   static Future<Map<String, dynamic>> fetchRecipeDetails(dynamic id) async {
     try {
-      // Try Filipino Recipe Service first for Filipino recipes
+      // Try admin recipes first
+      if (id.toString().startsWith('admin_')) {
+        final adminDetails = await _fetchAdminRecipeDetails(id.toString());
+        if (adminDetails != null) {
+          return adminDetails;
+        }
+      }
+      
+      // Try Filipino Recipe Service for Filipino recipes
       if (id.toString().startsWith('curated_') || 
-          id.toString().startsWith('themealdb_') ||
           id.toString().startsWith('local_filipino_')) {
         final filipinoDetails = await FilipinoRecipeService.getRecipeDetails(id.toString());
         if (filipinoDetails != null) {
           return filipinoDetails;
         }
+      }
+      
+      // Handle TheMealDB recipes
+      if (id.toString().startsWith('themealdb_')) {
+        return _fetchRecipeDetailsFallback(id);
       }
       
       // Try Spoonacular for other recipes
@@ -310,7 +362,13 @@ class RecipeService {
 
   static Future<Map<String, dynamic>> _fetchRecipeDetailsFallback(dynamic id) async {
     // Using TheMealDB as fallback
-    final url = 'https://www.themealdb.com/api/json/v1/1/lookup.php?i=$id';
+    // Extract the actual ID if it's prefixed
+    String actualId = id.toString();
+    if (actualId.startsWith('themealdb_')) {
+      actualId = actualId.substring('themealdb_'.length);
+    }
+    
+    final url = 'https://www.themealdb.com/api/json/v1/1/lookup.php?i=$actualId';
     final response = await http.get(Uri.parse(url));
     
     if (response.statusCode == 200) {
@@ -320,7 +378,7 @@ class RecipeService {
       if (meal != null) {
         // Convert to similar format as Spoonacular
         return {
-          'id': meal['idMeal'],
+          'id': id.toString(), // Keep the original prefixed ID
           'title': meal['strMeal'],
           'image': meal['strMealThumb'],
           'instructions': meal['strInstructions'],
@@ -344,10 +402,33 @@ class RecipeService {
       final measure = meal['strMeasure$i'];
       
       if (ingredient != null && ingredient.trim().isNotEmpty) {
+        // Parse amount safely
+        double amount = 1.0;
+        if (measure != null && measure.trim().isNotEmpty) {
+          // Try to extract number from measure string
+          final measureStr = measure.trim();
+          final numberMatch = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(measureStr);
+          if (numberMatch != null) {
+            amount = double.tryParse(numberMatch.group(1)!) ?? 1.0;
+          }
+        }
+        
         ingredients.add({
+          'id': i,
           'name': ingredient.trim(),
-          'amount': measure?.trim() ?? '1',
+          'nameClean': ingredient.trim().toLowerCase(),
+          'original': '${measure?.trim() ?? '1'} ${ingredient.trim()}',
+          'originalName': ingredient.trim(),
+          'amount': amount,
           'unit': '',
+          'measures': {
+            'us': {'amount': amount, 'unitShort': '', 'unitLong': ''},
+            'metric': {'amount': amount, 'unitShort': '', 'unitLong': ''},
+          },
+          'meta': [],
+          'consistency': 'SOLID',
+          'aisle': 'Produce',
+          'image': '',
         });
       }
     }
@@ -463,5 +544,187 @@ class RecipeService {
       'vitaminB6': 0.5,
       'vitaminB12': 1.0,
     };
+  }
+
+  /// Fetch admin-created recipes from Firebase
+  static Future<List<dynamic>> _fetchAdminRecipes(String query) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('admin_recipes')
+          .get();
+      
+      final allRecipes = snapshot.docs.map((doc) => {
+        'id': doc.id,
+        ...doc.data(),
+        'source': 'Admin Created',
+      }).toList();
+      
+      // Filter recipes based on search query
+      final filteredRecipes = allRecipes.where((recipe) {
+        final title = (recipe['title'] ?? '').toString().toLowerCase();
+        final description = (recipe['description'] ?? '').toString().toLowerCase();
+        final ingredients = (recipe['ingredients'] as List<dynamic>? ?? [])
+            .map((ing) => ing.toString().toLowerCase())
+            .join(' ');
+        final cuisine = (recipe['cuisine'] ?? '').toString().toLowerCase();
+        
+        final searchTerms = query.toLowerCase().split(' ');
+        
+        return searchTerms.any((term) =>
+            title.contains(term) ||
+            description.contains(term) ||
+            ingredients.contains(term) ||
+            cuisine.contains(term));
+      }).toList();
+      
+      return filteredRecipes;
+    } catch (e) {
+      print('Error fetching admin recipes: $e');
+      return [];
+    }
+  }
+
+  /// Fetch specific admin recipe details from Firebase
+  static Future<Map<String, dynamic>?> _fetchAdminRecipeDetails(String id) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('admin_recipes')
+          .doc(id)
+          .get();
+      
+      if (doc.exists) {
+        return {
+          'id': doc.id,
+          ...doc.data()!,
+          'source': 'Admin Created',
+        };
+      }
+      return null;
+    } catch (e) {
+      print('Error fetching admin recipe details: $e');
+      return null;
+    }
+  }
+
+  /// Update a single admin recipe and propagate changes to meal plans
+  static Future<void> updateSingleAdminRecipe(String recipeId, Map<String, dynamic> updatedRecipe) async {
+    try {
+      // Update the recipe in Firestore
+      await FirebaseFirestore.instance
+          .collection('admin_recipes')
+          .doc(recipeId)
+          .update({
+        ...updatedRecipe,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+      
+      print('Admin recipe updated successfully');
+      
+      // Propagate changes to existing meal plans and individual meals
+      await _propagateAdminRecipeChanges(recipeId, updatedRecipe);
+    } catch (e) {
+      print('Error updating admin recipe: $e');
+      rethrow;
+    }
+  }
+
+  /// Propagate admin recipe changes to existing meal plans and individual meals
+  static Future<void> _propagateAdminRecipeChanges(String recipeId, Map<String, dynamic> newRecipe) async {
+    try {
+      print('Propagating admin recipe changes for: ${newRecipe['title']}');
+      
+      // Get all users
+      final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
+      int updatedMealPlans = 0;
+      int updatedIndividualMeals = 0;
+      
+      for (final userDoc in usersSnapshot.docs) {
+        final userId = userDoc.id;
+        
+        // Update meal plans
+        final mealPlansSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('meal_plans')
+            .get();
+        
+        for (final mealPlanDoc in mealPlansSnapshot.docs) {
+          final mealPlanData = mealPlanDoc.data();
+          final meals = List<Map<String, dynamic>>.from(mealPlanData['meals'] ?? []);
+          bool needsUpdate = false;
+          
+          for (int i = 0; i < meals.length; i++) {
+            final meal = meals[i];
+            if (meal['recipeId'] == recipeId || 
+                meal['title'] == newRecipe['title'] ||
+                (meal['source'] == 'Admin Created' && meal['id'] == recipeId)) {
+              
+              // Update the meal with new recipe data
+              meals[i] = {
+                ...meal,
+                'title': newRecipe['title'],
+                'description': newRecipe['description'],
+                'instructions': newRecipe['instructions'],
+                'ingredients': newRecipe['ingredients'],
+                'image': newRecipe['image'],
+                'nutrition': newRecipe['nutrition'],
+                'cookingTime': newRecipe['cookingTime'],
+                'servings': newRecipe['servings'],
+                'recipeUpdatedAt': DateTime.now().toIso8601String(),
+              };
+              needsUpdate = true;
+            }
+          }
+          
+          if (needsUpdate) {
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(userId)
+                .collection('meal_plans')
+                .doc(mealPlanDoc.id)
+                .update({'meals': meals});
+            updatedMealPlans++;
+          }
+        }
+        
+        // Update individual meals
+        final mealsSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('meals')
+            .get();
+        
+        for (final mealDoc in mealsSnapshot.docs) {
+          final mealData = mealDoc.data();
+          if (mealData['recipeId'] == recipeId || 
+              mealData['title'] == newRecipe['title'] ||
+              (mealData['source'] == 'Admin Created' && mealData['id'] == recipeId)) {
+            
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(userId)
+                .collection('meals')
+                .doc(mealDoc.id)
+                .update({
+              'title': newRecipe['title'],
+              'description': newRecipe['description'],
+              'instructions': newRecipe['instructions'],
+              'ingredients': newRecipe['ingredients'],
+              'image': newRecipe['image'],
+              'nutrition': newRecipe['nutrition'],
+              'cookingTime': newRecipe['cookingTime'],
+              'servings': newRecipe['servings'],
+              'recipeUpdatedAt': DateTime.now().toIso8601String(),
+            });
+            updatedIndividualMeals++;
+          }
+        }
+      }
+      
+      print('Admin recipe propagation completed: $updatedMealPlans meal plans and $updatedIndividualMeals individual meals updated');
+    } catch (e) {
+      print('Error propagating admin recipe changes: $e');
+      // Don't rethrow - this is a background operation
+    }
   }
 } 

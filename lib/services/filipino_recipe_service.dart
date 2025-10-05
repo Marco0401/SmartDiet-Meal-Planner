@@ -1,28 +1,36 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class FilipinoRecipeService {
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   // Filipino recipe APIs and sources
   static const String _themealdbUrl = 'https://www.themealdb.com/api/json/v1/1';
 
   /// Fetch Filipino recipes from multiple sources
   static Future<List<dynamic>> fetchFilipinoRecipes(String query) async {
+    print('DEBUG: fetchFilipinoRecipes called with query: "$query"');
     List<dynamic> allRecipes = [];
     
     try {
       // 1. Try TheMealDB for Filipino dishes
+      print('DEBUG: Fetching from TheMealDB...');
       final mealDbRecipes = await _fetchFromTheMealDB(query);
+      print('DEBUG: TheMealDB returned ${mealDbRecipes.length} recipes');
       allRecipes.addAll(mealDbRecipes);
       
-      // 2. Add curated Filipino recipes from local database
-      final localFilipinoRecipes = _getCuratedFilipinoRecipes(query);
+      // 2. Add curated Filipino recipes from Firestore
+      print('DEBUG: Fetching curated Filipino recipes...');
+      final localFilipinoRecipes = await _getCuratedFilipinoRecipes(query);
+      print('DEBUG: Curated recipes returned ${localFilipinoRecipes.length} recipes');
       allRecipes.addAll(localFilipinoRecipes);
       
+      print('DEBUG: Total Filipino recipes: ${allRecipes.length}');
       return allRecipes;
     } catch (e) {
       print('Error fetching Filipino recipes: $e');
       // Return local recipes as fallback
-      return _getCuratedFilipinoRecipes(query);
+      return await _getCuratedFilipinoRecipes(query);
     }
   }
 
@@ -129,8 +137,51 @@ class FilipinoRecipeService {
     };
   }
 
-  /// Get curated Filipino recipes from local database
-  static List<dynamic> _getCuratedFilipinoRecipes(String query) {
+  /// Get curated Filipino recipes from Firestore
+  static Future<List<dynamic>> _getCuratedFilipinoRecipes(String query) async {
+    try {
+      print('DEBUG: Fetching curated Filipino recipes from Firestore...');
+      // First try to get from Firestore
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('filipino_recipes')
+          .get();
+      
+      print('DEBUG: Firestore doc exists: ${doc.exists}');
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final recipes = data?['data'] as List<dynamic>? ?? [];
+        print('DEBUG: Found ${recipes.length} recipes in Firestore');
+        
+        // Filter by query if provided
+        if (query.isNotEmpty) {
+          final lowercaseQuery = query.toLowerCase();
+          final filteredRecipes = recipes.where((recipe) {
+            final title = (recipe['title'] as String? ?? '').toLowerCase();
+            final description = (recipe['description'] as String? ?? '').toLowerCase();
+            return title.contains(lowercaseQuery) || description.contains(lowercaseQuery);
+          }).toList();
+          print('DEBUG: After filtering for "$query": ${filteredRecipes.length} recipes');
+          return filteredRecipes;
+        }
+        
+        print('DEBUG: Returning all ${recipes.length} recipes from Firestore');
+        return recipes;
+      } else {
+        print('DEBUG: No Firestore document found, falling back to hardcoded data');
+      }
+    } catch (e) {
+      print('Error getting curated recipes from Firestore: $e');
+    }
+    
+    // Fallback to hardcoded data
+    print('DEBUG: Using hardcoded Filipino recipes');
+    return _getHardcodedFilipinoRecipes(query);
+  }
+
+  /// Get hardcoded Filipino recipes (fallback)
+  static List<dynamic> _getHardcodedFilipinoRecipes(String query) {
     final allFilipinoRecipes = [
       // Filipino Breakfast Recipes
       {
@@ -437,12 +488,15 @@ class FilipinoRecipeService {
 
 
   /// Get curated recipe details
-  static Map<String, dynamic>? _getCuratedRecipeDetails(String id) {
-    final recipes = _getCuratedFilipinoRecipes('');
-    return recipes.firstWhere(
-      (recipe) => recipe['id'] == id,
-      orElse: () => null,
-    );
+  static Future<Map<String, dynamic>?> _getCuratedRecipeDetails(String id) async {
+    final recipes = await _getCuratedFilipinoRecipes('');
+    try {
+      return recipes.firstWhere(
+        (recipe) => recipe['id'] == id,
+      );
+    } catch (e) {
+      return null;
+    }
   }
 
   /// Generate estimated nutrition information for TheMealDB recipes
@@ -603,5 +657,344 @@ class FilipinoRecipeService {
     }
 
     return results;
+  }
+
+  /// Get a specific Filipino recipe by ID
+  static Future<dynamic> getFilipinoRecipeById(String id) async {
+    final recipes = await _getCuratedFilipinoRecipes('');
+    try {
+      return recipes.firstWhere(
+        (recipe) => recipe['id'] == id,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Update curated Filipino recipes (admin only)
+  static Future<void> updateCuratedFilipinoRecipes(List<Map<String, dynamic>> newRecipes) async {
+    try {
+      await _firestore
+          .collection('system_data')
+          .doc('filipino_recipes')
+          .update({
+            'data': newRecipes,
+            'updatedAt': DateTime.now().toIso8601String(),
+          });
+      
+      // Clear any cached data to ensure fresh data is fetched
+      // The next call to _getCuratedFilipinoRecipes will fetch fresh data from Firestore
+      
+      print('Curated Filipino recipes updated successfully');
+    } catch (e) {
+      print('Error updating curated Filipino recipes: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a single curated Filipino recipe (admin only)
+  static Future<void> updateSingleCuratedFilipinoRecipe(Map<String, dynamic> updatedRecipe) async {
+    try {
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('filipino_recipes')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final recipes = List<Map<String, dynamic>>.from(data?['data'] ?? []);
+        
+        // Find and update the specific recipe
+        final recipeIndex = recipes.indexWhere((recipe) => recipe['id'] == updatedRecipe['id']);
+        if (recipeIndex != -1) {
+          final oldRecipe = recipes[recipeIndex];
+          recipes[recipeIndex] = {
+            ...recipes[recipeIndex],
+            ...updatedRecipe,
+            'updatedAt': DateTime.now().toIso8601String(),
+          };
+          
+          await _firestore
+              .collection('system_data')
+              .doc('filipino_recipes')
+              .update({
+                'data': recipes,
+                'updatedAt': DateTime.now().toIso8601String(),
+              });
+          
+          print('Single curated Filipino recipe updated successfully');
+          
+          // Propagate changes to existing meal plans and individual meals
+          await _propagateRecipeChanges(oldRecipe, recipes[recipeIndex]);
+        } else {
+          print('Recipe with ID ${updatedRecipe['id']} not found');
+          throw Exception('Recipe not found');
+        }
+      } else {
+        throw Exception('Filipino recipes document not found');
+      }
+    } catch (e) {
+      print('Error updating single curated Filipino recipe: $e');
+      rethrow;
+    }
+  }
+
+  /// Propagate recipe changes to existing meal plans and individual meals
+  static Future<void> _propagateRecipeChanges(Map<String, dynamic> oldRecipe, Map<String, dynamic> newRecipe) async {
+    try {
+      print('Propagating recipe changes for: ${newRecipe['title']}');
+      
+      // Get all users
+      final usersSnapshot = await _firestore.collection('users').get();
+      int updatedMealPlans = 0;
+      int updatedIndividualMeals = 0;
+      List<String> affectedUsers = [];
+      
+      // Track what changed for notifications
+      final changes = _trackRecipeChanges(oldRecipe, newRecipe);
+      
+      for (final userDoc in usersSnapshot.docs) {
+        final userId = userDoc.id;
+        bool userAffected = false;
+        
+        // Update meal plans
+        final mealPlansSnapshot = await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('meal_plans')
+            .get();
+        
+        for (final mealPlanDoc in mealPlansSnapshot.docs) {
+          final mealPlanData = mealPlanDoc.data();
+          final meals = List<Map<String, dynamic>>.from(mealPlanData['meals'] ?? []);
+          bool needsUpdate = false;
+          
+          for (int i = 0; i < meals.length; i++) {
+            final meal = meals[i];
+            if (meal['recipeId'] == oldRecipe['id'] || 
+                meal['title'] == oldRecipe['title'] ||
+                (meal['source'] == 'curated' && meal['id'] == oldRecipe['id'])) {
+              
+              // Update the meal with new recipe data
+              meals[i] = {
+                ...meal,
+                'title': newRecipe['title'],
+                'description': newRecipe['description'],
+                'instructions': newRecipe['instructions'],
+                'ingredients': newRecipe['ingredients'],
+                'image': newRecipe['image'],
+                'nutrition': newRecipe['nutrition'],
+                'cookingTime': newRecipe['cookingTime'],
+                'servings': newRecipe['servings'],
+                'recipeUpdatedAt': DateTime.now().toIso8601String(),
+                'recipeUpdateHistory': [
+                  ...(meal['recipeUpdateHistory'] as List<dynamic>? ?? []),
+                  {
+                    'updatedAt': DateTime.now().toIso8601String(),
+                    'changes': changes,
+                    'updatedBy': 'admin',
+                  }
+                ],
+              };
+              needsUpdate = true;
+              userAffected = true;
+            }
+          }
+          
+          if (needsUpdate) {
+            await _firestore
+                .collection('users')
+                .doc(userId)
+                .collection('meal_plans')
+                .doc(mealPlanDoc.id)
+                .update({'meals': meals});
+            updatedMealPlans++;
+          }
+        }
+        
+        // Update individual meals
+        final mealsSnapshot = await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('meals')
+            .get();
+        
+        for (final mealDoc in mealsSnapshot.docs) {
+          final mealData = mealDoc.data();
+          if (mealData['recipeId'] == oldRecipe['id'] || 
+              mealData['title'] == oldRecipe['title'] ||
+              (mealData['source'] == 'curated' && mealData['id'] == oldRecipe['id'])) {
+            
+            await _firestore
+                .collection('users')
+                .doc(userId)
+                .collection('meals')
+                .doc(mealDoc.id)
+                .update({
+              'title': newRecipe['title'],
+              'description': newRecipe['description'],
+              'instructions': newRecipe['instructions'],
+              'ingredients': newRecipe['ingredients'],
+              'image': newRecipe['image'],
+              'nutrition': newRecipe['nutrition'],
+              'cookingTime': newRecipe['cookingTime'],
+              'servings': newRecipe['servings'],
+              'recipeUpdatedAt': DateTime.now().toIso8601String(),
+              'recipeUpdateHistory': [
+                ...(mealData['recipeUpdateHistory'] as List<dynamic>? ?? []),
+                {
+                  'updatedAt': DateTime.now().toIso8601String(),
+                  'changes': changes,
+                  'updatedBy': 'admin',
+                }
+              ],
+            });
+            updatedIndividualMeals++;
+            userAffected = true;
+          }
+        }
+        
+        if (userAffected) {
+          affectedUsers.add(userId);
+        }
+      }
+      
+      // Send notifications to affected users
+      if (affectedUsers.isNotEmpty) {
+        await _sendRecipeUpdateNotifications(affectedUsers, newRecipe, changes);
+      }
+      
+      print('Recipe propagation completed: $updatedMealPlans meal plans and $updatedIndividualMeals individual meals updated for ${affectedUsers.length} users');
+    } catch (e) {
+      print('Error propagating recipe changes: $e');
+      // Don't rethrow - this is a background operation
+    }
+  }
+
+  /// Track what changed in the recipe
+  static List<String> _trackRecipeChanges(Map<String, dynamic> oldRecipe, Map<String, dynamic> newRecipe) {
+    List<String> changes = [];
+    
+    if (oldRecipe['title'] != newRecipe['title']) {
+      changes.add('Title: "${oldRecipe['title']}" → "${newRecipe['title']}"');
+    }
+    if (oldRecipe['description'] != newRecipe['description']) {
+      changes.add('Description updated');
+    }
+    if (oldRecipe['instructions'] != newRecipe['instructions']) {
+      changes.add('Instructions updated');
+    }
+    if (oldRecipe['ingredients']?.toString() != newRecipe['ingredients']?.toString()) {
+      changes.add('Ingredients updated');
+    }
+    if (oldRecipe['cookingTime'] != newRecipe['cookingTime']) {
+      changes.add('Cooking time: ${oldRecipe['cookingTime']} → ${newRecipe['cookingTime']} minutes');
+    }
+    if (oldRecipe['servings'] != newRecipe['servings']) {
+      changes.add('Servings: ${oldRecipe['servings']} → ${newRecipe['servings']}');
+    }
+    if (oldRecipe['image'] != newRecipe['image']) {
+      changes.add('Image updated');
+    }
+    
+    return changes;
+  }
+
+  /// Send notifications to users about recipe updates
+  static Future<void> _sendRecipeUpdateNotifications(List<String> userIds, Map<String, dynamic> recipe, List<String> changes) async {
+    try {
+      final notificationData = {
+        'type': 'recipe_updated',
+        'title': 'Recipe Updated: ${recipe['title']}',
+        'message': 'A recipe in your meal plan has been updated by our admin team.',
+        'details': {
+          'recipeId': recipe['id'],
+          'recipeTitle': recipe['title'],
+          'changes': changes,
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+        'isRead': false,
+        'createdAt': DateTime.now().toIso8601String(),
+        'priority': 'medium',
+      };
+
+      // Send to each affected user
+      for (final userId in userIds) {
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('notifications')
+            .add(notificationData);
+      }
+      
+      print('Recipe update notifications sent to ${userIds.length} users');
+    } catch (e) {
+      print('Error sending recipe update notifications: $e');
+    }
+  }
+
+  /// Add a new curated Filipino recipe (admin only)
+  static Future<void> addCuratedFilipinoRecipe(Map<String, dynamic> recipe) async {
+    try {
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('filipino_recipes')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final recipes = List<Map<String, dynamic>>.from(data?['data'] ?? []);
+        
+        // Add the new recipe
+        recipes.add({
+          ...recipe,
+          'id': recipe['id'] ?? 'curated_${DateTime.now().millisecondsSinceEpoch}',
+          'isEditable': true,
+          'createdAt': DateTime.now().toIso8601String(),
+        });
+        
+        await _firestore
+            .collection('system_data')
+            .doc('filipino_recipes')
+            .update({
+              'data': recipes,
+              'updatedAt': DateTime.now().toIso8601String(),
+            });
+        
+        print('Curated Filipino recipe added successfully');
+      }
+    } catch (e) {
+      print('Error adding curated Filipino recipe: $e');
+      rethrow;
+    }
+  }
+
+  /// Delete a curated Filipino recipe (admin only)
+  static Future<void> deleteCuratedFilipinoRecipe(String recipeId) async {
+    try {
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('filipino_recipes')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final recipes = List<Map<String, dynamic>>.from(data?['data'] ?? []);
+        
+        // Remove the recipe
+        recipes.removeWhere((recipe) => recipe['id'] == recipeId);
+        
+        await _firestore
+            .collection('system_data')
+            .doc('filipino_recipes')
+            .update({
+              'data': recipes,
+              'updatedAt': DateTime.now().toIso8601String(),
+            });
+      }
+    } catch (e) {
+      print('Error deleting curated Filipino recipe: $e');
+      rethrow;
+    }
   }
 }

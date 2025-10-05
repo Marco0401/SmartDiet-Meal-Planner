@@ -273,7 +273,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         // Get substitution suggestions
         final substitutionSuggestions = <String>[];
         for (final allergen in detectedAllergens) {
-          final suggestions = AllergenService.getSubstitutions(allergen);
+          final suggestions = await AllergenService.getSubstitutions(allergen);
           substitutionSuggestions.addAll(suggestions);
         }
         
@@ -1144,19 +1144,22 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     print('DEBUG: ingredients content: ${details['ingredients']}');
     
     if (details['extendedIngredients'] != null) {
-      // API recipe format
+      // API recipe format - prioritize extendedIngredients
       final extendedIngredients = details['extendedIngredients'];
-      if (extendedIngredients is List) {
+      if (extendedIngredients is List && extendedIngredients.isNotEmpty) {
         ingredients = extendedIngredients;
         print('DEBUG: Using extendedIngredients for allergen check, count: ${ingredients.length}');
       }
-    } else if (details['ingredients'] != null) {
+    }
+    
+    // Only use ingredients if extendedIngredients is not available or empty
+    if ((ingredients == null || ingredients.isEmpty) && details['ingredients'] != null) {
       // Local recipe format - convert to API-like format
       final localIngredients = details['ingredients'];
       print('DEBUG: localIngredients type: ${localIngredients.runtimeType}');
       print('DEBUG: localIngredients content: $localIngredients');
       
-      if (localIngredients is List) {
+      if (localIngredients is List && localIngredients.isNotEmpty) {
         print('DEBUG: Processing ingredients list for allergen check with ${localIngredients.length} items');
         ingredients = localIngredients.map((ingredient) {
           print('DEBUG: Processing ingredient for allergen check: $ingredient (type: ${ingredient.runtimeType})');
@@ -1328,13 +1331,29 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       const SizedBox(height: 4),
                       Padding(
                         padding: const EdgeInsets.only(left: 24),
-                        child: Text(
-                          'Substitutions: ${AllergenService.getSubstitutions(allergenType).take(2).join(', ')}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.green[600],
-                                fontStyle: FontStyle.italic,
-                              ),
+                        child: FutureBuilder<List<String>>(
+                          future: AllergenService.getSubstitutions(allergenType),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                              final substitutions = snapshot.data!;
+                              return Text(
+                                'Substitutions: ${substitutions.take(2).join(', ')}',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Colors.green[600],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                              );
+                            }
+                            return Text(
+                              'Substitutions: Loading...',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.grey[600],
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                            );
+                          },
                         ),
                       ),
                     ],
