@@ -7,6 +7,7 @@ import 'pages/substitutions_management_page.dart';
 import 'pages/analytics_page.dart';
 import 'pages/announcements_page.dart';
 import 'pages/curated_content_management_page.dart';
+import 'pages/bulk_recipe_operations_page.dart';
 import '../services/curated_data_migration_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -120,6 +121,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
       title: 'Manage Recipes',
       icon: Icons.restaurant_menu,
       widget: const RecipesManagementPage(),
+    ),
+    AdminPage(
+      title: 'Bulk Operations',
+      icon: Icons.group_work,
+      widget: const BulkRecipeOperationsPage(),
     ),
     AdminPage(
       title: 'Manage Substitutions',

@@ -637,9 +637,14 @@ class RecipeService {
       final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
       int updatedMealPlans = 0;
       int updatedIndividualMeals = 0;
+      List<String> affectedUsers = [];
+      
+      // Track what changed for notifications
+      final changes = _trackAdminRecipeChanges(recipeId, newRecipe);
       
       for (final userDoc in usersSnapshot.docs) {
         final userId = userDoc.id;
+        bool userAffected = false;
         
         // Update meal plans
         final mealPlansSnapshot = await FirebaseFirestore.instance
@@ -671,8 +676,17 @@ class RecipeService {
                 'cookingTime': newRecipe['cookingTime'],
                 'servings': newRecipe['servings'],
                 'recipeUpdatedAt': DateTime.now().toIso8601String(),
+                'recipeUpdateHistory': [
+                  ...(meal['recipeUpdateHistory'] as List<dynamic>? ?? []),
+                  {
+                    'updatedAt': DateTime.now().toIso8601String(),
+                    'changes': changes,
+                    'updatedBy': 'admin',
+                  }
+                ],
               };
               needsUpdate = true;
+              userAffected = true;
             }
           }
           
@@ -715,16 +729,100 @@ class RecipeService {
               'cookingTime': newRecipe['cookingTime'],
               'servings': newRecipe['servings'],
               'recipeUpdatedAt': DateTime.now().toIso8601String(),
+              'recipeUpdateHistory': [
+                ...(mealData['recipeUpdateHistory'] as List<dynamic>? ?? []),
+                {
+                  'updatedAt': DateTime.now().toIso8601String(),
+                  'changes': changes,
+                  'updatedBy': 'admin',
+                }
+              ],
             });
             updatedIndividualMeals++;
+            userAffected = true;
           }
+        }
+        
+        if (userAffected) {
+          affectedUsers.add(userId);
         }
       }
       
-      print('Admin recipe propagation completed: $updatedMealPlans meal plans and $updatedIndividualMeals individual meals updated');
+      // Send notifications to affected users
+      if (affectedUsers.isNotEmpty) {
+        await _sendAdminRecipeUpdateNotifications(affectedUsers, newRecipe, changes);
+      }
+      
+      print('Admin recipe propagation completed: $updatedMealPlans meal plans and $updatedIndividualMeals individual meals updated for ${affectedUsers.length} users');
     } catch (e) {
       print('Error propagating admin recipe changes: $e');
       // Don't rethrow - this is a background operation
+    }
+  }
+
+  /// Track what changed in the admin recipe
+  static List<String> _trackAdminRecipeChanges(String recipeId, Map<String, dynamic> newRecipe) {
+    List<String> changes = [];
+    
+    // Note: For admin recipes, we don't have the old recipe data easily accessible
+    // In a real implementation, you might want to store the old data before updating
+    changes.add('Recipe updated by admin');
+    
+    if (newRecipe['title'] != null) {
+      changes.add('Title: "${newRecipe['title']}"');
+    }
+    if (newRecipe['description'] != null) {
+      changes.add('Description updated');
+    }
+    if (newRecipe['instructions'] != null) {
+      changes.add('Instructions updated');
+    }
+    if (newRecipe['ingredients'] != null) {
+      changes.add('Ingredients updated');
+    }
+    if (newRecipe['cookingTime'] != null) {
+      changes.add('Cooking time: ${newRecipe['cookingTime']} minutes');
+    }
+    if (newRecipe['servings'] != null) {
+      changes.add('Servings: ${newRecipe['servings']}');
+    }
+    if (newRecipe['image'] != null) {
+      changes.add('Image updated');
+    }
+    
+    return changes;
+  }
+
+  /// Send notifications to users about admin recipe updates
+  static Future<void> _sendAdminRecipeUpdateNotifications(List<String> userIds, Map<String, dynamic> recipe, List<String> changes) async {
+    try {
+      final notificationData = {
+        'type': 'recipe_updated',
+        'title': 'Recipe Updated: ${recipe['title']}',
+        'message': 'A recipe in your meal plan has been updated by our admin team.',
+        'details': {
+          'recipeId': recipe['id'],
+          'recipeTitle': recipe['title'],
+          'changes': changes,
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+        'isRead': false,
+        'createdAt': DateTime.now().toIso8601String(),
+        'priority': 'medium',
+      };
+
+      // Send to each affected user
+      for (final userId in userIds) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('notifications')
+            .add(notificationData);
+      }
+      
+      print('Admin recipe update notifications sent to ${userIds.length} users');
+    } catch (e) {
+      print('Error sending admin recipe update notifications: $e');
     }
   }
 } 
