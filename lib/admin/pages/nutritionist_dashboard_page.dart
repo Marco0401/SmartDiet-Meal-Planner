@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'meal_plan_review_page.dart';
+import 'allergen_validation_page.dart';
+import 'guidelines_editor_page.dart';
+import 'content_creation_page.dart';
+import 'notification_center_page.dart';
 
 class NutritionistDashboardPage extends StatefulWidget {
   const NutritionistDashboardPage({super.key});
@@ -875,9 +880,22 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
           .where('status', isEqualTo: 'pending_review')
           .get();
       
+      // Get approved meal plans
+      final approvedMealPlansSnapshot = await FirebaseFirestore.instance
+          .collectionGroup('meal_plans')
+          .where('status', isEqualTo: 'approved')
+          .get();
+      
       // Get allergen validations
       final allergenValidationsSnapshot = await FirebaseFirestore.instance
           .collection('allergen_validations')
+          .where('status', isEqualTo: 'validated')
+          .get();
+      
+      // Get flagged allergens
+      final flaggedAllergensSnapshot = await FirebaseFirestore.instance
+          .collection('allergen_validations')
+          .where('status', isEqualTo: 'flagged')
           .get();
       
       // Get nutritional guidelines updates
@@ -887,13 +905,20 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
           .limit(10)
           .get();
       
+      // Get recent guidelines updates (this week)
+      final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+      final recentGuidelinesSnapshot = await FirebaseFirestore.instance
+          .collection('nutritional_guidelines')
+          .where('lastUpdated', isGreaterThan: Timestamp.fromDate(weekAgo))
+          .get();
+      
       final result = {
-        'reviewedMealPlans': 45, // Mock data for now
+        'reviewedMealPlans': approvedMealPlansSnapshot.docs.length,
         'pendingMealPlans': mealPlansSnapshot.docs.length,
-        'validatedAllergens': 32, // Mock data
-        'flaggedAllergens': allergenValidationsSnapshot.docs.length,
+        'validatedAllergens': allergenValidationsSnapshot.docs.length,
+        'flaggedAllergens': flaggedAllergensSnapshot.docs.length,
         'updatedGuidelines': guidelinesSnapshot.docs.length,
-        'recentUpdates': 3, // Mock data
+        'recentUpdates': recentGuidelinesSnapshot.docs.length,
       };
       
       print('DEBUG: Nutritionist stats result: $result');
@@ -913,46 +938,46 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
 
   // Navigation methods
   void _navigateToMealPlanReview() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Meal Plan Review - Coming Soon!'),
-        backgroundColor: Colors.blue,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const MealPlanReviewPage(),
       ),
     );
   }
 
   void _navigateToAllergenValidation() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Allergen Validation - Coming Soon!'),
-        backgroundColor: Colors.orange,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AllergenValidationPage(),
       ),
     );
   }
 
   void _navigateToGuidelinesEditor() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Guidelines Editor - Coming Soon!'),
-        backgroundColor: Colors.purple,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const GuidelinesEditorPage(),
       ),
     );
   }
 
   void _navigateToContentCreation() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Content Creation - Coming Soon!'),
-        backgroundColor: Colors.green,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ContentCreationPage(),
       ),
     );
   }
 
   void _navigateToNotificationCenter() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notification Center - Coming Soon!'),
-        backgroundColor: Colors.pink,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const NotificationCenterPage(),
       ),
     );
   }
