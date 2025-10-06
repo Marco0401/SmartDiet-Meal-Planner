@@ -192,12 +192,49 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             if (mealsData is List) {
               // Safely convert each item to Map<String, dynamic>
               for (final item in mealsData) {
+                Map<String, dynamic> meal;
                 if (item is Map<String, dynamic>) {
-                  meals.add(item);
+                  meal = item;
                 } else if (item is Map) {
                   // Convert Map<dynamic, dynamic> to Map<String, dynamic>
-                  meals.add(Map<String, dynamic>.from(item));
+                  meal = Map<String, dynamic>.from(item);
+                } else {
+                  continue; // Skip invalid items
                 }
+                
+                // Ensure ingredients are properly formatted for RecipeDetailPage
+                final ingredients = meal['ingredients'] ?? [];
+                final extendedIngredients = meal['extendedIngredients'];
+                
+                // Convert ingredients to proper format if needed
+                List<dynamic> processedIngredients = ingredients;
+                if (ingredients is List && ingredients.isNotEmpty) {
+                  processedIngredients = ingredients.map((ingredient) {
+                    if (ingredient is Map<String, dynamic>) {
+                      // Already in object format, keep as-is
+                      return ingredient;
+                    } else {
+                      // Convert string to object format
+                      return {
+                        'amount': 1,
+                        'unit': '',
+                        'name': ingredient.toString(),
+                      };
+                    }
+                  }).toList();
+                }
+                
+                // Update the meal with processed ingredients
+                meal['ingredients'] = processedIngredients;
+                meal['extendedIngredients'] = extendedIngredients;
+                
+                // Ensure recipeId is preserved if it exists
+                if (meal['recipeId'] == null && meal['id'] != null) {
+                  // If no recipeId, use the meal ID as fallback
+                  meal['recipeId'] = meal['id'];
+                }
+                
+                meals.add(meal);
               }
             }
           }
@@ -276,6 +313,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             'substituted': mealData['substituted'] ?? false,
             'originalAllergens': mealData['originalAllergens'],
             'substitutions': mealData['substitutions'],
+            'recipeId': mealData['recipeId'], // Preserve original recipe ID
             'source': mealData['source'] ?? 'meal_planner',
           };
               meals.add(convertedMeal);
@@ -569,6 +607,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             'mealTime': getDefaultTimeForMealType(mealType),
             'addedAt': DateTime.now().toIso8601String(),
             'id': null, // Will be set by Firestore
+            'recipeId': result['id'], // Preserve original recipe ID for fetching details
             'hasAllergens': false, // Mark as safe after substitution
             'substituted': true, // Mark as substituted
           };
@@ -600,6 +639,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           'mealTime': getDefaultTimeForMealType(mealType),
           'addedAt': DateTime.now().toIso8601String(),
           'id': null, // Ensure no ID initially
+          'recipeId': result['id'], // Preserve original recipe ID for fetching details
           'hasAllergens': hasAllergens, // Mark if meal has allergens
           'detectedAllergens': hasAllergens ? allergenResult['detectedAllergens'] : null,
         };
@@ -687,6 +727,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                       'substituted': meal['substituted'] ?? false, // Include substitution info
                       'originalAllergens': meal['originalAllergens'], // Include original allergens if substituted
                       'substitutions': meal['substitutions'], // Include substitutions if applied
+                      'recipeId': meal['recipeId'], // Preserve original recipe ID for fetching details
                       'created_at': FieldValue.serverTimestamp(),
                       'source': 'meal_planner',
                     });
@@ -1466,7 +1507,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                                     _removeMeal(dateKey, meals.indexOf(meal)),
                                 color: Colors.red[400],
                               ),
-                              onTap: () {
+                              onTap: () async {
                                 if (meal['id'] != null) {
                                   print('DEBUG: Opening meal from planner: ${meal['title']}');
                                   print('DEBUG: Meal data keys: ${meal.keys.toList()}');
@@ -1475,11 +1516,32 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                                   print('DEBUG: ExtendedIngredients type: ${meal['extendedIngredients']?.runtimeType}');
                                   print('DEBUG: ExtendedIngredients content: ${meal['extendedIngredients']}');
                                   
+                                  // Try to fetch full recipe details if we have a recipe ID
+                                  Map<String, dynamic> recipeToShow = meal;
+                                  
+                                  // Check if this meal has a recipe ID that we can fetch details for
+                                  final recipeId = meal['recipeId'] ?? meal['id'];
+                                  if (recipeId != null && 
+                                      !recipeId.toString().startsWith('local_') && 
+                                      !recipeId.toString().startsWith('manual_')) {
+                                    try {
+                                      print('DEBUG: Fetching full recipe details for: $recipeId');
+                                      final fullDetails = await RecipeService.fetchRecipeDetails(recipeId);
+                                      if (fullDetails != null) {
+                                        recipeToShow = fullDetails;
+                                        print('DEBUG: Successfully fetched full recipe details');
+                                      }
+                                    } catch (e) {
+                                      print('DEBUG: Error fetching full recipe details: $e');
+                                      // Continue with meal data if fetch fails
+                                    }
+                                  }
+                                  
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) =>
-                                          RecipeDetailPage(recipe: meal),
+                                          RecipeDetailPage(recipe: recipeToShow),
                                     ),
                                   );
                                 }

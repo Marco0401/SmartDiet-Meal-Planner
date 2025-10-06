@@ -17,7 +17,9 @@ class AllergenService {
     'fish': [
       'fish', 'salmon', 'tuna', 'cod', 'halibut', 'mackerel', 'sardines',
       'anchovies', 'trout', 'bass', 'snapper', 'grouper', 'tilapia',
-      'catfish', 'flounder', 'sole', 'perch', 'carp', 'eel'
+      'catfish', 'flounder', 'sole', 'perch', 'carp', 'eel',
+      'bangus', 'milkfish', 'bangus (milkfish)', 'lapu-lapu', 'galunggong', 
+      'tamban', 'tulingan', 'fish sauce', 'worcestershire'
     ],
     'shellfish': [
       'shrimp', 'prawn', 'crab', 'lobster', 'crayfish', 'crawfish',

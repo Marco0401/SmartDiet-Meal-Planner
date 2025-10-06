@@ -1065,12 +1065,16 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       
       // Get nutrition metrics
       final nutritionMetrics = await _getNutritionMetrics(startDate);
+      
+      // Get recipe update metrics
+      final recipeUpdateMetrics = await _getRecipeUpdateMetrics(startDate);
 
       final result = {
         'users': userMetrics,
         'recipes': recipeMetrics,
         'mealPlans': mealPlanMetrics,
         'nutrition': nutritionMetrics,
+        'recipeUpdates': recipeUpdateMetrics,
       };
       
       // Cache the result
@@ -1422,5 +1426,95 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       return '🌰';
     }
     return '⚠️';
+  }
+
+  Future<Map<String, dynamic>> _getRecipeUpdateMetrics(DateTime startDate) async {
+    try {
+      int totalRecipeUpdates = 0;
+      int affectedMealPlans = 0;
+      int affectedIndividualMeals = 0;
+      int notificationsSent = 0;
+      final updateTypes = <String, int>{};
+      
+      final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
+      
+      for (final userDoc in usersSnapshot.docs) {
+        // Check meal plans for recipe updates
+        final mealPlansSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userDoc.id)
+            .collection('meal_plans')
+            .get();
+        
+        for (final mealPlanDoc in mealPlansSnapshot.docs) {
+          final mealPlanData = mealPlanDoc.data();
+          final meals = mealPlanData['meals'] as List<dynamic>? ?? [];
+          
+          for (final meal in meals) {
+            if (meal['recipeUpdatedAt'] != null) {
+              final updatedAt = DateTime.tryParse(meal['recipeUpdatedAt']);
+              if (updatedAt != null && updatedAt.isAfter(startDate)) {
+                totalRecipeUpdates++;
+                affectedMealPlans++;
+                
+                // Track update types
+                final source = meal['source'] ?? 'unknown';
+                updateTypes[source] = (updateTypes[source] ?? 0) + 1;
+              }
+            }
+          }
+        }
+        
+        // Check individual meals for recipe updates
+        final mealsSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userDoc.id)
+            .collection('meals')
+            .where('recipeUpdatedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+            .get();
+        
+        for (final mealDoc in mealsSnapshot.docs) {
+          final mealData = mealDoc.data();
+          totalRecipeUpdates++;
+          affectedIndividualMeals++;
+          
+          // Track update types
+          final source = mealData['source'] ?? 'unknown';
+          updateTypes[source] = (updateTypes[source] ?? 0) + 1;
+        }
+        
+        // Count notifications
+        final notificationsSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userDoc.id)
+            .collection('notifications')
+            .where('type', isEqualTo: 'recipe_updated')
+            .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+            .get();
+        
+        notificationsSent += notificationsSnapshot.docs.length;
+      }
+      
+      return {
+        'totalUpdates': totalRecipeUpdates,
+        'affectedMealPlans': affectedMealPlans,
+        'affectedIndividualMeals': affectedIndividualMeals,
+        'notificationsSent': notificationsSent,
+        'updateTypes': updateTypes,
+        'averageUpdatesPerUser': usersSnapshot.docs.isNotEmpty 
+            ? (totalRecipeUpdates / usersSnapshot.docs.length).toStringAsFixed(1)
+            : '0',
+      };
+    } catch (e) {
+      print('Error getting recipe update metrics: $e');
+      return {
+        'totalUpdates': 0,
+        'affectedMealPlans': 0,
+        'affectedIndividualMeals': 0,
+        'notificationsSent': 0,
+        'updateTypes': <String, int>{},
+        'averageUpdatesPerUser': '0',
+      };
+    }
   }
 }

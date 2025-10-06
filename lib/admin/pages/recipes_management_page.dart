@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/recipe_service.dart';
 import '../../services/filipino_recipe_service.dart';
+import '../widgets/enhanced_recipe_dialog.dart';
+import 'bulk_recipe_operations_page.dart';
+import 'recipe_rollback_page.dart';
 
 class RecipesManagementPage extends StatefulWidget {
   const RecipesManagementPage({super.key});
@@ -17,7 +20,14 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        setState(() {
+          _searchQuery = ''; // Reset search when switching tabs
+        });
+      }
+    });
   }
 
   @override
@@ -33,10 +43,13 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
         title: const Text('Manage Recipes & Ingredients'),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           tabs: const [
             Tab(text: 'API Recipes', icon: Icon(Icons.public)),
             Tab(text: 'Filipino Recipes', icon: Icon(Icons.restaurant)),
             Tab(text: 'General Recipes', icon: Icon(Icons.folder)),
+            Tab(text: 'Bulk Operations', icon: Icon(Icons.group_work)),
+            Tab(text: 'Recipe Rollback', icon: Icon(Icons.undo)),
           ],
         ),
       ),
@@ -46,6 +59,8 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
           _buildApiRecipesTab(),
           _buildFilipinoRecipesTab(),
           _buildGeneralRecipesTab(),
+          const BulkRecipeOperationsPage(),
+          const RecipeRollbackPage(),
         ],
       ),
     );
@@ -353,6 +368,8 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
                   );
                 }
                 final recipes = snapshot.data ?? [];
+                print('DEBUG: Filipino recipes count: ${recipes.length}');
+                print('DEBUG: Search query: "$_searchQuery"');
                 
                 if (recipes.isEmpty) {
                   return Center(
@@ -663,10 +680,27 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
   void _editRecipe(dynamic recipe) {
     showDialog(
       context: context,
-      builder: (context) => EditFilipinoRecipeDialog(
+      builder: (context) => EnhancedRecipeDialog(
         recipe: recipe,
-        onRecipeUpdated: () {
-          setState(() {});
+        title: 'Edit Recipe',
+        onSave: (updatedRecipe) async {
+          try {
+            if (recipe['source'] == 'curated' || recipe['source'] == 'Filipino') {
+              await FilipinoRecipeService.updateSingleCuratedFilipinoRecipe(updatedRecipe);
+            } else {
+              await RecipeService.updateSingleAdminRecipe(recipe['id'], updatedRecipe);
+            }
+            setState(() {});
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error updating recipe: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
@@ -702,20 +736,34 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
     );
   }
 
-  void _editAdminRecipe(dynamic recipe) {
-    _editRecipe(recipe);
-  }
-
-  void _deleteAdminRecipe(dynamic recipe) {
-    _deleteRecipe(recipe);
-  }
 
   void _showAddRecipeDialog() {
     showDialog(
       context: context,
-      builder: (context) => AddRecipeDialog(
-        onRecipeAdded: (recipe) {
-          setState(() {});
+      builder: (context) => EnhancedRecipeDialog(
+        recipe: null,
+        title: 'Add New Recipe',
+        onSave: (newRecipe) async {
+          try {
+            // Add to admin recipes collection
+            await FirebaseFirestore.instance
+                .collection('admin_recipes')
+                .add({
+              ...newRecipe,
+              'createdAt': DateTime.now().toIso8601String(),
+              'source': 'Admin Created',
+            });
+            setState(() {});
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error adding recipe: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
@@ -1010,8 +1058,9 @@ class _EditFilipinoRecipeDialogState extends State<EditFilipinoRecipeDialog> {
   late List<TextEditingController> _ingredientControllers;
   late String _selectedMealType;
   bool _isUpdating = false;
+  
 
-  final List<String> _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+  final List<String> _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack', 'salad', 'soup', 'appetizer', 'dessert', 'beverage'];
 
   @override
   void initState() {
@@ -1022,7 +1071,8 @@ class _EditFilipinoRecipeDialogState extends State<EditFilipinoRecipeDialog> {
     _imageUrlController = TextEditingController(text: widget.recipe['image'] ?? '');
     _cookingTimeController = TextEditingController(text: widget.recipe['cookingTime']?.toString() ?? '');
     _servingsController = TextEditingController(text: widget.recipe['servings']?.toString() ?? '');
-    _selectedMealType = widget.recipe['mealType'] ?? 'breakfast';
+    final recipeMealType = widget.recipe['mealType'] ?? 'breakfast';
+    _selectedMealType = _mealTypes.contains(recipeMealType) ? recipeMealType : 'breakfast';
     
     final ingredients = widget.recipe['ingredients'] as List<dynamic>? ?? [];
     _ingredientControllers = ingredients.map((ingredient) => 
@@ -1205,7 +1255,7 @@ class _AddRecipeDialogState extends State<AddRecipeDialog> {
   late String _selectedMealType;
   bool _isAdding = false;
 
-  final List<String> _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+  final List<String> _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack', 'salad', 'soup', 'appetizer', 'dessert', 'beverage'];
 
   @override
   void initState() {

@@ -11,7 +11,7 @@ class AllergenDetectionService {
     'tree_nuts': ['almond', 'almonds', 'walnut', 'walnuts', 'cashew', 'cashews', 'pistachio', 'pistachios', 'hazelnut', 'hazelnuts', 'pecan', 'pecans', 'brazil nut', 'brazil nuts', 'macadamia', 'macadamias'],
     'milk': ['milk', 'dairy', 'cheese', 'butter', 'cream', 'yogurt', 'yoghurt', 'lactose', 'whey', 'casein', 'ghee', 'buttermilk'],
     'eggs': ['egg', 'eggs', 'egg white', 'egg yolk', 'albumen', 'lecithin', 'mayonnaise', 'mayo'],
-    'fish': ['fish', 'salmon', 'tuna', 'cod', 'halibut', 'sardine', 'anchovy', 'fish sauce', 'worcestershire'],
+    'fish': ['fish', 'salmon', 'tuna', 'cod', 'halibut', 'sardine', 'anchovy', 'fish sauce', 'worcestershire', 'bangus', 'milkfish', 'bangus (milkfish)', 'tilapia', 'lapu-lapu', 'galunggong', 'tamban', 'tulingan'],
     'shellfish': ['shrimp', 'prawn', 'crab', 'lobster', 'scallop', 'mussel', 'oyster', 'clam', 'shellfish', 'crustacean'],
     'wheat_gluten': ['wheat', 'flour', 'bread', 'pasta', 'noodles', 'gluten', 'semolina', 'bulgur', 'couscous', 'seitan'],
     'soy': ['soy', 'soya', 'soybean', 'soybeans', 'tofu', 'tempeh', 'miso', 'soy sauce', 'tamari', 'edamame'],
@@ -69,7 +69,22 @@ class AllergenDetectionService {
       }
 
       final detectedAllergens = <String>[];
-      final ingredients = List<String>.from(recipe['ingredients'] ?? []);
+      
+      // Handle both string and object ingredient formats
+      List<String> ingredients = [];
+      if (recipe['ingredients'] != null) {
+        final rawIngredients = recipe['ingredients'] as List<dynamic>;
+        ingredients = rawIngredients.map((ingredient) {
+          if (ingredient is Map<String, dynamic>) {
+            // Object format from Enhanced Recipe Dialog
+            return ingredient['name']?.toString() ?? '';
+          } else {
+            // String format
+            return ingredient.toString();
+          }
+        }).where((ingredient) => ingredient.isNotEmpty).toList();
+      }
+      
       final title = recipe['title']?.toString().toLowerCase() ?? '';
       final description = recipe['description']?.toString().toLowerCase() ?? '';
       final instructions = recipe['instructions']?.toString().toLowerCase() ?? '';

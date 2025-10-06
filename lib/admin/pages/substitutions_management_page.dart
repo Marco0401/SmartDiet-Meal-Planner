@@ -387,6 +387,8 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
       // Get usage statistics from Firestore meal plans
       final usageStats = await _getSubstitutionUsageStats();
       
+      print('DEBUG: Available substitutions keys: ${availableSubstitutions.map((s) => s['key']).toList()}');
+      print('DEBUG: Usage stats keys: ${usageStats.keys.toList()}');
       
       return {
         'available': availableSubstitutions,
@@ -539,8 +541,19 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                   
                   // Try to find the allergen type for this substitution
                   final allergenType = await _getAllergenTypeForSubstitution(ingredient, substitution);
-                  final key = '${allergenType}_${substitution}';
-                  usageStats[key] = (usageStats[key] ?? 0) + 1;
+                  
+                  // Try to find matching admin substitution
+                  final matchingAdminSubstitution = await _findMatchingAdminSubstitution(ingredient, substitution, allergenType);
+                  if (matchingAdminSubstitution != null) {
+                    final key = '${allergenType}_${matchingAdminSubstitution}';
+                    usageStats[key] = (usageStats[key] ?? 0) + 1;
+                    print('DEBUG: Recorded usage for: $key');
+                  } else {
+                    // If no exact match, create a generic key
+                    final key = '${allergenType}_${substitution}';
+                    usageStats[key] = (usageStats[key] ?? 0) + 1;
+                    print('DEBUG: Recorded usage for generic: $key');
+                  }
                 }
               }
             }
@@ -560,8 +573,19 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                 
                 // Try to find the allergen type for this substitution
                 final allergenType = await _getAllergenTypeForSubstitution(ingredient, substitution);
-                final key = '${allergenType}_${substitution}';
-                usageStats[key] = (usageStats[key] ?? 0) + 1;
+                
+                // Try to find matching admin substitution
+                final matchingAdminSubstitution = await _findMatchingAdminSubstitution(ingredient, substitution, allergenType);
+                if (matchingAdminSubstitution != null) {
+                  final key = '${allergenType}_${matchingAdminSubstitution}';
+                  usageStats[key] = (usageStats[key] ?? 0) + 1;
+                  print('DEBUG: Recorded usage for: $key');
+                } else {
+                  // If no exact match, create a generic key
+                  final key = '${allergenType}_${substitution}';
+                  usageStats[key] = (usageStats[key] ?? 0) + 1;
+                  print('DEBUG: Recorded usage for generic: $key');
+                }
               }
             }
           }
@@ -604,12 +628,65 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
     return allergenType;
   }
 
+  Future<String?> _findMatchingAdminSubstitution(String ingredient, String substitution, String allergenType) async {
+    try {
+      // Query admin substitutions for this allergen type
+      final adminSubstitutionsSnapshot = await FirebaseFirestore.instance
+          .collection('admin_substitutions')
+          .where('allergenType', isEqualTo: allergenType)
+          .get();
+      
+      for (final doc in adminSubstitutionsSnapshot.docs) {
+        final data = doc.data();
+        final adminSubstitution = data['substitution'] as String? ?? '';
+        
+        // Check if the admin substitution contains the user's substitution
+        if (adminSubstitution.toLowerCase().contains(substitution.toLowerCase()) ||
+            substitution.toLowerCase().contains(adminSubstitution.toLowerCase())) {
+          print('DEBUG: Found matching admin substitution: $adminSubstitution for user substitution: $substitution');
+          return adminSubstitution;
+        }
+      }
+      
+      // If no exact match, try to find by ingredient matching
+      for (final doc in adminSubstitutionsSnapshot.docs) {
+        final data = doc.data();
+        final adminSubstitution = data['substitution'] as String? ?? '';
+        
+        // Check if the admin substitution is for the same type of ingredient
+        if (adminSubstitution.toLowerCase().contains(ingredient.toLowerCase()) ||
+            ingredient.toLowerCase().contains(adminSubstitution.toLowerCase())) {
+          print('DEBUG: Found ingredient-based admin substitution: $adminSubstitution for ingredient: $ingredient');
+          return adminSubstitution;
+        }
+      }
+      
+      print('DEBUG: No matching admin substitution found for: $ingredient -> $substitution');
+      return null;
+    } catch (e) {
+      print('DEBUG: Error finding matching admin substitution: $e');
+      return null;
+    }
+  }
+
 
   String _getAllergenTypeForIngredient(String ingredient) {
     // Enhanced mapping to determine allergen type from ingredient
     final lowerIngredient = ingredient.toLowerCase();
     
     print('DEBUG: Mapping ingredient "$ingredient" to allergen type');
+    
+    // Fish (check before dairy since milkfish contains "milk")
+    if (lowerIngredient.contains('fish') || lowerIngredient.contains('salmon') || 
+        lowerIngredient.contains('tuna') || lowerIngredient.contains('cod') ||
+        lowerIngredient.contains('halibut') || lowerIngredient.contains('sardine') ||
+        lowerIngredient.contains('anchovy') || lowerIngredient.contains('bangus') ||
+        lowerIngredient.contains('milkfish') || lowerIngredient.contains('tilapia') ||
+        lowerIngredient.contains('lapu-lapu') || lowerIngredient.contains('galunggong') ||
+        lowerIngredient.contains('tamban') || lowerIngredient.contains('tulingan')) {
+      print('DEBUG: Mapped to Fish');
+      return 'fish';
+    }
     
     // Peanuts (check before dairy since peanut butter contains "butter")
     if (lowerIngredient.contains('peanut') || lowerIngredient.contains('groundnut') ||
@@ -618,7 +695,7 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
       return 'peanuts';
     }
     
-    // Dairy products
+    // Dairy products (check after fish to avoid milkfish being misclassified)
     if (lowerIngredient.contains('milk') || lowerIngredient.contains('cheese') || 
         lowerIngredient.contains('butter') || lowerIngredient.contains('cream') ||
         lowerIngredient.contains('yogurt') || lowerIngredient.contains('whey') ||

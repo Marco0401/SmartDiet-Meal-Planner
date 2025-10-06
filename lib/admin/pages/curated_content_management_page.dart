@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/curated_data_migration_service.dart';
 import '../../services/allergen_service.dart';
 import '../../services/filipino_recipe_service.dart';
+import '../widgets/enhanced_recipe_dialog.dart';
 
 class CuratedContentManagementPage extends StatefulWidget {
   const CuratedContentManagementPage({super.key});
@@ -431,10 +432,23 @@ class _CuratedContentManagementPageState extends State<CuratedContentManagementP
   void _addFilipinoRecipe() {
     showDialog(
       context: context,
-      builder: (context) => _EditFilipinoRecipeDialog(
+      builder: (context) => EnhancedRecipeDialog(
         recipe: null, // null means add new
-        onRecipeUpdated: () {
-          setState(() {}); // Refresh the page
+        title: 'Add Filipino Recipe',
+        onSave: (newRecipe) async {
+          try {
+            await FilipinoRecipeService.addCuratedFilipinoRecipe(newRecipe);
+            setState(() {}); // Refresh the page
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error adding recipe: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
@@ -443,10 +457,23 @@ class _CuratedContentManagementPageState extends State<CuratedContentManagementP
   void _editFilipinoRecipe(Map<String, dynamic> recipe, List<dynamic> allRecipes) {
     showDialog(
       context: context,
-      builder: (context) => _EditFilipinoRecipeDialog(
+      builder: (context) => EnhancedRecipeDialog(
         recipe: recipe,
-        onRecipeUpdated: () {
-          setState(() {}); // Refresh the page
+        title: 'Edit Filipino Recipe',
+        onSave: (updatedRecipe) async {
+          try {
+            await FilipinoRecipeService.updateSingleCuratedFilipinoRecipe(updatedRecipe);
+            setState(() {}); // Refresh the page
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error updating recipe: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'admin_login_page.dart';
 import 'admin_dashboard.dart';
 
@@ -55,7 +54,7 @@ class AdminAuthWrapper extends StatelessWidget {
                 return const AdminDashboard();
               } else {
                 return const AdminLoginPage(
-                  errorMessage: 'Access denied. Admin privileges required.',
+                  errorMessage: 'Access denied. Admin or Nutritionist privileges required.',
                 );
               }
             },
@@ -82,7 +81,8 @@ class AdminAuthWrapper extends StatelessWidget {
         final data = doc.data();
         print('DEBUG: User data: $data');
         
-        final isAdmin = data?['role'] == 'admin' || data?['isAdmin'] == true;
+        final userRole = data?['role']?.toString().toLowerCase();
+        final isAdmin = userRole == 'admin' || userRole == 'nutritionist' || data?['isAdmin'] == true;
         print('DEBUG: Is admin: $isAdmin');
         print('DEBUG: Role: ${data?['role']}');
         print('DEBUG: isAdmin field: ${data?['isAdmin']}');

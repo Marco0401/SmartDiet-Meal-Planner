@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/allergen_service.dart';
+import '../services/nutrition_service.dart';
 
 class IngredientSubstitutionDialog extends StatefulWidget {
   final Map<String, dynamic> recipe;
@@ -158,6 +159,10 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
         modifiedRecipe['ingredients'] = ingredients;
       }
       
+      // Recalculate nutrition with substituted ingredients
+      final updatedNutrition = await _recalculateNutrition(modifiedRecipe);
+      modifiedRecipe['nutrition'] = updatedNutrition;
+      
       // Mark as substituted
       modifiedRecipe['substituted'] = true;
       modifiedRecipe['originalAllergens'] = widget.detectedAllergens;
@@ -166,6 +171,7 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
       };
       
       print('DEBUG: Applied substitution: $_selectedIngredient -> $_selectedSubstitution');
+      print('DEBUG: Updated nutrition: $updatedNutrition');
       
       if (mounted) {
         Navigator.of(context).pop(modifiedRecipe);
@@ -183,6 +189,73 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
           _isApplying = false;
         });
       }
+    }
+  }
+
+  Future<Map<String, dynamic>> _recalculateNutrition(Map<String, dynamic> recipe) async {
+    try {
+      // Extract ingredients from the modified recipe
+      List<String> ingredientNames = [];
+      
+      if (recipe['extendedIngredients'] != null) {
+        final ingredients = recipe['extendedIngredients'] as List<dynamic>;
+        for (final ingredient in ingredients) {
+          if (ingredient is Map<String, dynamic>) {
+            ingredientNames.add(ingredient['name']?.toString() ?? '');
+          } else {
+            ingredientNames.add(ingredient.toString());
+          }
+        }
+      } else if (recipe['ingredients'] != null) {
+        final ingredients = recipe['ingredients'] as List<dynamic>;
+        for (final ingredient in ingredients) {
+          if (ingredient is Map<String, dynamic>) {
+            ingredientNames.add(ingredient['name']?.toString() ?? '');
+          } else {
+            ingredientNames.add(ingredient.toString());
+          }
+        }
+      }
+      
+      // Calculate nutrition using NutritionService
+      final calculatedNutrition = NutritionService.calculateRecipeNutrition(ingredientNames);
+      
+      // Convert to the format expected by the recipe
+      return {
+        'calories': calculatedNutrition['calories']?.round() ?? 0,
+        'protein': calculatedNutrition['protein']?.round() ?? 0,
+        'carbs': calculatedNutrition['carbs']?.round() ?? 0,
+        'fat': calculatedNutrition['fat']?.round() ?? 0,
+        'fiber': calculatedNutrition['fiber']?.round() ?? 0,
+        'sugar': 0, // Not calculated by NutritionService
+        'sodium': 0, // Not calculated by NutritionService
+        'cholesterol': 0, // Not calculated by NutritionService
+        'saturatedFat': 0, // Not calculated by NutritionService
+        'transFat': 0,
+        'monounsaturatedFat': 0, // Not calculated by NutritionService
+        'polyunsaturatedFat': 0, // Not calculated by NutritionService
+        'vitaminA': 0, // Not calculated by NutritionService
+        'vitaminC': 0, // Not calculated by NutritionService
+        'calcium': 0, // Not calculated by NutritionService
+        'iron': 0, // Not calculated by NutritionService
+        'potassium': 0, // Not calculated by NutritionService
+        'magnesium': 0, // Not calculated by NutritionService
+        'phosphorus': 0, // Not calculated by NutritionService
+        'zinc': 0, // Not calculated by NutritionService
+        'folate': 0, // Not calculated by NutritionService
+        'vitaminD': 0, // Not calculated by NutritionService
+        'vitaminE': 0, // Not calculated by NutritionService
+        'vitaminK': 0, // Not calculated by NutritionService
+        'thiamin': 0, // Not calculated by NutritionService
+        'riboflavin': 0, // Not calculated by NutritionService
+        'niacin': 0, // Not calculated by NutritionService
+        'vitaminB6': 0, // Not calculated by NutritionService
+        'vitaminB12': 0, // Not calculated by NutritionService
+      };
+    } catch (e) {
+      print('DEBUG: Error recalculating nutrition: $e');
+      // Return original nutrition if calculation fails
+      return recipe['nutrition'] as Map<String, dynamic>? ?? {};
     }
   }
 

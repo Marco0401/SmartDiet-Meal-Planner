@@ -128,8 +128,14 @@ class RecipeService {
 
   static Future<Map<String, dynamic>> fetchRecipeDetails(dynamic id) async {
     try {
-      // Try admin recipes first
+      // Try admin recipes first - check both admin_ prefix and direct ID lookup
       if (id.toString().startsWith('admin_')) {
+        final adminDetails = await _fetchAdminRecipeDetails(id.toString());
+        if (adminDetails != null) {
+          return adminDetails;
+        }
+      } else {
+        // Try direct admin recipe lookup for non-prefixed IDs
         final adminDetails = await _fetchAdminRecipeDetails(id.toString());
         if (adminDetails != null) {
           return adminDetails;

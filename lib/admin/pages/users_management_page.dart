@@ -242,21 +242,17 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
                                     // Role
                                     Expanded(
                                       flex: 1,
-                                      child: Container(
+                                      child:                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: (data['role'] == 'admin' || data['isAdmin'] == true) 
-                                              ? Colors.red.shade100 
-                                              : Colors.blue.shade100,
+                                          color: _getRoleBackgroundColor(data),
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                         child: Text(
-                                          (data['role'] == 'admin' || data['isAdmin'] == true) ? 'Admin' : 'User',
+                                          _getDisplayRole(data),
                                           style: TextStyle(
                                             fontSize: 12,
-                                            color: (data['role'] == 'admin' || data['isAdmin'] == true) 
-                                                ? Colors.red.shade700 
-                                                : Colors.blue.shade700,
+                                            color: _getRoleColor(data),
                                           ),
                                         ),
                                       ),
@@ -482,6 +478,39 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
     );
   }
 
+  String _getDisplayRole(Map<String, dynamic> data) {
+    final role = data['role']?.toString();
+    if (role == 'admin' || data['isAdmin'] == true) {
+      return 'Admin';
+    } else if (role == 'Nutritionist') {
+      return 'Nutritionist';
+    } else {
+      return 'User';
+    }
+  }
+
+  Color _getRoleColor(Map<String, dynamic> data) {
+    final role = data['role']?.toString();
+    if (role == 'admin' || data['isAdmin'] == true) {
+      return Colors.red.shade700;
+    } else if (role == 'Nutritionist') {
+      return Colors.purple.shade700;
+    } else {
+      return Colors.blue.shade700;
+    }
+  }
+
+  Color _getRoleBackgroundColor(Map<String, dynamic> data) {
+    final role = data['role']?.toString();
+    if (role == 'admin' || data['isAdmin'] == true) {
+      return Colors.red.shade100;
+    } else if (role == 'Nutritionist') {
+      return Colors.purple.shade100;
+    } else {
+      return Colors.blue.shade100;
+    }
+  }
+
   void _showEditUserDialog(String userId, Map<String, dynamic> userData) {
     showDialog(
       context: context,
@@ -498,12 +527,39 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
   void _showAddUserDialog() {
     showDialog(
       context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Account'),
+        content: const Text('Who would you like to register?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showAddUserDialogForRole('User');
+            },
+            child: const Text('Regular User'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showAddUserDialogForRole('Nutritionist');
+            },
+            child: const Text('Nutritionist'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddUserDialogForRole(String role) {
+    showDialog(
+      context: context,
       builder: (context) => AddUserDialog(
+        userRole: role,
         onUserAdded: () {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('User created successfully!'),
+            SnackBar(
+              content: Text('$role created successfully!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -620,10 +676,12 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
 
 class AddUserDialog extends StatefulWidget {
   final VoidCallback onUserAdded;
+  final String userRole;
 
   const AddUserDialog({
     super.key,
     required this.onUserAdded,
+    required this.userRole,
   });
 
   @override
@@ -650,13 +708,19 @@ class _AddUserDialogState extends State<AddUserDialog> {
   // Form data
   DateTime? _birthday;
   String? _gender;
-  String? _role = 'User';
+  String? _role;
   List<String> _healthConditions = [];
   List<String> _allergies = [];
   List<String> _dietaryPreferences = [];
   String? _goal;
   String? _activityLevel;
   List<String> _notifications = ['Meal reminders', 'Tips', 'Updates', 'News'];
+
+  @override
+  void initState() {
+    super.initState();
+    _role = widget.userRole; // Set role from constructor
+  }
 
   // Static lists from onboarding
   static const List<String> _conditionsList = [
@@ -1092,20 +1156,50 @@ class _AddUserDialogState extends State<AddUserDialog> {
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             value: _role,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Role *',
-              prefixIcon: Icon(Icons.admin_panel_settings),
+              prefixIcon: const Icon(Icons.admin_panel_settings),
+              suffixIcon: _role == 'Nutritionist' 
+                ? const Icon(Icons.verified, color: Colors.green)
+                : null,
             ),
             items: const [
               DropdownMenuItem(value: 'User', child: Text('User')),
               DropdownMenuItem(value: 'Admin', child: Text('Admin')),
+              DropdownMenuItem(value: 'Nutritionist', child: Text('Nutritionist')),
             ],
-            onChanged: (value) {
+            onChanged: _role == 'Nutritionist' ? null : (value) {
               setState(() {
                 _role = value;
               });
             },
           ),
+          if (_role == 'Nutritionist') ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info, color: Colors.green.shade600, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This account will have access to the Nutritionist Dashboard with specialized tools for meal plan review, allergen validation, and nutritional guidelines management.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

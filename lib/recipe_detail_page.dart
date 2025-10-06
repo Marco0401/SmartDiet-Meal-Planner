@@ -69,7 +69,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       print('DEBUG: ExtendedIngredients type: ${widget.recipe['extendedIngredients']?.runtimeType}');
       
       // Check if this is a local recipe or API recipe
-      final recipeId = widget.recipe['id'];
+      // Use recipeId if available (for meals from meal planner), otherwise fall back to id
+      final recipeId = widget.recipe['recipeId'] ?? widget.recipe['id'];
       
       if (recipeId == null) {
         // No ID, use the recipe data directly (this is likely a manually entered meal)
@@ -187,17 +188,13 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           _mlSourceText = text;
           _isRunningML = false;
           
-          // Safely process scores with null checks
-          if (result.scores != null) {
-            final positives = result.scores.entries
-                .where((e) => e.value == 1)
-                .where((e) => _findMlMatches(e.key, text).isNotEmpty)
-                .map((e) => '${e.key} ${(result.scores?[e.key] ?? 0).toStringAsFixed(2)}')
-                .toList();
-            _mlStatus = positives.isEmpty ? 'ML: no positives' : 'ML: ' + positives.join(', ');
-          } else {
-            _mlStatus = 'ML: no data';
-          }
+          // Process scores
+          final positives = result.scores.entries
+              .where((e) => e.value == 1)
+              .where((e) => _findMlMatches(e.key, text).isNotEmpty)
+              .map((e) => '${e.key} ${e.value.toStringAsFixed(2)}')
+              .toList();
+          _mlStatus = positives.isEmpty ? 'ML: no positives' : 'ML: ' + positives.join(', ');
         });
       }
     } catch (e) {
@@ -404,7 +401,22 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         
         if (ingredients is List) {
           final result = ingredients
-              .map((ing) => ing.toString())
+              .map((ing) {
+                // Handle both string format and object format
+                if (ing is Map<String, dynamic>) {
+                  // Object format from Enhanced Recipe Dialog
+                  final amount = ing['amount']?.toString() ?? '1';
+                  final unit = ing['unit']?.toString() ?? '';
+                  final name = ing['name']?.toString() ?? '';
+                  
+                  // Use original field if available, otherwise construct it
+                  return ing['original']?.toString() ?? 
+                         '${amount} ${unit} ${name}'.trim();
+                } else {
+                  // String format
+                  return ing.toString();
+                }
+              })
               .where((ing) => ing.isNotEmpty)
               .toList();
           print('DEBUG: Ingredients result: $result');
@@ -872,11 +884,23 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         print('DEBUG: Processing ingredients list with ${localIngredients.length} items');
         ingredients = localIngredients.map((ingredient) {
           print('DEBUG: Processing ingredient: $ingredient (type: ${ingredient.runtimeType})');
-          return {
-            'amount': 1,
-            'unit': '',
-            'name': ingredient.toString(),
-          };
+          
+          // Handle both string format and object format
+          if (ingredient is Map<String, dynamic>) {
+            // Object format from Enhanced Recipe Dialog
+            return {
+              'amount': _safeDouble(ingredient['amount']) ?? 1.0,
+              'unit': ingredient['unit']?.toString() ?? '',
+              'name': ingredient['name']?.toString() ?? '',
+            };
+          } else {
+            // String format
+            return {
+              'amount': 1.0,
+              'unit': '',
+              'name': ingredient.toString(),
+            };
+          }
         }).toList();
         print('DEBUG: Converted ingredients: $ingredients');
       } else {
@@ -1134,6 +1158,13 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
+  double? _safeDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
   Widget _buildAllergenSection(Map<String, dynamic> details) {
     // Handle both API recipes (extendedIngredients) and local recipes (ingredients)
     List<dynamic>? ingredients;
@@ -1163,11 +1194,23 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         print('DEBUG: Processing ingredients list for allergen check with ${localIngredients.length} items');
         ingredients = localIngredients.map((ingredient) {
           print('DEBUG: Processing ingredient for allergen check: $ingredient (type: ${ingredient.runtimeType})');
-          return {
-            'amount': 1,
-            'unit': '',
-            'name': ingredient.toString(),
-          };
+          
+          // Handle both string format and object format
+          if (ingredient is Map<String, dynamic>) {
+            // Object format from Enhanced Recipe Dialog
+            return {
+              'amount': _safeDouble(ingredient['amount']) ?? 1.0,
+              'unit': ingredient['unit']?.toString() ?? '',
+              'name': ingredient['name']?.toString() ?? '',
+            };
+          } else {
+            // String format
+            return {
+              'amount': 1.0,
+              'unit': '',
+              'name': ingredient.toString(),
+            };
+          }
         }).toList();
         print('DEBUG: Converted ingredients for allergen check: $ingredients');
       } else {
