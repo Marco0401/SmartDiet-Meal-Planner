@@ -15,8 +15,6 @@ class NutritionistDashboardPage extends StatefulWidget {
 
 class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> with TickerProviderStateMixin {
   late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
@@ -24,12 +22,6 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
     _animationController.forward();
   }
@@ -41,142 +33,56 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF4CAF50),
-              Color(0xFF8BC34A),
-              Color(0xFFCDDC39),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: SlideTransition(
-              position: _slideAnimation,
-              child: CustomScrollView(
-                slivers: [
-                  // Nutritionist Header
-                  SliverAppBar(
-                    expandedHeight: 200,
-                    floating: false,
-                    pinned: true,
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    automaticallyImplyLeading: false,
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFF4CAF50),
-                              Color(0xFF8BC34A),
-                            ],
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.2),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: const Icon(
-                                      Icons.medical_services,
-                                      color: Colors.white,
-                                      size: 32,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Nutritionist Dashboard',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          'Professional Nutrition Management & Review',
-                                          style: TextStyle(
-                                            color: Colors.white.withValues(alpha: 0.9),
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () {
-                                      setState(() {});
-                                    },
-                                    icon: const Icon(Icons.refresh, color: Colors.white),
-                                    tooltip: 'Refresh Dashboard',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  
-                  // Content
-                  SliverPadding(
-                    padding: const EdgeInsets.all(24),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        // Quick Stats Row
-                        _buildQuickStatsRow(),
-                        const SizedBox(height: 24),
-                        
-                        // Main Content Grid
-                        FutureBuilder<Map<String, dynamic>>(
-                          future: _getNutritionistStats(),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return _buildLoadingGrid();
-                            }
-                            
-                            if (snapshot.hasError) {
-                              return _buildErrorState(snapshot.error.toString());
-                            }
-                            
-                            final stats = snapshot.data ?? {};
-                            return _buildMainContent(stats);
-                          },
-                        ),
-                      ]),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+Widget build(BuildContext context) {
+  return Scaffold(
+    body: Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF4CAF50),
+            Color(0xFF8BC34A),
+            Color(0xFFCDDC39),
+          ],
         ),
       ),
-    );
-  }
+      child: CustomScrollView(
+        slivers: [
+          // Content
+          SliverPadding(
+            padding: const EdgeInsets.all(24),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                // Quick Stats Row
+                _buildQuickStatsRow(),
+                const SizedBox(height: 24),
+
+                // Main Content Grid
+                FutureBuilder<Map<String, dynamic>>(
+                  future: _getNutritionistStats(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return _buildLoadingGrid();
+                    }
+
+                    if (snapshot.hasError) {
+                      return _buildErrorState(snapshot.error.toString());
+                    }
+
+                    final stats = snapshot.data ?? {};
+                    return _buildMainContent(stats);
+                  },
+                ),
+              ]),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 
   Widget _buildQuickStatsRow() {
     return Row(
@@ -339,68 +245,6 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
             Expanded(
               flex: 2,
               child: _buildAllergenAlertCard(stats),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        
-        // Bottom Row - Action Cards
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionCard(
-                'Review Meal Plans',
-                'Review and approve user meal plans',
-                Icons.assignment,
-                const Color(0xFF2196F3),
-                () => _navigateToMealPlanReview(),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildActionCard(
-                'Validate Allergens',
-                'Check and validate allergen detections',
-                Icons.warning,
-                const Color(0xFFFF9800),
-                () => _navigateToAllergenValidation(),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildActionCard(
-                'Edit Guidelines',
-                'Update nutritional guidelines and standards',
-                Icons.edit_note,
-                const Color(0xFF9C27B0),
-                () => _navigateToGuidelinesEditor(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        
-        // Communication Row
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionCard(
-                'Send Educational Content',
-                'Share nutrition tips and educational materials',
-                Icons.school,
-                const Color(0xFF4CAF50),
-                () => _navigateToContentCreation(),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildActionCard(
-                'Send Notifications',
-                'Broadcast important updates to users',
-                Icons.notifications,
-                const Color(0xFFE91E63),
-                () => _navigateToNotificationCenter(),
-              ),
             ),
           ],
         ),
@@ -655,7 +499,10 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
 
   Widget _buildActionCard(String title, String subtitle, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: onTap,
+      onTap: () {
+        print('DEBUG: Action card tapped: $title');
+        onTap();
+      },
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -874,17 +721,36 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
     try {
       print('DEBUG: Fetching nutritionist stats...');
       
-      // Get meal plans that need review
-      final mealPlansSnapshot = await FirebaseFirestore.instance
-          .collectionGroup('meal_plans')
-          .where('status', isEqualTo: 'pending_review')
+      // Get all users first, then check their meal plans
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
           .get();
       
-      // Get approved meal plans
-      final approvedMealPlansSnapshot = await FirebaseFirestore.instance
-          .collectionGroup('meal_plans')
-          .where('status', isEqualTo: 'approved')
-          .get();
+      int pendingMealPlans = 0;
+      int approvedMealPlans = 0;
+      
+      // Check meal plans for each user (since collection group query needs index)
+      for (final userDoc in usersSnapshot.docs) {
+        try {
+          final pendingSnapshot = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userDoc.id)
+              .collection('meal_plans')
+              .where('status', isEqualTo: 'pending_review')
+              .get();
+          pendingMealPlans += pendingSnapshot.docs.length;
+          
+          final approvedSnapshot = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userDoc.id)
+              .collection('meal_plans')
+              .where('status', isEqualTo: 'approved')
+              .get();
+          approvedMealPlans += approvedSnapshot.docs.length;
+        } catch (e) {
+          print('Error checking meal plans for user ${userDoc.id}: $e');
+        }
+      }
       
       // Get allergen validations
       final allergenValidationsSnapshot = await FirebaseFirestore.instance
@@ -913,8 +779,8 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
           .get();
       
       final result = {
-        'reviewedMealPlans': approvedMealPlansSnapshot.docs.length,
-        'pendingMealPlans': mealPlansSnapshot.docs.length,
+        'reviewedMealPlans': approvedMealPlans,
+        'pendingMealPlans': pendingMealPlans,
         'validatedAllergens': allergenValidationsSnapshot.docs.length,
         'flaggedAllergens': flaggedAllergensSnapshot.docs.length,
         'updatedGuidelines': guidelinesSnapshot.docs.length,
@@ -938,47 +804,103 @@ class _NutritionistDashboardPageState extends State<NutritionistDashboardPage> w
 
   // Navigation methods
   void _navigateToMealPlanReview() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const MealPlanReviewPage(),
-      ),
-    );
+    print('DEBUG: Navigating to Meal Plan Review page');
+    try {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const MealPlanReviewPage(),
+        ),
+      );
+      print('DEBUG: Navigation successful');
+    } catch (e) {
+      print('DEBUG: Navigation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Navigation error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _navigateToAllergenValidation() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const AllergenValidationPage(),
-      ),
-    );
+    print('DEBUG: Navigating to Allergen Validation page');
+    try {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AllergenValidationPage(),
+        ),
+      );
+    } catch (e) {
+      print('DEBUG: Navigation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Navigation error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _navigateToGuidelinesEditor() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const GuidelinesEditorPage(),
-      ),
-    );
+    print('DEBUG: Navigating to Guidelines Editor page');
+    try {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const GuidelinesEditorPage(),
+        ),
+      );
+    } catch (e) {
+      print('DEBUG: Navigation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Navigation error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _navigateToContentCreation() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ContentCreationPage(),
-      ),
-    );
+    print('DEBUG: Navigating to Content Creation page');
+    try {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const ContentCreationPage(),
+        ),
+      );
+    } catch (e) {
+      print('DEBUG: Navigation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Navigation error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _navigateToNotificationCenter() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const NotificationCenterPage(),
-      ),
-    );
+    print('DEBUG: Navigating to Notification Center page');
+    try {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const NotificationCenterPage(),
+        ),
+      );
+    } catch (e) {
+      print('DEBUG: Navigation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Navigation error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

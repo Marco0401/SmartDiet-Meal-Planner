@@ -116,7 +116,6 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
       stream: FirebaseFirestore.instance
           .collection('notifications')
           .where('status', isEqualTo: status)
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

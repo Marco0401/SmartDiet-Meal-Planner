@@ -119,7 +119,6 @@ class _ContentCreationPageState extends State<ContentCreationPage> with TickerPr
       stream: FirebaseFirestore.instance
           .collection('educational_content')
           .where('type', isEqualTo: contentType)
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

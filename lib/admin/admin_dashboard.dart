@@ -8,6 +8,11 @@ import 'pages/analytics_page.dart';
 import 'pages/announcements_page.dart';
 import 'pages/curated_content_management_page.dart';
 import 'pages/nutritionist_dashboard_page.dart';
+import 'pages/meal_plan_review_page.dart';
+import 'pages/allergen_validation_page.dart';
+import 'pages/guidelines_editor_page.dart';
+import 'pages/content_creation_page.dart';
+import 'pages/notification_center_page.dart';
 import '../services/curated_data_migration_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -22,7 +27,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   bool _migrationChecked = false;
   String? _userEmail;
   String? _userRole;
-  
+
   @override
   void initState() {
     super.initState();
@@ -35,20 +40,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         _userEmail = user.email;
-        
+
         // Get user role from Firestore
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
             .get();
-        
+
         if (userDoc.exists) {
           final userData = userDoc.data();
           _userRole = userData?['role'] ?? 'User';
         } else {
           _userRole = 'User';
         }
-        
+
         if (mounted) {
           setState(() {});
         }
@@ -61,12 +66,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Future<void> _checkMigration() async {
     if (_migrationChecked) return;
-    
+
     try {
       print('DEBUG: Checking migration status...');
       final needsMigration = await CuratedDataMigrationService.needsMigration();
       print('DEBUG: Migration needed: $needsMigration');
-      
+
       if (needsMigration && mounted) {
         print('DEBUG: Showing migration dialog');
         _showMigrationDialog();
@@ -76,7 +81,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       print('Error checking migration: $e');
     }
-    
+
     setState(() {
       _migrationChecked = true;
     });
@@ -149,27 +154,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
         AdminPage(
           title: 'Review Meal Plans',
           icon: Icons.assignment,
-          widget: const DashboardOverviewPage(), // Placeholder for now
+          widget: const MealPlanReviewPage(),
         ),
         AdminPage(
-          title: 'Validate Allergens',
+          title: 'Allergen and Substitution Validation',
           icon: Icons.warning,
-          widget: const DashboardOverviewPage(), // Placeholder for now
+          widget: const AllergenValidationPage(),
         ),
         AdminPage(
           title: 'Edit Guidelines',
           icon: Icons.edit_note,
-          widget: const DashboardOverviewPage(), // Placeholder for now
+          widget: const GuidelinesEditorPage(),
         ),
         AdminPage(
           title: 'Send Content',
           icon: Icons.school,
-          widget: const DashboardOverviewPage(), // Placeholder for now
+          widget: const ContentCreationPage(),
         ),
         AdminPage(
           title: 'Notifications',
           icon: Icons.notifications,
-          widget: const AnnouncementsPage(),
+          widget: const NotificationCenterPage(),
         ),
       ];
     } else {
@@ -243,104 +248,171 @@ class _AdminDashboardState extends State<AdminDashboard> {
               children: [
                 // Header
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      CircleAvatar(
-                        radius: 30,
-                        backgroundColor: Colors.white,
+                      // Logo
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
                         child: Icon(
-                          _userRole == 'Nutritionist' 
-                            ? Icons.medical_services 
-                            : Icons.admin_panel_settings,
-                          size: 30,
-                          color: _userRole == 'Nutritionist' 
-                            ? Colors.blue.shade700 
-                            : Colors.green.shade700,
+                          _userRole == 'Nutritionist'
+                              ? Icons.medical_services
+                              : Icons.admin_panel_settings,
+                          size: 32,
+                          color: _userRole == 'Nutritionist'
+                              ? Colors.blue.shade700
+                              : Colors.green.shade700,
                         ),
                       ),
                       const SizedBox(height: 12),
+
+                      // Title
                       Text(
-                        _userRole == 'Nutritionist' 
-                          ? 'Nutritionist Dashboard' 
-                          : 'Admin Dashboard',
+                        _userRole == 'Nutritionist'
+                            ? 'SmartDiet Nutritionist'
+                            : 'SmartDiet Admin',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
+                          letterSpacing: 0.3,
                         ),
+                        textAlign: TextAlign.center,
                       ),
+                      const SizedBox(height: 4),
+
+                      // Subtitle
                       Text(
-                        _userEmail ?? FirebaseAuth.instance.currentUser?.email ?? '',
-                        style: const TextStyle(
-                          color: Colors.white70,
+                        'Real-time Analytics & Management',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
                           fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+
+                      // User Info Card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            // User Email
+                            Text(
+                              _userEmail ??
+                                  FirebaseAuth.instance.currentUser?.email ??
+                                  '',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+
+                            // Role Badge
+                            if (_userRole != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: _userRole == 'Nutritionist'
+                                      ? Colors.blue.withValues(alpha: 0.2)
+                                      : Colors.green.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  _userRole!,
+                                  style: TextStyle(
+                                    color: _userRole == 'Nutritionist'
+                                        ? Colors.blue.shade300
+                                        : Colors.green.shade300,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      if (_userRole != null) ...[
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _userRole == 'Nutritionist' 
-                              ? Colors.blue.withValues(alpha: 0.2)
-                              : Colors.green.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 12),
+
+                      // Check Migration Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            try {
+                              final needsMigration =
+                                  await CuratedDataMigrationService.needsMigration();
+                              if (needsMigration) {
+                                _showMigrationDialog();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        'No migration needed - data is already up to date!'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error checking migration: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.system_update, size: 16),
+                          label: const Text(
+                            'Check Migration',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                           ),
-                          child: Text(
-                            _userRole!,
-                            style: TextStyle(
-                              color: _userRole == 'Nutritionist' 
-                                ? Colors.blue.shade300
-                                : Colors.green.shade300,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
+                            elevation: 2,
                           ),
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-                
-                // Migration Button
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      try {
-                        final needsMigration = await CuratedDataMigrationService.needsMigration();
-                        if (needsMigration) {
-                          _showMigrationDialog();
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('No migration needed - data is already up to date!'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Error checking migration: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.system_update, size: 16),
-                    label: const Text('Check Migration', style: TextStyle(fontSize: 12)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                  ),
-                ),
-                
+
                 const Divider(color: Colors.white24),
-                
+
                 // Navigation Items
                 Expanded(
                   child: ListView.builder(
@@ -349,23 +421,32 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     itemBuilder: (context, index) {
                       final page = _pages[index];
                       final isSelected = index == _selectedIndex;
-                      
+
                       return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 2),
                         decoration: BoxDecoration(
-                          color: isSelected ? Colors.white.withValues(alpha: 0.2) : null,
+                          color: isSelected
+                              ? Colors.white.withValues(alpha: 0.2)
+                              : null,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: ListTile(
                           leading: Icon(
                             page.icon,
-                            color: isSelected ? Colors.white : Colors.white70,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.white70,
                           ),
                           title: Text(
                             page.title,
                             style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.white70,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              color: isSelected
+                                  ? Colors.white
+                                  : Colors.white70,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
                           ),
                           onTap: () {
@@ -378,9 +459,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     },
                   ),
                 ),
-                
+
                 const Divider(color: Colors.white24),
-                
+
                 // Logout Button
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -405,7 +486,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ],
             ),
           ),
-          
+
           // Main Content
           Expanded(
             child: _pages[_selectedIndex].widget,
@@ -415,6 +496,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 }
+
 
 class AdminPage {
   final String title;
@@ -484,84 +566,6 @@ class _DashboardOverviewPageState extends State<DashboardOverviewPage> with Tick
               position: _slideAnimation,
               child: CustomScrollView(
                 slivers: [
-                  // Modern Header
-                  SliverAppBar(
-                    expandedHeight: 200,
-                    floating: false,
-                    pinned: true,
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    automaticallyImplyLeading: false,
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFF4CAF50),
-                              Color(0xFF8BC34A),
-                            ],
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.2),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: const Icon(
-                                      Icons.admin_panel_settings,
-                                      color: Colors.white,
-                                      size: 32,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'SmartDiet Admin',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          'Real-time Analytics & Management',
-                                          style: TextStyle(
-                                            color: Colors.white.withValues(alpha: 0.9),
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () {
-                                      setState(() {});
-                                    },
-                                    icon: const Icon(Icons.refresh, color: Colors.white),
-                                    tooltip: 'Refresh Dashboard',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                   
                   // Content
                   SliverPadding(

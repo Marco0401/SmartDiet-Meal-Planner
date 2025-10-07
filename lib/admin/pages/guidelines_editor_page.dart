@@ -119,7 +119,6 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
       stream: FirebaseFirestore.instance
           .collection('nutritional_guidelines')
           .where('category', isEqualTo: category)
-          .orderBy('lastUpdated', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

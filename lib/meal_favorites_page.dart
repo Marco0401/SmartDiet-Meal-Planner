@@ -281,7 +281,7 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              Icons.favorite_border,
+                            Icons.favorite_border,
                               size: 80,
                               color: Colors.green[300],
                             ),
@@ -326,10 +326,10 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                       onRefresh: _loadFavorites,
                       color: Colors.green[600],
                       child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _favorites.length,
-                        itemBuilder: (context, index) {
-                          final favorite = _favorites[index];
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _favorites.length,
+                      itemBuilder: (context, index) {
+                        final favorite = _favorites[index];
                           return AnimatedContainer(
                             duration: Duration(milliseconds: 300 + (index * 100)),
                             curve: Curves.easeOutBack,
@@ -370,8 +370,8 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
           borderRadius: BorderRadius.circular(20),
         ),
         color: Colors.white,
-        child: InkWell(
-          onTap: () {
+      child: InkWell(
+        onTap: () {
             print('DEBUG: Opening favorite recipe: ${recipe['title']}');
             print('DEBUG: Recipe keys: ${recipe.keys.toList()}');
             print('DEBUG: Recipe source: ${recipe['source']}');
@@ -380,15 +380,15 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
             print('DEBUG: ExtendedIngredients type: ${recipe['extendedIngredients']?.runtimeType}');
             print('DEBUG: ExtendedIngredients content: ${recipe['extendedIngredients']}');
             
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => RecipeDetailPage(recipe: recipe),
-              ),
-            );
-          },
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => RecipeDetailPage(recipe: recipe),
+            ),
+          );
+        },
           borderRadius: BorderRadius.circular(20),
-          child: Column(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Recipe Image
@@ -448,7 +448,7 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: [
+                    children: [
                         Text(
                           'Rate: ',
                           style: TextStyle(
@@ -457,21 +457,21 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                             fontSize: 14,
                           ),
                         ),
-                        ...List.generate(5, (starIndex) {
-                          return GestureDetector(
-                            onTap: () => _rateRecipe(favorite, starIndex + 1.0),
+                      ...List.generate(5, (starIndex) {
+                        return GestureDetector(
+                          onTap: () => _rateRecipe(favorite, starIndex + 1.0),
                             child: Container(
                               padding: const EdgeInsets.all(2),
-                              child: Icon(
-                                starIndex < (rating ?? 0) ? Icons.star : Icons.star_border,
+                          child: Icon(
+                            starIndex < (rating ?? 0) ? Icons.star : Icons.star_border,
                                 color: Colors.amber[600],
                                 size: 20,
                               ),
-                            ),
-                          );
-                        }),
-                        if (rating != null) ...[
-                          const SizedBox(width: 8),
+                          ),
+                        );
+                      }),
+                      if (rating != null) ...[
+                        const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
@@ -479,8 +479,8 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              rating.toStringAsFixed(1),
-                              style: TextStyle(
+                          rating.toStringAsFixed(1),
+                          style: TextStyle(
                                 color: Colors.amber[800],
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,

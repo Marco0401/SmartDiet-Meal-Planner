@@ -31,7 +31,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Allergen Validation'),
+        title: const Text('Allergen and Substitution Validation'),
         backgroundColor: const Color(0xFFFF9800),
         foregroundColor: Colors.white,
         bottom: TabBar(
@@ -40,7 +40,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
           tabs: const [
-            Tab(text: 'Pending', icon: Icon(Icons.pending)),
+            Tab(text: 'Pending Review', icon: Icon(Icons.pending)),
             Tab(text: 'Validated', icon: Icon(Icons.check_circle)),
             Tab(text: 'Flagged', icon: Icon(Icons.warning)),
           ],
@@ -63,7 +63,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Search allergens...',
+                hintText: 'Search allergens and substitutions...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
@@ -111,7 +111,6 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
       stream: FirebaseFirestore.instance
           .collection('allergen_validations')
           .where('status', isEqualTo: status)
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -157,8 +156,8 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  status == 'pending' ? 'No allergens pending validation' :
-                  status == 'validated' ? 'No validated allergens' : 'No flagged allergens',
+                  status == 'pending' ? 'No allergens or substitutions pending validation' :
+                  status == 'validated' ? 'No validated allergens or substitutions' : 'No flagged allergens or substitutions',
                   style: TextStyle(
                     fontSize: 18,
                     color: Colors.grey.shade600,

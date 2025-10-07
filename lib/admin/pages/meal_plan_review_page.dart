@@ -27,6 +27,58 @@ class _MealPlanReviewPageState extends State<MealPlanReviewPage> with TickerProv
     super.dispose();
   }
 
+  Future<List<QueryDocumentSnapshot>> _fetchMealPlans(String status) async {
+    try {
+      // Get all users first, then check their meal plans
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .get();
+      
+      List<QueryDocumentSnapshot> allMealPlans = [];
+      
+      // Check meal plans for each user
+      for (final userDoc in usersSnapshot.docs) {
+        try {
+          final mealPlansSnapshot = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userDoc.id)
+              .collection('meal_plans')
+              .where('status', isEqualTo: status)
+              .get();
+          
+          // Add user info to each meal plan
+          for (final mealPlanDoc in mealPlansSnapshot.docs) {
+            final data = mealPlanDoc.data() as Map<String, dynamic>;
+            data['userId'] = userDoc.id;
+            data['userName'] = userDoc.data()['fullName'] ?? 'Unknown User';
+            allMealPlans.add(mealPlanDoc);
+          }
+        } catch (e) {
+          print('Error fetching meal plans for user ${userDoc.id}: $e');
+        }
+      }
+      
+      // Sort by createdAt if available
+      allMealPlans.sort((a, b) {
+        final aData = a.data() as Map<String, dynamic>;
+        final bData = b.data() as Map<String, dynamic>;
+        final aCreated = aData['createdAt'] as Timestamp?;
+        final bCreated = bData['createdAt'] as Timestamp?;
+        
+        if (aCreated == null && bCreated == null) return 0;
+        if (aCreated == null) return 1;
+        if (bCreated == null) return -1;
+        
+        return bCreated.compareTo(aCreated);
+      });
+      
+      return allMealPlans;
+    } catch (e) {
+      print('Error fetching meal plans: $e');
+      return [];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -107,12 +159,8 @@ class _MealPlanReviewPageState extends State<MealPlanReviewPage> with TickerProv
   }
 
   Widget _buildMealPlanList(String status) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collectionGroup('meal_plans')
-          .where('status', isEqualTo: status)
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
+    return FutureBuilder<List<QueryDocumentSnapshot>>(
+      future: _fetchMealPlans(status),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -136,12 +184,12 @@ class _MealPlanReviewPageState extends State<MealPlanReviewPage> with TickerProv
           );
         }
 
-        final mealPlans = snapshot.data?.docs ?? [];
+        final mealPlans = snapshot.data ?? [];
         final filteredPlans = mealPlans.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final userName = data['userName']?.toString().toLowerCase() ?? '';
           final planName = data['planName']?.toString().toLowerCase() ?? '';
-          return userName.contains(_searchQuery) || planName.contains(_searchQuery);
+          return userName.contains(_searchQuery.toLowerCase()) || planName.contains(_searchQuery.toLowerCase());
         }).toList();
 
         if (filteredPlans.isEmpty) {
