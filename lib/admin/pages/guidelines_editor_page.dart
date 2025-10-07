@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import '../../services/personalized_nutrition_service.dart';
 
 class GuidelinesEditorPage extends StatefulWidget {
   const GuidelinesEditorPage({super.key});
@@ -17,7 +18,7 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -45,6 +46,7 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
             Tab(text: 'Allergen Rules', icon: Icon(Icons.warning)),
             Tab(text: 'Dietary Standards', icon: Icon(Icons.restaurant)),
             Tab(text: 'Health Conditions', icon: Icon(Icons.health_and_safety)),
+            Tab(text: 'Personalized Rules', icon: Icon(Icons.person_pin)),
           ],
         ),
         actions: [
@@ -106,6 +108,7 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
                 _buildGuidelinesList('allergen'),
                 _buildGuidelinesList('dietary'),
                 _buildGuidelinesList('health'),
+                _buildPersonalizedRulesList(),
               ],
             ),
           ),
@@ -427,6 +430,10 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
     }
   }
 
+  String _formatDate(DateTime date) {
+    return DateFormat('MMM dd, yyyy').format(date);
+  }
+
   void _showAddGuidelineDialog({String? category}) {
     showDialog(
       context: context,
@@ -451,6 +458,419 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
         },
       ),
     );
+  }
+
+  Widget _buildPersonalizedRulesList() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _getPersonalizedRulesStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, size: 64, color: Colors.red.shade400),
+                const SizedBox(height: 16),
+                Text('Error: ${snapshot.error}'),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final rules = snapshot.data ?? [];
+
+        if (rules.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.person_pin,
+                  size: 64,
+                  color: Colors.grey.shade400,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'No personalized nutrition rules found',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Create rules to provide personalized nutrition advice based on user profiles',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => _showAddPersonalizedRuleDialog(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create First Rule'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: rules.length,
+          itemBuilder: (context, index) {
+            final rule = rules[index];
+            return _buildPersonalizedRuleCard(rule);
+          },
+        );
+      },
+    );
+  }
+
+  Stream<List<Map<String, dynamic>>> _getPersonalizedRulesStream() async* {
+    try {
+      final rules = await PersonalizedNutritionService.getAllNutritionRules();
+      yield rules;
+    } catch (e) {
+      yield [];
+    }
+  }
+
+  Widget _buildPersonalizedRuleCard(Map<String, dynamic> rule) {
+    final id = rule['id'] as String;
+    final name = rule['name'] ?? 'Unnamed Rule';
+    final description = rule['description'] ?? '';
+    final priority = rule['priority'] ?? 'medium';
+    final isActive = rule['isActive'] ?? true;
+    final conditions = rule['conditions'] as Map<String, dynamic>? ?? {};
+    final adjustments = rule['adjustments'] as Map<String, dynamic>? ?? {};
+    final createdAt = rule['createdAt'] as Timestamp?;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.person_pin,
+                    color: Colors.purple,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Priority: ${priority.toUpperCase()}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _getPriorityColor(priority),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isActive ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isActive ? 'ACTIVE' : 'INACTIVE',
+                    style: TextStyle(
+                      color: isActive ? Colors.green : Colors.red,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // Description
+            if (description.isNotEmpty) ...[
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            
+            // Conditions
+            if (conditions.isNotEmpty) ...[
+              const Text(
+                'Applies to:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _buildConditionChips(conditions),
+              ),
+              const SizedBox(height: 12),
+            ],
+            
+            // Adjustments
+            if (adjustments.isNotEmpty) ...[
+              const Text(
+                'Nutrition Adjustments:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _buildAdjustmentChips(adjustments),
+              ),
+              const SizedBox(height: 12),
+            ],
+            
+            // Timestamp
+            if (createdAt != null) ...[
+              Text(
+                'Created: ${_formatDate(createdAt.toDate())}',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+            ],
+            
+            // Actions
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => _toggleRuleStatus(id, !isActive),
+                  icon: Icon(isActive ? Icons.pause : Icons.play_arrow, size: 16),
+                  label: Text(isActive ? 'Deactivate' : 'Activate'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: isActive ? Colors.orange : Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => _editPersonalizedRule(id, rule),
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('Edit'),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => _deletePersonalizedRule(id),
+                  icon: const Icon(Icons.delete, size: 16),
+                  label: const Text('Delete'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildConditionChips(Map<String, dynamic> conditions) {
+    final chips = <Widget>[];
+    
+    if (conditions['minAge'] != null) {
+      chips.add(_buildChip('Age ${conditions['minAge']}+', Colors.blue));
+    }
+    if (conditions['maxAge'] != null) {
+      chips.add(_buildChip('Age ${conditions['maxAge']}-', Colors.blue));
+    }
+    if (conditions['gender'] != null) {
+      chips.add(_buildChip(conditions['gender'], Colors.pink));
+    }
+    if (conditions['healthConditions'] != null) {
+      final healthConditions = List<String>.from(conditions['healthConditions']);
+      for (final condition in healthConditions) {
+        chips.add(_buildChip(condition, Colors.red));
+      }
+    }
+    if (conditions['dietaryPreferences'] != null) {
+      final preferences = List<String>.from(conditions['dietaryPreferences']);
+      for (final preference in preferences) {
+        chips.add(_buildChip(preference, Colors.green));
+      }
+    }
+    if (conditions['bodyGoals'] != null) {
+      final goals = List<String>.from(conditions['bodyGoals']);
+      for (final goal in goals) {
+        chips.add(_buildChip(goal, Colors.orange));
+      }
+    }
+    
+    return chips;
+  }
+
+  List<Widget> _buildAdjustmentChips(Map<String, dynamic> adjustments) {
+    final chips = <Widget>[];
+    
+    if (adjustments['calorieMultiplier'] != null) {
+      chips.add(_buildChip('Calories ×${adjustments['calorieMultiplier']}', Colors.red));
+    }
+    if (adjustments['proteinRatio'] != null) {
+      chips.add(_buildChip('Protein ${(adjustments['proteinRatio'] * 100).toStringAsFixed(0)}%', Colors.blue));
+    }
+    if (adjustments['carbRatio'] != null) {
+      chips.add(_buildChip('Carbs ${(adjustments['carbRatio'] * 100).toStringAsFixed(0)}%', Colors.orange));
+    }
+    if (adjustments['fatRatio'] != null) {
+      chips.add(_buildChip('Fat ${(adjustments['fatRatio'] * 100).toStringAsFixed(0)}%', Colors.green));
+    }
+    if (adjustments['mealFrequency'] != null) {
+      chips.add(_buildChip('${adjustments['mealFrequency']} meals/day', Colors.purple));
+    }
+    
+    return chips;
+  }
+
+  Widget _buildChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  void _showAddPersonalizedRuleDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _AddPersonalizedRuleDialog(
+        onRuleAdded: () {
+          setState(() {});
+        },
+      ),
+    );
+  }
+
+  void _editPersonalizedRule(String ruleId, Map<String, dynamic> rule) {
+    showDialog(
+      context: context,
+      builder: (context) => _AddPersonalizedRuleDialog(
+        ruleId: ruleId,
+        initialData: rule,
+        onRuleAdded: () {
+          setState(() {});
+        },
+      ),
+    );
+  }
+
+  Future<void> _toggleRuleStatus(String ruleId, bool isActive) async {
+    try {
+      await PersonalizedNutritionService.updateNutritionRule(ruleId, {
+        'isActive': isActive,
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Rule ${isActive ? 'activated' : 'deactivated'} successfully'),
+            backgroundColor: isActive ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating rule: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deletePersonalizedRule(String ruleId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Rule'),
+        content: const Text('Are you sure you want to delete this personalized nutrition rule?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await PersonalizedNutritionService.deleteNutritionRule(ruleId);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Rule deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error deleting rule: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _toggleGuidelineStatus(String guidelineId, bool newStatus) async {
@@ -756,6 +1176,578 @@ class _AddGuidelineDialogState extends State<_AddGuidelineDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error saving guideline: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+}
+
+class _AddPersonalizedRuleDialog extends StatefulWidget {
+  final String? ruleId;
+  final Map<String, dynamic>? initialData;
+  final VoidCallback onRuleAdded;
+
+  const _AddPersonalizedRuleDialog({
+    this.ruleId,
+    this.initialData,
+    required this.onRuleAdded,
+  });
+
+  @override
+  State<_AddPersonalizedRuleDialog> createState() => _AddPersonalizedRuleDialogState();
+}
+
+class _AddPersonalizedRuleDialogState extends State<_AddPersonalizedRuleDialog> with TickerProviderStateMixin {
+  late TabController _tabController;
+  final _formKey = GlobalKey<FormState>();
+  
+  // Basic info
+  final _nameController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  String _selectedPriority = 'medium';
+  bool _isActive = true;
+  
+  // Conditions
+  int? _minAge;
+  int? _maxAge;
+  String? _gender;
+  List<String> _healthConditions = [];
+  List<String> _dietaryPreferences = [];
+  List<String> _bodyGoals = [];
+  String? _pregnancyStatus;
+  bool _lactationStatus = false;
+  
+  // Adjustments
+  double? _calorieMultiplier;
+  double? _proteinRatio;
+  double? _carbRatio;
+  double? _fatRatio;
+  int? _mealFrequency;
+  List<String> _foodsToInclude = [];
+  List<String> _foodsToAvoid = [];
+  List<String> _supplements = [];
+  List<String> _specialInstructions = [];
+
+  final List<String> _priorities = ['low', 'medium', 'high'];
+  final List<String> _genders = ['male', 'female', 'other'];
+  final List<String> _pregnancyStatuses = ['none', 'pregnant', 'postpartum'];
+  
+  final List<String> _availableHealthConditions = [
+    'Diabetes', 'Hypertension', 'Heart Disease', 'Obesity', 'Underweight',
+    'High Cholesterol', 'Kidney Disease', 'Liver Disease', 'Celiac Disease',
+    'IBS', 'Crohn\'s Disease', 'Ulcerative Colitis', 'PCOS', 'Thyroid Issues'
+  ];
+  
+  final List<String> _availableDietaryPreferences = [
+    'Vegetarian', 'Vegan', 'Keto', 'Paleo', 'Mediterranean', 'Low-Carb',
+    'High-Protein', 'Gluten-Free', 'Dairy-Free', 'Low-Sodium', 'Low-Fat'
+  ];
+  
+  final List<String> _availableBodyGoals = [
+    'Weight Loss', 'Weight Gain', 'Muscle Building', 'Maintenance',
+    'Athletic Performance', 'General Health', 'Fat Loss', 'Lean Mass Gain'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    
+    if (widget.initialData != null) {
+      _loadInitialData();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _nameController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  void _loadInitialData() {
+    final data = widget.initialData!;
+    _nameController.text = data['name'] ?? '';
+    _descriptionController.text = data['description'] ?? '';
+    _selectedPriority = data['priority'] ?? 'medium';
+    _isActive = data['isActive'] ?? true;
+    
+    final conditions = data['conditions'] as Map<String, dynamic>? ?? {};
+    _minAge = conditions['minAge'];
+    _maxAge = conditions['maxAge'];
+    _gender = conditions['gender'];
+    _healthConditions = List<String>.from(conditions['healthConditions'] ?? []);
+    _dietaryPreferences = List<String>.from(conditions['dietaryPreferences'] ?? []);
+    _bodyGoals = List<String>.from(conditions['bodyGoals'] ?? []);
+    _pregnancyStatus = conditions['pregnancyStatus'];
+    _lactationStatus = conditions['lactationStatus'] ?? false;
+    
+    final adjustments = data['adjustments'] as Map<String, dynamic>? ?? {};
+    _calorieMultiplier = adjustments['calorieMultiplier'];
+    _proteinRatio = adjustments['proteinRatio'];
+    _carbRatio = adjustments['carbRatio'];
+    _fatRatio = adjustments['fatRatio'];
+    _mealFrequency = adjustments['mealFrequency'];
+    _foodsToInclude = List<String>.from(adjustments['foodsToInclude'] ?? []);
+    _foodsToAvoid = List<String>.from(adjustments['foodsToAvoid'] ?? []);
+    _supplements = List<String>.from(adjustments['supplements'] ?? []);
+    _specialInstructions = List<String>.from(adjustments['specialInstructions'] ?? []);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.9,
+        height: MediaQuery.of(context).size.height * 0.9,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Text(
+              widget.ruleId != null ? 'Edit Personalized Rule' : 'Add New Personalized Rule',
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TabBar(
+              controller: _tabController,
+              labelColor: Colors.blue,
+              unselectedLabelColor: Colors.grey,
+              tabs: const [
+                Tab(text: 'Basic Info', icon: Icon(Icons.info)),
+                Tab(text: 'Conditions', icon: Icon(Icons.person)),
+                Tab(text: 'Adjustments', icon: Icon(Icons.tune)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildBasicInfoTab(),
+                  _buildConditionsTab(),
+                  _buildAdjustmentsTab(),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton(
+                  onPressed: _saveRule,
+                  child: Text(widget.ruleId != null ? 'Update' : 'Create'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBasicInfoTab() {
+    return Form(
+      key: _formKey,
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Rule Name',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) => value?.isEmpty == true ? 'Name is required' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Description',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedPriority,
+                    decoration: const InputDecoration(
+                      labelText: 'Priority',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _priorities.map((priority) => DropdownMenuItem(
+                      value: priority,
+                      child: Text(priority.toUpperCase()),
+                    )).toList(),
+                    onChanged: (value) => setState(() => _selectedPriority = value!),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: SwitchListTile(
+                    title: const Text('Active'),
+                    value: _isActive,
+                    onChanged: (value) => setState(() => _isActive = value),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConditionsTab() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Age Range
+          const Text('Age Range', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Min Age',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => _minAge = int.tryParse(value),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Max Age',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => _maxAge = int.tryParse(value),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Gender
+          DropdownButtonFormField<String>(
+            value: _gender,
+            decoration: const InputDecoration(
+              labelText: 'Gender',
+              border: OutlineInputBorder(),
+            ),
+            items: _genders.map((gender) => DropdownMenuItem(
+              value: gender,
+              child: Text(gender.toUpperCase()),
+            )).toList(),
+            onChanged: (value) => setState(() => _gender = value),
+          ),
+          const SizedBox(height: 16),
+          
+          // Health Conditions
+          const Text('Health Conditions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: _availableHealthConditions.map((condition) {
+              final isSelected = _healthConditions.contains(condition);
+              return FilterChip(
+                label: Text(condition),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _healthConditions.add(condition);
+                    } else {
+                      _healthConditions.remove(condition);
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          
+          // Dietary Preferences
+          const Text('Dietary Preferences', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: _availableDietaryPreferences.map((preference) {
+              final isSelected = _dietaryPreferences.contains(preference);
+              return FilterChip(
+                label: Text(preference),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _dietaryPreferences.add(preference);
+                    } else {
+                      _dietaryPreferences.remove(preference);
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          
+          // Body Goals
+          const Text('Body Goals', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: _availableBodyGoals.map((goal) {
+              final isSelected = _bodyGoals.contains(goal);
+              return FilterChip(
+                label: Text(goal),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _bodyGoals.add(goal);
+                    } else {
+                      _bodyGoals.remove(goal);
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          
+          // Pregnancy Status
+          DropdownButtonFormField<String>(
+            value: _pregnancyStatus,
+            decoration: const InputDecoration(
+              labelText: 'Pregnancy Status',
+              border: OutlineInputBorder(),
+            ),
+            items: _pregnancyStatuses.map((status) => DropdownMenuItem(
+              value: status,
+              child: Text(status.toUpperCase()),
+            )).toList(),
+            onChanged: (value) => setState(() => _pregnancyStatus = value),
+          ),
+          const SizedBox(height: 16),
+          
+          // Lactation Status
+          SwitchListTile(
+            title: const Text('Lactation Status'),
+            value: _lactationStatus,
+            onChanged: (value) => setState(() => _lactationStatus = value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdjustmentsTab() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Calorie Multiplier
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Calorie Multiplier (e.g., 1.2 for 20% increase)',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+            onChanged: (value) => _calorieMultiplier = double.tryParse(value),
+          ),
+          const SizedBox(height: 16),
+          
+          // Macro Ratios
+          const Text('Macronutrient Ratios', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Protein Ratio (0.0-1.0)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => _proteinRatio = double.tryParse(value),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Carb Ratio (0.0-1.0)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => _carbRatio = double.tryParse(value),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Fat Ratio (0.0-1.0)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => _fatRatio = double.tryParse(value),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Meal Frequency',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => _mealFrequency = int.tryParse(value),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Foods to Include
+          const Text('Foods to Include', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Comma-separated list',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              _foodsToInclude = value.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            },
+          ),
+          const SizedBox(height: 16),
+          
+          // Foods to Avoid
+          const Text('Foods to Avoid', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Comma-separated list',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              _foodsToAvoid = value.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            },
+          ),
+          const SizedBox(height: 16),
+          
+          // Supplements
+          const Text('Recommended Supplements', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Comma-separated list',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              _supplements = value.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            },
+          ),
+          const SizedBox(height: 16),
+          
+          // Special Instructions
+          const Text('Special Instructions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Comma-separated list',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+            onChanged: (value) {
+              _specialInstructions = value.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveRule() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final ruleData = {
+        'name': _nameController.text,
+        'description': _descriptionController.text,
+        'priority': _selectedPriority,
+        'isActive': _isActive,
+        'conditions': {
+          if (_minAge != null) 'minAge': _minAge,
+          if (_maxAge != null) 'maxAge': _maxAge,
+          if (_gender != null) 'gender': _gender,
+          if (_healthConditions.isNotEmpty) 'healthConditions': _healthConditions,
+          if (_dietaryPreferences.isNotEmpty) 'dietaryPreferences': _dietaryPreferences,
+          if (_bodyGoals.isNotEmpty) 'bodyGoals': _bodyGoals,
+          if (_pregnancyStatus != null) 'pregnancyStatus': _pregnancyStatus,
+          'lactationStatus': _lactationStatus,
+        },
+        'adjustments': {
+          if (_calorieMultiplier != null) 'calorieMultiplier': _calorieMultiplier,
+          if (_proteinRatio != null) 'proteinRatio': _proteinRatio,
+          if (_carbRatio != null) 'carbRatio': _carbRatio,
+          if (_fatRatio != null) 'fatRatio': _fatRatio,
+          if (_mealFrequency != null) 'mealFrequency': _mealFrequency,
+          if (_foodsToInclude.isNotEmpty) 'foodsToInclude': _foodsToInclude,
+          if (_foodsToAvoid.isNotEmpty) 'foodsToAvoid': _foodsToAvoid,
+          if (_supplements.isNotEmpty) 'supplements': _supplements,
+          if (_specialInstructions.isNotEmpty) 'specialInstructions': _specialInstructions,
+        },
+      };
+
+      if (widget.ruleId != null) {
+        await PersonalizedNutritionService.updateNutritionRule(widget.ruleId!, ruleData);
+      } else {
+        await PersonalizedNutritionService.createNutritionRule(ruleData);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Rule ${widget.ruleId != null ? 'updated' : 'created'} successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+        widget.onRuleAdded();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving rule: $e'),
             backgroundColor: Colors.red,
           ),
         );

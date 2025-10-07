@@ -8,11 +8,12 @@ import 'pages/analytics_page.dart';
 import 'pages/announcements_page.dart';
 import 'pages/curated_content_management_page.dart';
 import 'pages/nutritionist_dashboard_page.dart';
-import 'pages/meal_plan_review_page.dart';
+import 'pages/expert_meal_plan_creation_page.dart';
 import 'pages/allergen_validation_page.dart';
 import 'pages/guidelines_editor_page.dart';
 import 'pages/content_creation_page.dart';
 import 'pages/notification_center_page.dart';
+import 'pages/nutritional_data_validation_page.dart';
 import '../services/curated_data_migration_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -152,14 +153,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
           widget: const NutritionistDashboardPage(),
         ),
         AdminPage(
-          title: 'Review Meal Plans',
-          icon: Icons.assignment,
-          widget: const MealPlanReviewPage(),
+          title: 'Create Expert Meal Plans',
+          icon: Icons.restaurant_menu,
+          widget: const ExpertMealPlanCreationPage(),
         ),
         AdminPage(
           title: 'Allergen and Substitution Validation',
           icon: Icons.warning,
           widget: const AllergenValidationPage(),
+        ),
+        AdminPage(
+          title: 'Nutritional Data Validation',
+          icon: Icons.analytics,
+          widget: const NutritionalDataValidationPage(),
         ),
         AdminPage(
           title: 'Edit Guidelines',

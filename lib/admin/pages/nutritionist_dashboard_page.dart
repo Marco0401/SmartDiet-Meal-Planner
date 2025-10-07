@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'meal_plan_review_page.dart';
+import 'expert_meal_plan_creation_page.dart';
 import 'allergen_validation_page.dart';
 import 'guidelines_editor_page.dart';
 import 'content_creation_page.dart';
@@ -803,13 +803,13 @@ Widget build(BuildContext context) {
   }
 
   // Navigation methods
-  void _navigateToMealPlanReview() {
-    print('DEBUG: Navigating to Meal Plan Review page');
+  void _navigateToExpertMealPlans() {
+    print('DEBUG: Navigating to Expert Meal Plan Creation page');
     try {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const MealPlanReviewPage(),
+          builder: (context) => const ExpertMealPlanCreationPage(),
         ),
       );
       print('DEBUG: Navigation successful');

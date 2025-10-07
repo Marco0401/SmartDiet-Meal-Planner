@@ -13,6 +13,7 @@ import 'recipe_detail_page.dart';
 import 'manual_meal_entry_page.dart';
 import 'barcode_scanner_page.dart';
 import 'nutrition_analytics_page.dart';
+import 'expert_meal_plans_page.dart';
 import 'models/user_profile.dart';
 import 'dart:math';
 
@@ -1153,6 +1154,21 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                 ),
               ),
               Container(
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.restaurant_menu,
+                    color: Colors.white,
+                  ),
+                  onPressed: () => _navigateToExpertMealPlans(),
+                  tooltip: 'Expert Meal Plans',
+                ),
+              ),
+              Container(
                 margin: const EdgeInsets.only(right: 16),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
@@ -1593,6 +1609,14 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       MaterialPageRoute(builder: (context) => const NutritionAnalyticsPage()),
     );
   }
+
+  void _navigateToExpertMealPlans() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ExpertMealPlansPage()),
+    );
+  }
+
 
   // Analytics Integration Methods
   double _toDouble(dynamic value) {

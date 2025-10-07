@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'models/user_profile.dart';
 
 class NutritionAnalyticsPage extends StatefulWidget {
@@ -13,17 +12,7 @@ class NutritionAnalyticsPage extends StatefulWidget {
 
 class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage> 
     with TickerProviderStateMixin {
-  double _toDouble(dynamic value) {
-    if (value is int) return value.toDouble();
-    if (value is double) return value;
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
-  }
-
   DateTime _selectedDate = DateTime.now();
-  final Map<String, Map<String, dynamic>> _weeklyNutrition = {};
-  bool _isLoading = false;
-  String? _error;
   
   // Tab controller
   late TabController _tabController;
@@ -32,21 +21,10 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   UserProfile? _userProfile;
   Map<String, dynamic>? _calculatedAnalysis;
 
-  // Nutrition goals (can be made configurable later)
-  final Map<String, double> _nutritionGoals = {
-    'calories': 2000,
-    'protein': 50,
-    'carbs': 250,
-    'fat': 65,
-    'fiber': 25,
-    'sugar': 50,
-  };
-
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadWeeklyNutrition();
     _loadUserProfile();
   }
 
@@ -56,351 +34,108 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     super.dispose();
   }
 
-  Future<void> _loadWeeklyNutrition() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        // Get the start of the week (Monday)
-        final startOfWeek = _selectedDate.subtract(
-          Duration(days: _selectedDate.weekday - 1),
-        );
-
-        // Load nutrition for the entire week
-        for (int i = 0; i < 7; i++) {
-          final date = startOfWeek.add(Duration(days: i));
-          final dateKey = _formatDate(date);
-
-          // Query for individual meal documents for this date
-          final mealsQuery = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('meals')
-              .where('date', isEqualTo: dateKey)
-              .get();
-
-          if (mealsQuery.docs.isNotEmpty) {
-            print('DEBUG: Found ${mealsQuery.docs.length} meals for $dateKey');
-            List<Map<String, dynamic>> allMeals = [];
-            
-            for (final doc in mealsQuery.docs) {
-              final data = doc.data();
-              print('DEBUG: Raw meal data for $dateKey: $data');
-              
-              // Check if this is the old format with meals array
-              if (data['meals'] != null && data['meals'] is List) {
-                print('DEBUG: Found old format with meals array');
-                final mealsArray = data['meals'] as List;
-                for (final meal in mealsArray) {
-                  final mealData = meal is Map<String, dynamic> ? meal : Map<String, dynamic>.from(meal as Map);
-                  
-                  String title = mealData['title']?.toString() ?? 'Unknown Meal';
-                  Map<String, dynamic> nutrition = {};
-                  String mealType = mealData['mealType']?.toString() ?? mealData['meal_type']?.toString() ?? 'lunch';
-                  
-                  if (mealData['nutrition'] != null) {
-                    if (mealData['nutrition'] is Map<String, dynamic>) {
-                      nutrition = mealData['nutrition'];
-                    } else if (mealData['nutrition'] is Map) {
-                      nutrition = Map<String, dynamic>.from(mealData['nutrition']);
-                    }
-                  }
-                  
-                  print('DEBUG: Processed old format meal: $title - $nutrition');
-                  allMeals.add({
-                    'title': title,
-                    'nutrition': nutrition,
-                    'mealType': mealType,
-                  });
-                }
-              } else {
-                // New format - individual meal document
-                print('DEBUG: Found new format individual meal');
-                String title = 'Unknown Meal';
-                Map<String, dynamic> nutrition = {};
-                String mealType = 'lunch';
-                
-                if (data['title'] != null) {
-                  title = data['title'].toString();
-                } else if (data['name'] != null) {
-                  title = data['name'].toString();
-                }
-                
-                if (data['nutrition'] != null) {
-                  if (data['nutrition'] is Map<String, dynamic>) {
-                    nutrition = data['nutrition'];
-                  } else if (data['nutrition'] is Map) {
-                    nutrition = Map<String, dynamic>.from(data['nutrition']);
-                  }
-                }
-                
-                if (data['mealType'] != null) {
-                  mealType = data['mealType'].toString();
-                } else if (data['meal_type'] != null) {
-                  mealType = data['meal_type'].toString();
-                }
-                
-                print('DEBUG: Processed new format meal: $title - $nutrition');
-                allMeals.add({
-                  'title': title,
-                  'nutrition': nutrition,
-                  'mealType': mealType,
-                });
-              }
-            }
-            final nutrition = _calculateDailyNutrition(allMeals);
-            print('DEBUG: Calculated nutrition for $dateKey: $nutrition');
-            _weeklyNutrition[dateKey] = nutrition;
-          } else {
-            print('DEBUG: No meals found for $dateKey');
-            _weeklyNutrition[dateKey] = _getEmptyNutrition();
-          }
-        }
-      }
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
-  String _formatDisplayDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final dateOnly = DateTime(date.year, date.month, date.day);
-
-    if (dateOnly == today) {
-      return 'Today';
-    } else if (dateOnly == today.add(const Duration(days: 1))) {
-      return 'Tomorrow';
-    } else {
-      return '${_getDayName(date.weekday)} ${date.month}/${date.day}';
-    }
-  }
-
-  String _getDayName(int weekday) {
-    switch (weekday) {
-      case 1:
-        return 'Mon';
-      case 2:
-        return 'Tue';
-      case 3:
-        return 'Wed';
-      case 4:
-        return 'Thu';
-      case 5:
-        return 'Fri';
-      case 6:
-        return 'Sat';
-      case 7:
-        return 'Sun';
-      default:
-        return '';
-    }
-  }
-
-  Map<String, dynamic> _calculateDailyNutrition(
-    List<Map<String, dynamic>> meals,
-  ) {
-    double totalCalories = 0;
-    double totalProtein = 0;
-    double totalCarbs = 0;
-    double totalFat = 0;
-    double totalFiber = 0;
-    double totalSugar = 0;
-
-    for (final meal in meals) {
-      final nutritionData = meal['nutrition'];
-      if (nutritionData != null) {
-        // Safely convert to Map<String, dynamic>
-        Map<String, dynamic> nutrition;
-        if (nutritionData is Map<String, dynamic>) {
-          nutrition = nutritionData;
-        } else if (nutritionData is Map) {
-          nutrition = Map<String, dynamic>.from(nutritionData);
-        } else {
-          continue; // Skip if not a map
-        }
-        
-        totalCalories += _toDouble(nutrition['calories']);
-        totalProtein += _toDouble(nutrition['protein']);
-        totalCarbs += _toDouble(nutrition['carbs']);
-        totalFat += _toDouble(nutrition['fat']);
-        totalFiber += _toDouble(nutrition['fiber']);
-        totalSugar += _toDouble(nutrition['sugar']);
-      }
-    }
-
-    return {
-      'calories': totalCalories,
-      'protein': totalProtein,
-      'carbs': totalCarbs,
-      'fat': totalFat,
-      'fiber': totalFiber,
-      'sugar': totalSugar,
-    };
-  }
-
-  Map<String, dynamic> _getEmptyNutrition() {
-    return {
-      'calories': 0,
-      'protein': 0,
-      'carbs': 0,
-      'fat': 0,
-      'fiber': 0,
-      'sugar': 0,
-    };
-  }
-
-  Map<String, dynamic> _calculateWeeklyAverages() {
-    if (_weeklyNutrition.isEmpty) return _getEmptyNutrition();
-
-    double totalCalories = 0;
-    double totalProtein = 0;
-    double totalCarbs = 0;
-    double totalFat = 0;
-    double totalFiber = 0;
-    double totalSugar = 0;
-    int daysWithData = 0;
-
-    for (final nutrition in _weeklyNutrition.values) {
-      final calories = _toDouble(nutrition['calories']);
-      if (calories > 0) {
-        totalCalories += calories;
-        totalProtein += _toDouble(nutrition['protein']);
-        totalCarbs += _toDouble(nutrition['carbs']);
-        totalFat += _toDouble(nutrition['fat']);
-        totalFiber += _toDouble(nutrition['fiber']);
-        totalSugar += _toDouble(nutrition['sugar']);
-        daysWithData++;
-      }
-    }
-
-    if (daysWithData == 0) return _getEmptyNutrition();
-
-    return {
-      'calories': totalCalories / daysWithData,
-      'protein': totalProtein / daysWithData,
-      'carbs': totalCarbs / daysWithData,
-      'fat': totalFat / daysWithData,
-      'fiber': totalFiber / daysWithData,
-      'sugar': totalSugar / daysWithData,
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
-    final startOfWeek = _selectedDate.subtract(
-      Duration(days: _selectedDate.weekday - 1),
-    );
+    final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
     final weeklyAverages = _calculateWeeklyAverages();
 
     return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80),
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF2E7D32),
-                Color(0xFF388E3C),
-                Color(0xFF4CAF50),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(25),
-              bottomRight: Radius.circular(25),
-            ),
-          ),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: const Text(
-              'Nutrition Analytics',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 22,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    offset: Offset(0, 2),
-                    blurRadius: 4,
-                    color: Colors.black26,
-                  ),
-                ],
-              ),
-            ),
-            bottom: TabBar(
-              controller: _tabController,
-              indicatorColor: Colors.white,
-              indicatorWeight: 3,
-              indicatorSize: TabBarIndicatorSize.label,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              labelStyle: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 14,
-              ),
-              tabs: const [
-                Tab(text: 'Analytics'),
-                Tab(text: 'Profile Analysis'),
-              ],
-            ),
-          ),
+      appBar: AppBar(
+        title: const Text('Nutrition Analytics'),
+        backgroundColor: const Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          tabs: const [
+            Tab(text: 'Nutritional Analytics', icon: Icon(Icons.analytics)),
+            Tab(text: 'Profile Analysis', icon: Icon(Icons.person)),
+          ],
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text('Error: $_error'))
-          : TabBarView(
+      body: Column(
+        children: [
+          _buildWeekNavigation(startOfWeek),
+          Expanded(
+            child: TabBarView(
               controller: _tabController,
               children: [
-                // Analytics Tab
-                _buildAnalyticsTab(startOfWeek, weeklyAverages),
+                // Nutritional Analytics Tab
+                _buildNutritionalAnalyticsTab(startOfWeek, weeklyAverages),
                 // Profile Analysis Tab
                 _buildProfileAnalysisTab(),
               ],
             ),
+          ),
+        ],
+      ),
     );
   }
 
   Future<void> _loadUserProfile() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        
-        if (doc.exists) {
-          setState(() {
-            _userProfile = UserProfile.fromMap(doc.data()!);
-            _calculatedAnalysis = _calculateUserAnalysis(_userProfile!);
-          });
-        }
+      if (user == null) {
+        print('No user logged in');
+        return;
+      }
+      
+      print('Loading profile for user: ${user.uid}');
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      
+      if (doc.exists) {
+        print('User profile found, data: ${doc.data()}');
+        setState(() {
+          _userProfile = UserProfile.fromMap(doc.data()!);
+          _calculatedAnalysis = _calculateUserAnalysis(_userProfile!);
+        });
+        print('Profile loaded successfully');
+      } else {
+        print('User profile not found in Firestore');
+        // Create a default profile for testing
+        setState(() {
+          _userProfile = UserProfile(
+            uid: user.uid,
+            fullName: 'Test User',
+            age: 25,
+            gender: 'Male',
+            height: 175,
+            weight: 70,
+            activityLevel: 'Moderately Active',
+            goal: 'Maintain Weight',
+            allergies: [],
+            healthConditions: [],
+            dietaryPreferences: [],
+            notifications: [],
+          );
+          _calculatedAnalysis = _calculateUserAnalysis(_userProfile!);
+        });
       }
     } catch (e) {
       print('Error loading user profile: $e');
+      // Create a default profile for testing
+      setState(() {
+        _userProfile = UserProfile(
+          uid: 'test-uid',
+          fullName: 'Test User',
+          age: 25,
+          gender: 'Male',
+          height: 175,
+          weight: 70,
+          activityLevel: 'Moderately Active',
+          goal: 'Maintain Weight',
+          allergies: [],
+          healthConditions: [],
+          dietaryPreferences: [],
+          notifications: [],
+        );
+        _calculatedAnalysis = _calculateUserAnalysis(_userProfile!);
+      });
     }
   }
 
@@ -480,38 +215,9 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
       'carbs': carbs,
       'fat': fat,
       'fiber': fiber,
-      'healthConditions': profile.healthConditions,
       'allergies': profile.allergies,
+      'healthConditions': profile.healthConditions,
     };
-  }
-
-  Widget _buildAnalyticsTab(DateTime startOfWeek, Map<String, dynamic> weeklyAverages) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Week Navigation
-          _buildWeekNavigation(startOfWeek),
-          const SizedBox(height: 24),
-
-          // Weekly Summary Card
-          _buildWeeklySummaryCard(weeklyAverages),
-          const SizedBox(height: 24),
-
-          // Daily Nutrition Chart
-          _buildDailyNutritionChart(startOfWeek),
-          const SizedBox(height: 24),
-
-          // Nutrition Goals Progress
-          _buildNutritionGoalsProgress(weeklyAverages),
-          const SizedBox(height: 24),
-
-          // Daily Breakdown
-          _buildDailyBreakdown(startOfWeek),
-        ],
-      ),
-    );
   }
 
   Widget _buildProfileAnalysisTab() {
@@ -538,97 +244,651 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAnalysisCard('Personal Information', Icons.person, [
-            'Age: ${analysis['age']} years',
-            'Height: ${analysis['height']?.toStringAsFixed(1)} cm',
-            'Weight: ${analysis['weight']?.toStringAsFixed(1)} kg',
-            'Gender: ${analysis['gender']}',
-            'BMI: ${analysis['bmi']?.toStringAsFixed(1)} (${analysis['weightCategory']})',
-          ], Colors.blue),
+          // Profile Overview Card
+          _buildProfileOverviewCard(analysis),
+          const SizedBox(height: 20),
+          
+          // Detailed Macro Analysis
+          _buildDetailedMacroAnalysis(analysis),
+          const SizedBox(height: 20),
+          
+          // Health Insights
+          _buildHealthInsightsCard(analysis),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileOverviewCard(Map<String, dynamic> analysis) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green[50]!, Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.green[200]!, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.person, color: Colors.green[700], size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'Profile Overview',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green[800],
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
-          _buildAnalysisCard('Fitness Profile', Icons.fitness_center, [
-            'Goal: ${analysis['goal']}',
-            'Activity Level: ${analysis['activityLevel']}',
-            'BMR: ${analysis['bmr']?.toStringAsFixed(0)} calories/day',
-            'Daily Calorie Target: ${analysis['dailyCalories']?.toStringAsFixed(0)} calories',
-          ], Colors.orange),
-          const SizedBox(height: 16),
-          _buildAnalysisCard('Nutritional Goals', Icons.restaurant_menu, [
-            'Daily Calories: ${analysis['dailyCalories']?.toStringAsFixed(0)}',
-            'Protein: ${analysis['protein']?.toStringAsFixed(1)}g',
-            'Carbohydrates: ${analysis['carbs']?.toStringAsFixed(1)}g',
-            'Fat: ${analysis['fat']?.toStringAsFixed(1)}g',
-            'Fiber: ${analysis['fiber']?.toStringAsFixed(1)}g',
-          ], Colors.green),
-          const SizedBox(height: 16),
-          if (analysis['healthConditions']?.isNotEmpty == true)
-            _buildAnalysisCard(
-              'Health Considerations',
-              Icons.health_and_safety,
-              (analysis['healthConditions'] as List<String>)
-                  .where((condition) => condition != 'None')
-                  .map((condition) => '• $condition')
-                  .toList(),
-              Colors.red,
+          Row(
+            children: [
+              Expanded(
+                child: _buildInfoItem('Age', '${analysis['age']} years', Colors.blue),
+              ),
+              Expanded(
+                child: _buildInfoItem('Gender', analysis['gender'], Colors.purple),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildInfoItem('Height', '${analysis['height']} cm', Colors.orange),
+              ),
+              Expanded(
+                child: _buildInfoItem('Weight', '${analysis['weight']} kg', Colors.red),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildInfoItem('BMI', '${analysis['bmi'].toStringAsFixed(1)}', Colors.teal),
+              ),
+              Expanded(
+                child: _buildInfoItem('Category', analysis['weightCategory'], Colors.indigo),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color.withOpacity(0.8),
+              fontWeight: FontWeight.w500,
             ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailedMacroAnalysis(Map<String, dynamic> analysis) {
+    final personalizedMacros = _calculatePersonalizedMacros(analysis);
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey[200]!, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.analytics, color: Colors.blue[700], size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'Personalized Macro Analysis',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
-          if (analysis['allergies']?.isNotEmpty == true)
-            _buildAnalysisCard(
-              'Allergies & Restrictions',
-              Icons.warning,
-              (analysis['allergies'] as List<String>)
-                  .where((allergy) => allergy != 'None')
-                  .map((allergy) => '• $allergy')
-                  .toList(),
-              Colors.amber,
+          
+          // Daily Calorie Target
+          _buildMacroSection(
+            'Daily Calorie Target',
+            '${analysis['dailyCalories'].toInt()} kcal',
+            _getCalorieContext(analysis['goal'], analysis['bmi']),
+            Colors.orange,
+            Icons.local_fire_department,
+          ),
+          const SizedBox(height: 16),
+          
+          // Protein Target
+          _buildMacroSection(
+            'Protein Target',
+            '${personalizedMacros['protein'].toInt()}g (${(personalizedMacros['proteinRatio'] * 100).toInt()}%)',
+            _getProteinContext(analysis['goal'], analysis['age'], analysis['gender'], analysis['healthConditions']),
+            Colors.blue,
+            Icons.fitness_center,
+          ),
+          const SizedBox(height: 16),
+          
+          // Carbohydrate Target
+          _buildMacroSection(
+            'Carbohydrate Target',
+            '${personalizedMacros['carbs'].toInt()}g (${(personalizedMacros['carbRatio'] * 100).toInt()}%)',
+            _getCarbContext(analysis['goal'], analysis['healthConditions'], analysis['allergies']),
+            Colors.purple,
+            Icons.grain,
+          ),
+          const SizedBox(height: 16),
+          
+          // Fat Target
+          _buildMacroSection(
+            'Fat Target',
+            '${personalizedMacros['fat'].toInt()}g (${(personalizedMacros['fatRatio'] * 100).toInt()}%)',
+            _getFatContext(analysis['goal'], analysis['healthConditions'], analysis['age']),
+            Colors.red,
+            Icons.opacity,
+          ),
+          const SizedBox(height: 16),
+          
+          // Fiber Target
+          _buildMacroSection(
+            'Fiber Target',
+            '${personalizedMacros['fiber'].toInt()}g',
+            _getFiberContext(analysis['age'], analysis['gender'], analysis['healthConditions']),
+            Colors.green,
+            Icons.eco,
+          ),
+          
+          // Special Considerations
+          if (analysis['allergies'].isNotEmpty || analysis['healthConditions'].isNotEmpty)
+            _buildSpecialConsiderations(analysis['allergies'], analysis['healthConditions']),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMacroSection(String title, String value, String context, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            context,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+              height: 1.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpecialConsiderations(List<String> allergies, List<String> healthConditions) {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.amber[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning, color: Colors.amber[700], size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Special Considerations',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.amber[700],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (allergies.isNotEmpty)
+            Text(
+              'Allergies: ${allergies.join(', ')}',
+              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+            ),
+          if (healthConditions.isNotEmpty)
+            Text(
+              'Health Conditions: ${healthConditions.join(', ')}',
+              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildAnalysisCard(
-    String title,
-    IconData icon,
-    List<String> items,
-    Color color,
-  ) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 24),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+  Widget _buildHealthInsightsCard(Map<String, dynamic> analysis) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.purple[50]!, Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.purple.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.purple[200]!, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.insights, color: Colors.purple[700], size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'Health Insights',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple[800],
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Based on your profile, you should focus on maintaining a balanced diet with adequate protein for your activity level. Consider consulting with a nutritionist for personalized meal planning.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+              height: 1.4,
             ),
-            const SizedBox(height: 16),
-            ...items.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(item, style: const TextStyle(fontSize: 16)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, dynamic> _calculatePersonalizedMacros(Map<String, dynamic> analysis) {
+    // This is a placeholder for more sophisticated macro calculations
+    // In a real app, this would use the PersonalizedNutritionService
+    return {
+      'protein': analysis['protein'],
+      'carbs': analysis['carbs'],
+      'fat': analysis['fat'],
+      'fiber': analysis['fiber'],
+      'proteinRatio': 0.25,
+      'carbRatio': 0.45,
+      'fatRatio': 0.30,
+    };
+  }
+
+  String _getCalorieContext(String goal, double bmi) {
+    if (goal.toLowerCase().contains('lose')) {
+      return 'Calorie deficit for weight loss. Target: 15% below maintenance calories.';
+    } else if (goal.toLowerCase().contains('gain')) {
+      return 'Calorie surplus for weight gain. Target: 15% above maintenance calories.';
+    } else {
+      return 'Maintenance calories to maintain current weight.';
+    }
+  }
+
+  String _getProteinContext(String goal, int age, String gender, List<String> healthConditions) {
+    String base = 'Protein supports muscle maintenance and growth.';
+    if (goal.toLowerCase().contains('muscle')) {
+      base += ' Higher protein needed for muscle building.';
+    }
+    if (age > 50) {
+      base += ' Increased protein recommended for aging.';
+    }
+    return base;
+  }
+
+  String _getCarbContext(String goal, List<String> healthConditions, List<String> allergies) {
+    String base = 'Carbohydrates provide energy for daily activities.';
+    if (healthConditions.contains('Diabetes')) {
+      base += ' Monitor carb intake for blood sugar control.';
+    }
+    if (allergies.contains('Gluten')) {
+      base += ' Choose gluten-free carb sources.';
+    }
+    return base;
+  }
+
+  String _getFatContext(String goal, List<String> healthConditions, int age) {
+    String base = 'Healthy fats support hormone production and nutrient absorption.';
+    if (healthConditions.contains('Heart Disease')) {
+      base += ' Focus on unsaturated fats.';
+    }
+    if (age < 30) {
+      base += ' Higher fat intake supports brain development.';
+    }
+    return base;
+  }
+
+  String _getFiberContext(int age, String gender, List<String> healthConditions) {
+    if (age > 50) {
+      return 'Adequate fiber intake for digestive health: 25-30g daily.';
+    } else if (gender.toLowerCase() == 'female') {
+      return 'Adequate fiber intake for digestive health: 25g daily.';
+    } else {
+      return 'Adequate fiber intake for digestive health: 30g daily.';
+    }
+  }
+
+  // Nutritional Analytics Tab
+  Widget _buildNutritionalAnalyticsTab(DateTime startOfWeek, Map<String, double> weeklyAverages) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Weekly Overview Card
+          _buildWeeklyOverviewCard(weeklyAverages),
+          const SizedBox(height: 20),
+          
+          // Daily Breakdown
+          _buildDailyBreakdownCard(startOfWeek),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyOverviewCard(Map<String, double> weeklyAverages) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Daily Goals Progress',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[800],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildProgressItem('Calories', weeklyAverages['calories'] ?? 0, 2000, Colors.orange),
+          const SizedBox(height: 12),
+          _buildProgressItem('Protein', weeklyAverages['protein'] ?? 0, 50, Colors.blue),
+          const SizedBox(height: 12),
+          _buildProgressItem('Carbs', weeklyAverages['carbs'] ?? 0, 250, Colors.green),
+          const SizedBox(height: 12),
+          _buildProgressItem('Fat', weeklyAverages['fat'] ?? 0, 65, Colors.red),
+          const SizedBox(height: 12),
+          _buildProgressItem('Fiber', weeklyAverages['fiber'] ?? 0, 25, Colors.purple),
+          const SizedBox(height: 12),
+          _buildProgressItem('Sugar', weeklyAverages['sugar'] ?? 0, 50, Colors.amber),
+        ],
+      ),
+    );
+  }
+
+
+
+
+  Widget _buildProgressItem(String label, double current, double target, Color color) {
+    final percentage = (current / target * 100).clamp(0, 200);
+    final isOverTarget = percentage > 100;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+            Text(
+              '${current.toInt()} / ${target.toInt()}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isOverTarget ? Colors.red : Colors.grey[700],
               ),
             ),
           ],
         ),
+        const SizedBox(height: 4),
+        LinearProgressIndicator(
+          value: (percentage / 100).clamp(0, 1),
+          backgroundColor: Colors.grey[300],
+          valueColor: AlwaysStoppedAnimation<Color>(
+            isOverTarget ? Colors.red : color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyBreakdownCard(DateTime startOfWeek) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey[200]!, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Daily Breakdown',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.green[700],
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...List.generate(7, (index) {
+            final date = startOfWeek.add(Duration(days: index));
+            final isToday = date.day == DateTime.now().day && 
+                           date.month == DateTime.now().month && 
+                           date.year == DateTime.now().year;
+            
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildDayCard(date, isToday),
+            );
+          }),
+        ],
       ),
     );
   }
+
+  Widget _buildDayCard(DateTime date, bool isToday) {
+    // Mock data - in real app, fetch from meal plans
+    final dayData = isToday ? {
+      'calories': 1280,
+      'protein': 90,
+      'carbs': 83,
+      'fat': 65,
+    } : {
+      'calories': 0,
+      'protein': 0,
+      'carbs': 0,
+      'fat': 0,
+    };
+
+    final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final dayName = dayNames[date.weekday - 1];
+    final dateStr = '${date.day}/${date.month}';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              isToday ? 'Today' : '$dayName $dateStr',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: isToday ? Colors.green[700] : Colors.grey[700],
+              ),
+            ),
+          ),
+          Expanded(
+            child: _buildNutrientValue('Cal', dayData['calories']!, Colors.orange),
+          ),
+          Expanded(
+            child: _buildNutrientValue('P', dayData['protein']!, Colors.blue),
+          ),
+          Expanded(
+            child: _buildNutrientValue('C', dayData['carbs']!, Colors.green),
+          ),
+          Expanded(
+            child: _buildNutrientValue('F', dayData['fat']!, Colors.red),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNutrientValue(String label, int value, Color color) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value.toString(),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
 
   Widget _buildWeekNavigation(DateTime startOfWeek) {
     return Container(
@@ -675,17 +935,17 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
                 Icons.chevron_left,
                 color: Colors.green[700],
               ),
-            onPressed: () {
-              setState(() {
-                _selectedDate = _selectedDate.subtract(const Duration(days: 7));
-              });
-              _loadWeeklyNutrition();
-            },
-          ),
+              onPressed: () {
+                setState(() {
+                  _selectedDate = _selectedDate.subtract(const Duration(days: 7));
+                });
+                _loadWeeklyNutrition();
+              },
+            ),
           ),
           Expanded(
             child: Text(
-            '${_formatDisplayDate(startOfWeek)} - ${_formatDisplayDate(startOfWeek.add(const Duration(days: 6)))}',
+              '${_formatDisplayDate(startOfWeek)} - ${_formatDisplayDate(startOfWeek.add(const Duration(days: 6)))}',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
@@ -704,12 +964,12 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
                 Icons.chevron_right,
                 color: Colors.green[700],
               ),
-            onPressed: () {
-              setState(() {
-                _selectedDate = _selectedDate.add(const Duration(days: 7));
-              });
-              _loadWeeklyNutrition();
-            },
+              onPressed: () {
+                setState(() {
+                  _selectedDate = _selectedDate.add(const Duration(days: 7));
+                });
+                _loadWeeklyNutrition();
+              },
             ),
           ),
         ],
@@ -717,370 +977,23 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     );
   }
 
-  Widget _buildWeeklySummaryCard(Map<String, dynamic> averages) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Weekly Average',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildNutritionMetric(
-                    'Calories',
-                    _toDouble(averages['calories']),
-                    _nutritionGoals['calories']!,
-                    'cal',
-                    Colors.orange,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildNutritionMetric(
-                    'Protein',
-                    _toDouble(averages['protein']),
-                    _nutritionGoals['protein']!,
-                    'g',
-                    Colors.blue,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildNutritionMetric(
-                    'Carbs',
-                    _toDouble(averages['carbs']),
-                    _nutritionGoals['carbs']!,
-                    'g',
-                    Colors.green,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildNutritionMetric(
-                    'Fat',
-                    _toDouble(averages['fat']),
-                    _nutritionGoals['fat']!,
-                    'g',
-                    Colors.red,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+  String _formatDisplayDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
   }
 
-  Widget _buildNutritionMetric(
-    String label,
-    double value,
-    double goal,
-    String unit,
-    Color color,
-  ) {
-    final percentage = goal > 0 ? (value / goal * 100).clamp(0, 100) : 0;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${value.toStringAsFixed(0)} $unit',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 4),
-        LinearProgressIndicator(
-          value: percentage / 100,
-          backgroundColor: Colors.grey[200],
-          valueColor: AlwaysStoppedAnimation<Color>(color),
-        ),
-        Text(
-          '${percentage.toStringAsFixed(0)}% of goal',
-          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-        ),
-      ],
-    );
+  Map<String, double> _calculateWeeklyAverages() {
+    // Mock data for now - in real app, fetch from meal plans
+    return {
+      'calories': 880.0,
+      'protein': 61.0,
+      'carbs': 56.0,
+      'fat': 46.0,
+      'fiber': 8.0,
+      'sugar': 9.0,
+    };
   }
 
-  Widget _buildDailyNutritionChart(DateTime startOfWeek) {
-    final chartData = <FlSpot>[];
-
-    for (int i = 0; i < 7; i++) {
-      final date = startOfWeek.add(Duration(days: i));
-      final dateKey = _formatDate(date);
-      final nutrition = _weeklyNutrition[dateKey] ?? _getEmptyNutrition();
-      chartData.add(FlSpot(i.toDouble(), _toDouble(nutrition['calories'])));
-    }
-
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Daily Calories',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(show: true),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toInt().toString(),
-                            style: const TextStyle(fontSize: 10),
-                          );
-                        },
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final dayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-                          return Text(
-                            dayNames[value.toInt()],
-                            style: const TextStyle(fontSize: 12),
-                          );
-                        },
-                      ),
-                    ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: true),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: chartData,
-                      isCurved: true,
-                      color: Colors.green,
-                      barWidth: 3,
-                      dotData: FlDotData(show: true),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: Colors.green.withOpacity(0.1),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNutritionGoalsProgress(Map<String, dynamic> averages) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Nutrition Goals Progress',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
-              ),
-            ),
-            const SizedBox(height: 16),
-            ..._nutritionGoals.entries.map((entry) {
-              final nutrient = entry.key;
-              final goal = entry.value;
-              final actual = averages[nutrient] ?? 0;
-              final percentage = goal > 0
-                  ? (actual / goal * 100).clamp(0, 100)
-                  : 0;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _capitalizeFirst(nutrient),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        Text(
-                          '${actual.toStringAsFixed(0)} / ${goal.toStringAsFixed(0)}',
-                          style: TextStyle(
-                            color: percentage >= 100
-                                ? Colors.green
-                                : Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    LinearProgressIndicator(
-                      value: percentage / 100,
-                      backgroundColor: Colors.grey[200],
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        percentage >= 100 ? Colors.green : Colors.orange,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDailyBreakdown(DateTime startOfWeek) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Daily Breakdown',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
-              ),
-            ),
-            const SizedBox(height: 16),
-            ...List.generate(7, (index) {
-              final date = startOfWeek.add(Duration(days: index));
-              final dateKey = _formatDate(date);
-              final nutrition =
-                  _weeklyNutrition[dateKey] ?? _getEmptyNutrition();
-              final isToday = date.isAtSameMomentAs(
-                DateTime.now().subtract(
-                  Duration(days: DateTime.now().weekday - date.weekday),
-                ),
-              );
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isToday ? Colors.green[50] : Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: isToday ? Border.all(color: Colors.green) : null,
-                ),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 60,
-                      child: Text(
-                        _formatDisplayDate(date),
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          color: isToday ? Colors.green[800] : Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildMiniMetric(
-                            'Cal',
-                            _toDouble(nutrition['calories']),
-                            Colors.orange,
-                          ),
-                          _buildMiniMetric(
-                            'P',
-                            _toDouble(nutrition['protein']),
-                            Colors.blue,
-                          ),
-                          _buildMiniMetric(
-                            'C',
-                            _toDouble(nutrition['carbs']),
-                            Colors.green,
-                          ),
-                          _buildMiniMetric(
-                            'F',
-                            _toDouble(nutrition['fat']),
-                            Colors.red,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMiniMetric(String label, double value, Color color) {
-    return Column(
-      children: [
-        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-        Text(
-          value.toStringAsFixed(0),
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _capitalizeFirst(String text) {
-    if (text.isEmpty) return text;
-    return text[0].toUpperCase() + text.substring(1);
+  Future<void> _loadWeeklyNutrition() async {
+    // Placeholder implementation
   }
 }
