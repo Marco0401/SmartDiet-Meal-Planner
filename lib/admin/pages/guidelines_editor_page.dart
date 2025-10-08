@@ -32,35 +32,78 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nutritional Guidelines Editor'),
-        backgroundColor: const Color(0xFF9C27B0),
-        foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'General Guidelines', icon: Icon(Icons.article)),
-            Tab(text: 'Allergen Rules', icon: Icon(Icons.warning)),
-            Tab(text: 'Dietary Standards', icon: Icon(Icons.restaurant)),
-            Tab(text: 'Health Conditions', icon: Icon(Icons.health_and_safety)),
-            Tab(text: 'Personalized Rules', icon: Icon(Icons.person_pin)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.psychology, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('Nutritional Guidelines Editor'),
           ],
         ),
-        actions: [
-          IconButton(
-            onPressed: () => _showAddGuidelineDialog(category: 'general'),
-            icon: const Icon(Icons.add),
-            tooltip: 'Add New Guideline',
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF9C27B0), Color(0xFFBA68C8)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           ),
-          IconButton(
-            onPressed: () {
-              setState(() {});
-            },
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+        ),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            color: Colors.white.withOpacity(0.1),
+            child: TabBar(
+              controller: _tabController,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white60,
+              indicatorColor: Colors.white,
+              indicatorWeight: 3,
+              isScrollable: true,
+              tabs: const [
+                Tab(text: 'General Guidelines', icon: Icon(Icons.article, size: 18)),
+                Tab(text: 'Allergen Rules', icon: Icon(Icons.warning, size: 18)),
+                Tab(text: 'Dietary Standards', icon: Icon(Icons.restaurant, size: 18)),
+                Tab(text: 'Health Conditions', icon: Icon(Icons.health_and_safety, size: 18)),
+                Tab(text: 'Personalized Rules', icon: Icon(Icons.person_pin, size: 18)),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              onPressed: () => _showAddGuidelineDialog(category: 'general'),
+              icon: const Icon(Icons.add),
+              tooltip: 'Add New Guideline',
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              onPressed: () {
+                setState(() {});
+              },
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+            ),
           ),
         ],
       ),
@@ -206,167 +249,317 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _getCategoryColor(category).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    _getCategoryIcon(category),
-                    color: _getCategoryColor(category),
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+      elevation: 3,
+      shadowColor: _getCategoryColor(category).withOpacity(0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: _getCategoryColor(category).withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              _getCategoryColor(category).withOpacity(0.02),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _getCategoryColor(category),
+                          _getCategoryColor(category).withOpacity(0.7),
+                        ],
                       ),
-                      Text(
-                        _getCategoryDisplayName(category),
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _getCategoryColor(category).withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
                         ),
+                      ],
+                    ),
+                    child: Icon(
+                      _getCategoryIcon(category),
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2D3748),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.label,
+                              size: 14,
+                              color: _getCategoryColor(category),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _getCategoryDisplayName(category),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: _getCategoryColor(category),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _getPriorityColor(priority),
+                          _getPriorityColor(priority).withOpacity(0.7),
+                        ],
                       ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _getPriorityColor(priority).withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          priority == 'high' ? Icons.arrow_upward :
+                          priority == 'medium' ? Icons.remove : Icons.arrow_downward,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          priority.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            
+              const SizedBox(height: 20),
+              
+              // Content Preview
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      _getCategoryColor(category).withOpacity(0.05),
+                      Colors.grey.shade50,
                     ],
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getPriorityColor(priority).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _getCategoryColor(category).withOpacity(0.2),
+                    width: 1,
                   ),
-                  child: Text(
-                    priority.toUpperCase(),
-                    style: TextStyle(
-                      color: _getPriorityColor(priority),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.description,
+                          size: 16,
+                          color: _getCategoryColor(category),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Content Preview',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: _getCategoryColor(category),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                    const SizedBox(height: 12),
+                    Text(
+                      content.length > 200 ? '${content.substring(0, 200)}...' : content,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Content Preview
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(8),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              
+              const SizedBox(height: 16),
+              
+              // Status and Metadata
+              Row(
                 children: [
-                  const Text(
-                    'Content:',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: isActive 
+                          ? [Colors.green, Colors.green.shade600]
+                          : [Colors.grey, Colors.grey.shade600],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (isActive ? Colors.green : Colors.grey).withOpacity(0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isActive ? Icons.check_circle : Icons.pause_circle,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isActive ? 'ACTIVE' : 'INACTIVE',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(width: 16),
+                  Icon(Icons.person, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
                   Text(
-                    content.length > 200 ? '${content.substring(0, 200)}...' : content,
+                    createdBy,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(Icons.schedule, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    lastUpdated != null ? DateFormat('MMM dd, yyyy').format(lastUpdated.toDate()) : 'Unknown',
+                    style: TextStyle(
+                      fontSize: 12,
                       color: Colors.grey.shade700,
                     ),
                   ),
                 ],
               ),
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // Status and Metadata
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isActive ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    isActive ? 'ACTIVE' : 'INACTIVE',
-                    style: TextStyle(
-                      color: isActive ? Colors.green : Colors.red,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+              
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              
+              // Actions
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _toggleGuidelineStatus(guidelineId, !isActive),
+                      icon: Icon(isActive ? Icons.pause : Icons.play_arrow, size: 18),
+                      label: Text(isActive ? 'Deactivate' : 'Activate'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: isActive ? Colors.orange : Colors.green,
+                        side: BorderSide(
+                          color: isActive ? Colors.orange : Colors.green,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Text(
-                  'By: $createdBy',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _editGuideline(guidelineId, data),
+                      icon: const Icon(Icons.edit, size: 18),
+                      label: const Text('Edit'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _getCategoryColor(category),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                const Spacer(),
-                Text(
-                  'Updated: ${lastUpdated != null ? DateFormat('MMM dd, yyyy').format(lastUpdated.toDate()) : 'Unknown'}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: () => _deleteGuideline(guidelineId, title),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade50,
+                      foregroundColor: Colors.red,
+                      padding: const EdgeInsets.all(12),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(color: Colors.red.shade200),
+                      ),
+                    ),
+                    child: const Icon(Icons.delete, size: 20),
                   ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Actions
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: () => _toggleGuidelineStatus(guidelineId, !isActive),
-                  icon: Icon(isActive ? Icons.pause : Icons.play_arrow, size: 16),
-                  label: Text(isActive ? 'Deactivate' : 'Activate'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: isActive ? Colors.orange : Colors.green,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () => _editGuideline(guidelineId, data),
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('Edit'),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () => _deleteGuideline(guidelineId, title),
-                  icon: const Icon(Icons.delete, size: 16),
-                  label: const Text('Delete'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -557,71 +750,136 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.person_pin,
-                    color: Colors.purple,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+      elevation: 3,
+      shadowColor: Colors.purple.withOpacity(0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: Colors.purple.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Color(0xFFF3E5F5),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF9C27B0), Color(0xFFBA68C8)],
                       ),
-                      Text(
-                        'Priority: ${priority.toUpperCase()}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _getPriorityColor(priority),
-                          fontWeight: FontWeight.bold,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.purple.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isActive ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    isActive ? 'ACTIVE' : 'INACTIVE',
-                    style: TextStyle(
-                      color: isActive ? Colors.green : Colors.red,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.person_pin,
+                      color: Colors.white,
+                      size: 24,
                     ),
                   ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // Description
-            if (description.isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2D3748),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              priority == 'high' ? Icons.arrow_upward :
+                              priority == 'medium' ? Icons.remove : Icons.arrow_downward,
+                              size: 14,
+                              color: _getPriorityColor(priority),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Priority: ${priority.toUpperCase()}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _getPriorityColor(priority),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: isActive 
+                          ? [Colors.green, Colors.green.shade600]
+                          : [Colors.grey, Colors.grey.shade600],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (isActive ? Colors.green : Colors.grey).withOpacity(0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isActive ? Icons.check_circle : Icons.pause_circle,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isActive ? 'ACTIVE' : 'INACTIVE',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Description
+              if (description.isNotEmpty) ...[
               Text(
                 description,
                 style: TextStyle(
@@ -629,75 +887,107 @@ class _GuidelinesEditorPageState extends State<GuidelinesEditorPage> with Ticker
                   color: Colors.grey.shade700,
                 ),
               ),
-              const SizedBox(height: 12),
-            ],
-            
-            // Conditions
-            if (conditions.isNotEmpty) ...[
-              const Text(
-                'Applies to:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: _buildConditionChips(conditions),
-              ),
-              const SizedBox(height: 12),
-            ],
-            
-            // Adjustments
-            if (adjustments.isNotEmpty) ...[
-              const Text(
-                'Nutrition Adjustments:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: _buildAdjustmentChips(adjustments),
-              ),
-              const SizedBox(height: 12),
-            ],
-            
-            // Timestamp
-            if (createdAt != null) ...[
-              Text(
-                'Created: ${_formatDate(createdAt.toDate())}',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 12),
-            ],
-            
-            // Actions
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: () => _toggleRuleStatus(id, !isActive),
-                  icon: Icon(isActive ? Icons.pause : Icons.play_arrow, size: 16),
-                  label: Text(isActive ? 'Deactivate' : 'Activate'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: isActive ? Colors.orange : Colors.green,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () => _editPersonalizedRule(id, rule),
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('Edit'),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () => _deletePersonalizedRule(id),
-                  icon: const Icon(Icons.delete, size: 16),
-                  label: const Text('Delete'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                ),
+                const SizedBox(height: 12),
               ],
-            ),
-          ],
+              
+              // Conditions
+              if (conditions.isNotEmpty) ...[
+                const Text(
+                  'Applies to:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: _buildConditionChips(conditions),
+                ),
+                const SizedBox(height: 12),
+              ],
+              
+              // Adjustments
+              if (adjustments.isNotEmpty) ...[
+                const Text(
+                  'Nutrition Adjustments:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: _buildAdjustmentChips(adjustments),
+                ),
+                const SizedBox(height: 12),
+              ],
+              
+              // Timestamp
+              if (createdAt != null) ...[
+                Text(
+                  'Created: ${_formatDate(createdAt.toDate())}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 12),
+              ],
+              
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              
+              // Actions
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _toggleRuleStatus(id, !isActive),
+                      icon: Icon(isActive ? Icons.pause : Icons.play_arrow, size: 18),
+                      label: Text(isActive ? 'Deactivate' : 'Activate'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: isActive ? Colors.orange : Colors.green,
+                        side: BorderSide(
+                          color: isActive ? Colors.orange : Colors.green,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _editPersonalizedRule(id, rule),
+                      icon: const Icon(Icons.edit, size: 18),
+                      label: const Text('Edit'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: () => _deletePersonalizedRule(id),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade50,
+                      foregroundColor: Colors.red,
+                      padding: const EdgeInsets.all(12),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(color: Colors.red.shade200),
+                      ),
+                    ),
+                    child: const Icon(Icons.delete, size: 20),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1140,27 +1140,6 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                 ),
                 child: IconButton(
                   icon: const Icon(
-                    Icons.refresh,
-                    color: Colors.white,
-                  ),
-                  onPressed: () async {
-                    await _loadWeeklyMeals();
-                    await _cleanupDuplicateMeals();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Refreshed and cleaned up duplicates'))
-                    );
-                  },
-                  tooltip: 'Refresh & Cleanup',
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: IconButton(
-                  icon: const Icon(
                     Icons.restaurant_menu,
                     color: Colors.white,
                   ),

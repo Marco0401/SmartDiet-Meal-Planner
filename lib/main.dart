@@ -21,6 +21,7 @@ import 'unified_meal_planner_page.dart';
 import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
 import 'services/notification_service.dart';
+import 'personalized_guidelines_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -301,9 +302,10 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             _drawerOption(1, "App Settings", Icons.settings),
             _drawerOption(2, "Get Meal Suggestions", Icons.lightbulb),
-            _drawerOption(3, "Data & Privacy", Icons.privacy_tip),
-            _drawerOption(4, "About SmartDiet", Icons.info),
-            _drawerOption(5, "Design Showcase", Icons.palette),
+            _drawerOption(3, "Nutritional Guidelines", Icons.article),
+            _drawerOption(4, "Data & Privacy", Icons.privacy_tip),
+            _drawerOption(5, "About SmartDiet", Icons.info),
+            _drawerOption(6, "Design Showcase", Icons.palette),
             const Divider(),
           ],
         ),
@@ -1415,7 +1417,12 @@ class _MyHomePageState extends State<MyHomePage> {
               context,
               MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
             );
-          } else if (number == 5) {
+          } else if (number == 3) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const PersonalizedGuidelinesPage()),
+            );
+          } else if (number == 6) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const Scaffold(

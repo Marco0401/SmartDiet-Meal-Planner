@@ -5,6 +5,7 @@ import 'allergen_validation_page.dart';
 import 'guidelines_editor_page.dart';
 import 'content_creation_page.dart';
 import 'notification_center_page.dart';
+import 'nutritional_data_validation_page.dart';
 
 class NutritionistDashboardPage extends StatefulWidget {
   const NutritionistDashboardPage({super.key});
@@ -54,10 +55,6 @@ Widget build(BuildContext context) {
             padding: const EdgeInsets.all(24),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // Quick Stats Row
-                _buildQuickStatsRow(),
-                const SizedBox(height: 24),
-
                 // Main Content Grid
                 FutureBuilder<Map<String, dynamic>>(
                   future: _getNutritionistStats(),
@@ -84,110 +81,6 @@ Widget build(BuildContext context) {
 }
 
 
-  Widget _buildQuickStatsRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildQuickStatCard(
-            'Meal Plans to Review',
-            '12',
-            Icons.assignment,
-            const Color(0xFF2196F3),
-            '3 pending',
-            true,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildQuickStatCard(
-            'Allergen Validations',
-            '8',
-            Icons.warning,
-            const Color(0xFFFF9800),
-            '2 flagged',
-            true,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildQuickStatCard(
-            'Guidelines Updated',
-            '5',
-            Icons.edit_note,
-            const Color(0xFF9C27B0),
-            'This week',
-            true,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildQuickStatCard(String title, String value, IconData icon, Color color, String change, bool isPositive) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isPositive ? Colors.green.withValues(alpha: 0.1) : Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  change,
-                  style: TextStyle(
-                    color: isPositive ? Colors.green : Colors.red,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2D3748),
-            ),
-          ),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildMainContent(Map<String, dynamic> stats) {
     return Column(
@@ -196,55 +89,130 @@ Widget build(BuildContext context) {
         Row(
           children: [
             Expanded(
-              flex: 2,
-              child: _buildMetricCard(
-                'Meal Plans Reviewed',
-                '${stats['reviewedMealPlans'] ?? 0}',
-                '${stats['pendingMealPlans'] ?? 0} pending review',
-                Icons.assignment_turned_in,
+              child: _buildEnhancedMetricCard(
+                'Expert Meal Plans',
+                '${stats['expertMealPlans'] ?? 0}',
+                '${stats['recentMealPlans'] ?? 0} created recently',
+                Icons.restaurant_menu,
                 const Color(0xFF4CAF50),
-                const Color(0xFFE8F5E8),
+                Icons.trending_up,
               ),
             ),
             const SizedBox(width: 16),
             Expanded(
-              flex: 2,
-              child: _buildMetricCard(
+              child: _buildEnhancedMetricCard(
                 'Allergen Validations',
                 '${stats['validatedAllergens'] ?? 0}',
-                '${stats['flaggedAllergens'] ?? 0} flagged for review',
-                Icons.warning,
+                '${stats['flaggedAllergens'] ?? 0} need validation',
+                Icons.warning_amber_rounded,
                 const Color(0xFFFF9800),
-                const Color(0xFFFFF3E0),
+                Icons.shield_outlined,
               ),
             ),
             const SizedBox(width: 16),
             Expanded(
-              flex: 2,
-              child: _buildMetricCard(
+              child: _buildEnhancedMetricCard(
                 'Guidelines Updated',
                 '${stats['updatedGuidelines'] ?? 0}',
                 '${stats['recentUpdates'] ?? 0} this week',
                 Icons.edit_note,
                 const Color(0xFF9C27B0),
-                const Color(0xFFF3E5F5),
+                Icons.auto_graph,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 32),
         
-        // Middle Row - Charts and Analytics
+        // Quick Actions Header
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.dashboard_customize, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        
+        // Navigation Cards Grid
         Row(
           children: [
             Expanded(
-              flex: 3,
-              child: _buildChartCard('Nutritional Compliance', stats),
+              child: _buildModernActionCard(
+                'Create Expert Meal Plans',
+                'Design personalized meal plans for users',
+                Icons.restaurant_menu,
+                const Color(0xFF4CAF50),
+                _navigateToExpertMealPlans,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
-              flex: 2,
-              child: _buildAllergenAlertCard(stats),
+              child: _buildModernActionCard(
+                'Allergen & Substitution',
+                'Validate allergen detection system',
+                Icons.verified_user,
+                const Color(0xFFFF9800),
+                _navigateToAllergenValidation,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildModernActionCard(
+                'Nutritional Guidelines',
+                'Edit and manage nutrition rules',
+                Icons.psychology,
+                const Color(0xFF9C27B0),
+                _navigateToGuidelinesEditor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _buildModernActionCard(
+                'Nutritional Data',
+                'Validate recipe nutrition values',
+                Icons.science,
+                const Color(0xFF2196F3),
+                _navigateToNutritionalDataValidation,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildModernActionCard(
+                'Content Creation',
+                'Create educational content',
+                Icons.create,
+                const Color(0xFF00BCD4),
+                _navigateToContentCreation,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildModernActionCard(
+                'Notification Center',
+                'Manage user notifications',
+                Icons.notifications_active,
+                const Color(0xFF607D8B),
+                _navigateToNotificationCenter,
+              ),
             ),
           ],
         ),
@@ -252,15 +220,26 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildMetricCard(String title, String value, String subtitle, IconData icon, Color color, Color bgColor) {
+  Widget _buildEnhancedMetricCard(String title, String value, String subtitle, IconData icon, Color color, IconData trendIcon) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            color.withOpacity(0.05),
+          ],
+        ),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.2),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
+            color: color.withOpacity(0.15),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -272,248 +251,90 @@ Widget build(BuildContext context) {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [color, color.withOpacity(0.7)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: Icon(icon, color: Colors.white, size: 28),
               ),
               const Spacer(),
-              Icon(Icons.more_vert, color: Colors.grey.shade400),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(trendIcon, color: color, size: 20),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Text(
             value,
             style: TextStyle(
-              fontSize: 32,
+              fontSize: 36,
               fontWeight: FontWeight.bold,
               color: color,
+              letterSpacing: -1,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             title,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               color: Color(0xFF2D3748),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChartCard(String title, Map<String, dynamic> stats) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+          const SizedBox(height: 6),
           Row(
             children: [
-              const Text(
-                'Nutritional Compliance',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2D3748),
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Live',
-                  style: TextStyle(
-                    color: Colors.green,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          // Simple bar chart representation
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildBar(0.9, 'Mon'),
-              _buildBar(0.7, 'Tue'),
-              _buildBar(0.8, 'Wed'),
-              _buildBar(0.6, 'Thu'),
-              _buildBar(0.85, 'Fri'),
-              _buildBar(0.75, 'Sat'),
-              _buildBar(0.8, 'Sun'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF4CAF50),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Compliant',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(width: 24),
-              Container(
-                width: 12,
-                height: 12,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF9800),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Needs Review',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBar(double height, String label) {
-    return Column(
-      children: [
-        Container(
-          width: 20,
-          height: 80 * height,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [Color(0xFF4CAF50), Color(0xFF8BC34A)],
-            ),
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 10, color: Colors.grey),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAllergenAlertCard(Map<String, dynamic> stats) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Allergen Alerts',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2D3748),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.warning,
-                  color: Colors.orange.shade600,
-                  size: 32,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${stats['flaggedAllergens'] ?? 0}',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange.shade600,
-                  ),
-                ),
-                Text(
-                  'items need validation',
+              Icon(Icons.info_outline, size: 14, color: Colors.grey.shade500),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  subtitle,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.orange.shade500,
+                    color: Colors.grey.shade600,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildActionCard(String title, String subtitle, IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildModernActionCard(String title, String description, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: () {
-        print('DEBUG: Action card tapped: $title');
-        onTap();
-      },
+      onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.2), width: 1),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: color.withOpacity(0.1),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
@@ -523,39 +344,56 @@ Widget build(BuildContext context) {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(
+                      colors: [color, color.withOpacity(0.7)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  child: Icon(icon, color: color, size: 24),
+                  child: Icon(icon, color: Colors.white, size: 26),
                 ),
                 const Spacer(),
-                Icon(Icons.arrow_forward_ios, color: Colors.grey.shade400, size: 16),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  color: color.withOpacity(0.5),
+                  size: 18,
+                ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Text(
               title,
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 17,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF2D3748),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
-              subtitle,
+              description,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 13,
                 color: Colors.grey.shade600,
+                height: 1.4,
               ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
       ),
     );
   }
+
 
   Widget _buildLoadingGrid() {
     return Column(
@@ -721,68 +559,62 @@ Widget build(BuildContext context) {
     try {
       print('DEBUG: Fetching nutritionist stats...');
       
-      // Get all users first, then check their meal plans
-      final usersSnapshot = await FirebaseFirestore.instance
-          .collection('users')
+      // Get expert meal plans
+      final expertMealPlansSnapshot = await FirebaseFirestore.instance
+          .collection('expert_meal_plans')
           .get();
       
-      int pendingMealPlans = 0;
-      int approvedMealPlans = 0;
+      // Get recent expert meal plans (this week)
+      final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+      final recentMealPlansSnapshot = await FirebaseFirestore.instance
+          .collection('expert_meal_plans')
+          .where('createdAt', isGreaterThan: Timestamp.fromDate(weekAgo))
+          .get();
       
-      // Check meal plans for each user (since collection group query needs index)
-      for (final userDoc in usersSnapshot.docs) {
-        try {
-          final pendingSnapshot = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(userDoc.id)
-              .collection('meal_plans')
-              .where('status', isEqualTo: 'pending_review')
-              .get();
-          pendingMealPlans += pendingSnapshot.docs.length;
-          
-          final approvedSnapshot = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(userDoc.id)
-              .collection('meal_plans')
-              .where('status', isEqualTo: 'approved')
-              .get();
-          approvedMealPlans += approvedSnapshot.docs.length;
-        } catch (e) {
-          print('Error checking meal plans for user ${userDoc.id}: $e');
-        }
+      // Get allergen validations from system_data
+      final validationDoc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('validation_status')
+          .get();
+      
+      int validatedAllergens = 0;
+      int flaggedAllergens = 0;
+      
+      if (validationDoc.exists) {
+        final data = validationDoc.data() ?? {};
+        final allergensData = data['allergens'] as Map<String, dynamic>? ?? {};
+        final substitutionsData = data['substitutions'] as Map<String, dynamic>? ?? {};
+        
+        // Count validated allergens
+        allergensData.forEach((key, value) {
+          if (value['validated'] == true) validatedAllergens++;
+        });
+        
+        // Count validated substitutions
+        substitutionsData.forEach((key, value) {
+          if (value['validated'] == true) validatedAllergens++;
+        });
+        
+        // For flagged, we'll show items that need validation
+        flaggedAllergens = (allergensData.length + substitutionsData.length) - validatedAllergens;
       }
-      
-      // Get allergen validations
-      final allergenValidationsSnapshot = await FirebaseFirestore.instance
-          .collection('allergen_validations')
-          .where('status', isEqualTo: 'validated')
-          .get();
-      
-      // Get flagged allergens
-      final flaggedAllergensSnapshot = await FirebaseFirestore.instance
-          .collection('allergen_validations')
-          .where('status', isEqualTo: 'flagged')
-          .get();
       
       // Get nutritional guidelines updates
       final guidelinesSnapshot = await FirebaseFirestore.instance
           .collection('nutritional_guidelines')
-          .orderBy('lastUpdated', descending: true)
-          .limit(10)
           .get();
       
       // Get recent guidelines updates (this week)
-      final weekAgo = DateTime.now().subtract(const Duration(days: 7));
       final recentGuidelinesSnapshot = await FirebaseFirestore.instance
           .collection('nutritional_guidelines')
           .where('lastUpdated', isGreaterThan: Timestamp.fromDate(weekAgo))
           .get();
       
       final result = {
-        'reviewedMealPlans': approvedMealPlans,
-        'pendingMealPlans': pendingMealPlans,
-        'validatedAllergens': allergenValidationsSnapshot.docs.length,
-        'flaggedAllergens': flaggedAllergensSnapshot.docs.length,
+        'expertMealPlans': expertMealPlansSnapshot.docs.length,
+        'recentMealPlans': recentMealPlansSnapshot.docs.length,
+        'validatedAllergens': validatedAllergens,
+        'flaggedAllergens': flaggedAllergens,
         'updatedGuidelines': guidelinesSnapshot.docs.length,
         'recentUpdates': recentGuidelinesSnapshot.docs.length,
       };
@@ -792,8 +624,8 @@ Widget build(BuildContext context) {
     } catch (e) {
       print('Error getting nutritionist stats: $e');
       return {
-        'reviewedMealPlans': 0,
-        'pendingMealPlans': 0,
+        'expertMealPlans': 0,
+        'recentMealPlans': 0,
         'validatedAllergens': 0,
         'flaggedAllergens': 0,
         'updatedGuidelines': 0,
@@ -891,6 +723,26 @@ Widget build(BuildContext context) {
         context,
         MaterialPageRoute(
           builder: (context) => const NotificationCenterPage(),
+        ),
+      );
+    } catch (e) {
+      print('DEBUG: Navigation error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Navigation error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _navigateToNutritionalDataValidation() {
+    print('DEBUG: Navigating to Nutritional Data Validation page');
+    try {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const NutritionalDataValidationPage(),
         ),
       );
     } catch (e) {
