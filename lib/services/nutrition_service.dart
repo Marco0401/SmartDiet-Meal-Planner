@@ -162,7 +162,7 @@ class NutritionService {
   };
 
   /// Calculate nutrition for a list of ingredients
-  static Map<String, double> calculateRecipeNutrition(List<String> ingredients) {
+  static Future<Map<String, double>> calculateRecipeNutrition(List<String> ingredients) async {
     double totalCalories = 0;
     double totalProtein = 0;
     double totalCarbs = 0;
@@ -170,7 +170,7 @@ class NutritionService {
     double totalFiber = 0;
 
     for (final ingredient in ingredients) {
-      final nutrition = _getIngredientNutrition(ingredient);
+      final nutrition = await _getIngredientNutrition(ingredient);
       totalCalories += nutrition['calories'] ?? 0;
       totalProtein += nutrition['protein'] ?? 0;
       totalCarbs += nutrition['carbs'] ?? 0;
@@ -188,15 +188,43 @@ class NutritionService {
   }
 
   /// Get nutrition data for a specific ingredient
-  static Map<String, double> _getIngredientNutrition(String ingredient) {
+  static Future<Map<String, double>> _getIngredientNutrition(String ingredient) async {
     final lowerIngredient = ingredient.toLowerCase().trim();
     
-    // Try exact match first
+    try {
+      // Fetch from Firestore first
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('ingredient_nutrition')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        final ingredients = Map<String, dynamic>.from(data?['ingredients'] ?? {});
+        
+        // Try exact match first
+        if (ingredients.containsKey(lowerIngredient)) {
+          return Map<String, double>.from(ingredients[lowerIngredient]);
+        }
+        
+        // Try partial matches
+        for (final entry in ingredients.entries) {
+          if (lowerIngredient.contains(entry.key) || entry.key.contains(lowerIngredient)) {
+            return Map<String, double>.from(entry.value);
+          }
+        }
+      }
+    } catch (e) {
+      print('DEBUG: Error fetching ingredient nutrition from Firestore: $e');
+      // Fall back to hardcoded database if Firestore fails
+    }
+    
+    // Fallback to hardcoded database
     if (_nutritionDatabase.containsKey(lowerIngredient)) {
       return _nutritionDatabase[lowerIngredient]!;
     }
     
-    // Try partial matches
+    // Try partial matches in hardcoded database
     for (final entry in _nutritionDatabase.entries) {
       if (lowerIngredient.contains(entry.key) || entry.key.contains(lowerIngredient)) {
         return entry.value;
@@ -227,7 +255,7 @@ class NutritionService {
     if (user == null) throw Exception('User not authenticated');
 
     // Calculate nutrition if not provided
-    final nutrition = customNutrition ?? calculateRecipeNutrition(ingredients);
+    final nutrition = customNutrition ?? await calculateRecipeNutrition(ingredients);
 
     await FirebaseFirestore.instance
         .collection('users')

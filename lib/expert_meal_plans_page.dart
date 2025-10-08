@@ -134,15 +134,21 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
                           border: OutlineInputBorder(),
                           filled: true,
                           fillColor: Colors.white,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         ),
+                        isExpanded: true,
                         items: _goals.map((goal) => DropdownMenuItem(
                           value: goal,
-                          child: Text(goal),
+                          child: Text(
+                            goal,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                         )).toList(),
                         onChanged: (value) => setState(() => _selectedGoal = value!),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _selectedAudience,
@@ -151,10 +157,16 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
                           border: OutlineInputBorder(),
                           filled: true,
                           fillColor: Colors.white,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         ),
+                        isExpanded: true,
                         items: _audiences.map((audience) => DropdownMenuItem(
                           value: audience,
-                          child: Text(audience),
+                          child: Text(
+                            audience,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                         )).toList(),
                         onChanged: (value) => setState(() => _selectedAudience = value!),
                       ),
@@ -704,7 +716,144 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // Show week selection dialog
+    final selectedWeekStart = await showDialog<DateTime>(
+      context: context,
+      builder: (context) => _WeekSelectionDialog(),
+    );
+
+    if (selectedWeekStart == null) return; // User cancelled
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange[700]),
+            const SizedBox(width: 8),
+            const Text('Replace Week?'),
+          ],
+        ),
+        content: Text(
+          'This will replace all meals in the selected week with the expert meal plan "${data['name']}".\n\nAny existing meals will be deleted. Do you want to continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange[700],
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Replace Week'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
     try {
+      // Show loading indicator
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Applying meal plan...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Calculate date range for the week
+      final endOfWeek = selectedWeekStart.add(const Duration(days: 6));
+      
+      // Get all existing meals in the selected week
+      final existingMealsSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meals')
+          .get();
+
+      // Delete meals in the selected week
+      final batch = FirebaseFirestore.instance.batch();
+      for (var doc in existingMealsSnapshot.docs) {
+        final dateStr = doc.data()['date'] as String?;
+        if (dateStr != null) {
+          final mealDate = DateTime.parse(dateStr);
+          if (mealDate.isAfter(selectedWeekStart.subtract(const Duration(days: 1))) &&
+              mealDate.isBefore(endOfWeek.add(const Duration(days: 1)))) {
+            batch.delete(doc.reference);
+          }
+        }
+      }
+
+      // Add meals from expert plan
+      final meals = List<Map<String, dynamic>>.from(data['meals'] ?? []);
+      for (int dayIndex = 0; dayIndex < meals.length; dayIndex++) {
+        final day = meals[dayIndex];
+        final currentDate = selectedWeekStart.add(Duration(days: dayIndex));
+        final dateKey = '${currentDate.year}-${currentDate.month.toString().padLeft(2, '0')}-${currentDate.day.toString().padLeft(2, '0')}';
+
+        // Add each meal type (breakfast, lunch, dinner, snacks)
+        final mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'];
+        for (final mealType in mealTypes) {
+          final meal = day[mealType] as Map<String, dynamic>?;
+          if (meal != null && (meal['name'] as String?)?.isNotEmpty == true) {
+            final mealRef = FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('meals')
+                .doc();
+
+            batch.set(mealRef, {
+              'title': meal['name'],
+              'date': dateKey,
+              'meal_type': mealType,
+              'mealType': mealType,
+              'mealTime': _getDefaultTimeForMealType(mealType),
+              'nutrition': {
+                'calories': meal['calories'] ?? 0,
+                'protein': meal['protein'] ?? 0,
+                'carbs': meal['carbs'] ?? 0,
+                'fat': meal['fat'] ?? 0,
+                'fiber': meal['fiber'] ?? 0,
+                'sugar': meal['sugar'] ?? 0,
+              },
+              'ingredients': meal['ingredients'] ?? [],
+              'extendedIngredients': meal['extendedIngredients'],
+              'instructions': meal['instructions'] ?? '',
+              'image': meal['image'],
+              'recipeId': meal['recipeId'],
+              'source': meal['source'] ?? 'expert_plan',
+              'expertPlanId': planId,
+              'expertPlanName': data['name'],
+              'addedAt': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+      }
+
+      // Commit all changes
+      await batch.commit();
+
+      // Save reference to applied plan
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -712,33 +861,59 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
           .add({
         'planId': planId,
         'planName': data['name'],
-        'planDescription': data['description'],
-        'goal': data['goal'],
-        'targetAudience': data['targetAudience'],
-        'days': data['days'],
-        'targetCalories': data['targetCalories'],
-        'meals': data['meals'],
+        'weekStart': Timestamp.fromDate(selectedWeekStart),
+        'weekEnd': Timestamp.fromDate(endOfWeek),
         'appliedAt': FieldValue.serverTimestamp(),
-        'status': 'active',
       });
 
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Meal plan applied successfully!'),
+          SnackBar(
+            content: Text('Successfully applied "${data['name']}" to your meal planner!'),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'View',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.pop(context); // Go back to meal planner
+              },
+            ),
           ),
         );
       }
     } catch (e) {
+      // Close loading dialog if open
+      if (mounted) Navigator.pop(context);
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error applying meal plan: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
+    }
+  }
+
+  Map<String, dynamic> _getDefaultTimeForMealType(String mealType) {
+    switch (mealType.toLowerCase()) {
+      case 'breakfast':
+        return {'hour': 7, 'minute': 0};
+      case 'lunch':
+        return {'hour': 12, 'minute': 0};
+      case 'dinner':
+        return {'hour': 18, 'minute': 0};
+      case 'snacks':
+        return {'hour': 15, 'minute': 0};
+      default:
+        return {'hour': 12, 'minute': 0};
     }
   }
 
@@ -821,14 +996,83 @@ class _MealPlanDetailsDialog extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Goal: ${data['goal'] ?? 'General Health'}'),
-                  Text('Target Audience: ${data['targetAudience'] ?? 'General'}'),
-                  Text('Duration: ${data['days'] ?? 7} days'),
-                  Text('Target Calories: ${data['targetCalories'] ?? 2000} kcal/day'),
+                  Row(
+                    children: [
+                      Icon(Icons.flag, size: 16, color: Colors.green[700]),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Goal: ${data['goal'] ?? 'General Health'}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.people, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 8),
+                      Text('Target Audience: ${data['targetAudience'] ?? 'General'}'),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 8),
+                      Text('Duration: ${data['days'] ?? 7} days'),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Nutrition Targets (per day)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.local_fire_department, size: 16, color: Colors.orange[700]),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Calories: ${data['targetCalories'] ?? 2000} kcal',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMacroChip(
+                          'Protein',
+                          data['proteinRatio'] ?? 0.25,
+                          Colors.red,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMacroChip(
+                          'Carbs',
+                          data['carbRatio'] ?? 0.45,
+                          Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMacroChip(
+                          'Fat',
+                          data['fatRatio'] ?? 0.30,
+                          Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -940,5 +1184,230 @@ class _MealPlanDetailsDialog extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildMacroChip(String label, double ratio, Color color) {
+    final percentage = (ratio * 100).round();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color.withOpacity(0.8),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$percentage%',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeekSelectionDialog extends StatefulWidget {
+  @override
+  State<_WeekSelectionDialog> createState() => _WeekSelectionDialogState();
+}
+
+class _WeekSelectionDialogState extends State<_WeekSelectionDialog> {
+  DateTime _selectedDate = DateTime.now();
+  
+  DateTime _getStartOfWeek(DateTime date) {
+    final weekday = date.weekday;
+    return date.subtract(Duration(days: weekday - 1));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final startOfWeek = _getStartOfWeek(_selectedDate);
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+    
+    return AlertDialog(
+      title: const Text('Select Week to Replace'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose which week you want to replace with this meal plan:',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            
+            // Current Week
+            _buildWeekOption(
+              'This Week',
+              _getStartOfWeek(DateTime.now()),
+              Icons.calendar_today,
+              Colors.blue,
+            ),
+            const SizedBox(height: 8),
+            
+            // Next Week
+            _buildWeekOption(
+              'Next Week',
+              _getStartOfWeek(DateTime.now().add(const Duration(days: 7))),
+              Icons.calendar_month,
+              Colors.green,
+            ),
+            const SizedBox(height: 8),
+            
+            // Week After Next
+            _buildWeekOption(
+              'Week After Next',
+              _getStartOfWeek(DateTime.now().add(const Duration(days: 14))),
+              Icons.event,
+              Colors.orange,
+            ),
+            const SizedBox(height: 16),
+            
+            // Custom Date Picker
+            OutlinedButton.icon(
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _selectedDate,
+                  firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (picked != null) {
+                  setState(() => _selectedDate = picked);
+                }
+              },
+              icon: const Icon(Icons.date_range),
+              label: const Text('Pick Custom Date'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 44),
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Selected Week Info
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info, size: 16, color: Colors.grey.shade700),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Selected Week:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_formatDate(startOfWeek)} - ${_formatDate(endOfWeek)}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, startOfWeek),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF4CAF50),
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Continue'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWeekOption(String title, DateTime weekStart, IconData icon, Color color) {
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final isSelected = _getStartOfWeek(_selectedDate) == weekStart;
+    
+    return InkWell(
+      onTap: () => setState(() => _selectedDate = weekStart),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isSelected ? color : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${_formatDate(weekStart)} - ${_formatDate(weekEnd)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: color, size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}';
   }
 }

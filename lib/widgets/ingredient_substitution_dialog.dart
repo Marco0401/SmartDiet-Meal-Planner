@@ -218,7 +218,7 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
       }
       
       // Calculate nutrition using NutritionService
-      final calculatedNutrition = NutritionService.calculateRecipeNutrition(ingredientNames);
+      final calculatedNutrition = await NutritionService.calculateRecipeNutrition(ingredientNames);
       
       // Convert to the format expected by the recipe
       return {

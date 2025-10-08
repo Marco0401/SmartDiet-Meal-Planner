@@ -37,7 +37,6 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   @override
   Widget build(BuildContext context) {
     final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-    final weeklyAverages = _calculateWeeklyAverages();
 
     return Scaffold(
       appBar: AppBar(
@@ -63,7 +62,7 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
               controller: _tabController,
               children: [
                 // Nutritional Analytics Tab
-                _buildNutritionalAnalyticsTab(startOfWeek, weeklyAverages),
+                _buildNutritionalAnalyticsTab(startOfWeek),
                 // Profile Analysis Tab
                 _buildProfileAnalysisTab(),
               ],
@@ -669,20 +668,40 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   }
 
   // Nutritional Analytics Tab
-  Widget _buildNutritionalAnalyticsTab(DateTime startOfWeek, Map<String, double> weeklyAverages) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Weekly Overview Card
-          _buildWeeklyOverviewCard(weeklyAverages),
-          const SizedBox(height: 20),
-          
-          // Daily Breakdown
-          _buildDailyBreakdownCard(startOfWeek),
-        ],
-      ),
+  Widget _buildNutritionalAnalyticsTab(DateTime startOfWeek) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _getMealPlansStream(startOfWeek),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error: ${snapshot.error}'),
+          );
+        }
+
+        // Process the real-time data
+        final processedData = _processMealPlansData(snapshot.data, startOfWeek);
+        
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Weekly Overview Card
+              _buildWeeklyOverviewCard(processedData['weeklyAverages']),
+              const SizedBox(height: 20),
+              
+              // Daily Breakdown
+              _buildDailyBreakdownCard(startOfWeek, processedData['dailyNutrition']),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -705,7 +724,7 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Daily Goals Progress',
+            'Weekly Average Progress',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -767,7 +786,7 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     );
   }
 
-  Widget _buildDailyBreakdownCard(DateTime startOfWeek) {
+  Widget _buildDailyBreakdownCard(DateTime startOfWeek, Map<String, Map<String, double>> dailyNutrition) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -803,7 +822,7 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
             
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _buildDayCard(date, isToday),
+              child: _buildDayCard(date, isToday, dailyNutrition),
             );
           }),
         ],
@@ -811,18 +830,14 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     );
   }
 
-  Widget _buildDayCard(DateTime date, bool isToday) {
-    // Mock data - in real app, fetch from meal plans
-    final dayData = isToday ? {
-      'calories': 1280,
-      'protein': 90,
-      'carbs': 83,
-      'fat': 65,
-    } : {
-      'calories': 0,
-      'protein': 0,
-      'carbs': 0,
-      'fat': 0,
+  Widget _buildDayCard(DateTime date, bool isToday, Map<String, Map<String, double>> dailyNutrition) {
+    // Get real data from daily nutrition or show zeros
+    final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final dayData = dailyNutrition[dateKey] ?? {
+      'calories': 0.0,
+      'protein': 0.0,
+      'carbs': 0.0,
+      'fat': 0.0,
     };
 
     final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -849,16 +864,16 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
             ),
           ),
           Expanded(
-            child: _buildNutrientValue('Cal', dayData['calories']!, Colors.orange),
+            child: _buildNutrientValue('Cal', dayData['calories']!.toInt(), Colors.orange),
           ),
           Expanded(
-            child: _buildNutrientValue('P', dayData['protein']!, Colors.blue),
+            child: _buildNutrientValue('P', dayData['protein']!.toInt(), Colors.blue),
           ),
           Expanded(
-            child: _buildNutrientValue('C', dayData['carbs']!, Colors.green),
+            child: _buildNutrientValue('C', dayData['carbs']!.toInt(), Colors.green),
           ),
           Expanded(
-            child: _buildNutrientValue('F', dayData['fat']!, Colors.red),
+            child: _buildNutrientValue('F', dayData['fat']!.toInt(), Colors.red),
           ),
         ],
       ),
@@ -939,7 +954,6 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
                 setState(() {
                   _selectedDate = _selectedDate.subtract(const Duration(days: 7));
                 });
-                _loadWeeklyNutrition();
               },
             ),
           ),
@@ -968,7 +982,6 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
                 setState(() {
                   _selectedDate = _selectedDate.add(const Duration(days: 7));
                 });
-                _loadWeeklyNutrition();
               },
             ),
           ),
@@ -981,19 +994,109 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     return '${date.day}/${date.month}/${date.year}';
   }
 
-  Map<String, double> _calculateWeeklyAverages() {
-    // Mock data for now - in real app, fetch from meal plans
+
+  Stream<QuerySnapshot> _getMealPlansStream(DateTime startOfWeek) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Stream.empty();
+    }
+
+    // Calculate the week's date keys
+    final List<String> weekDateKeys = [];
+    for (int i = 0; i < 7; i++) {
+      final date = startOfWeek.add(Duration(days: i));
+      final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      weekDateKeys.add(dateKey);
+    }
+
+    // Query the user's meals subcollection (where actual meals are stored)
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('meals')
+        .where('date', whereIn: weekDateKeys)
+        .snapshots();
+  }
+
+  Map<String, dynamic> _processMealPlansData(QuerySnapshot? snapshot, DateTime startOfWeek) {
+    Map<String, Map<String, double>> dailyNutrition = {};
+    
+    // Initialize all days with zeros
+    for (int i = 0; i < 7; i++) {
+      final date = startOfWeek.add(Duration(days: i));
+      final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      dailyNutrition[dateKey] = {
+        'calories': 0.0,
+        'protein': 0.0,
+        'carbs': 0.0,
+        'fat': 0.0,
+        'fiber': 0.0,
+        'sugar': 0.0,
+      };
+    }
+
+    // Process meals
+    if (snapshot != null) {
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final dateKey = data['date'] as String;
+        
+        if (dailyNutrition.containsKey(dateKey)) {
+          // Get nutrition data from the meal
+          final nutrition = data['nutrition'] as Map<String, dynamic>?;
+          
+          if (nutrition != null) {
+            // Helper function to convert dynamic values to double
+            double toDouble(dynamic value) {
+              if (value is int) return value.toDouble();
+              if (value is double) return value;
+              if (value is String) return double.tryParse(value) ?? 0.0;
+              return 0.0;
+            }
+            
+            // Add nutrition values from meal
+            dailyNutrition[dateKey]!['calories'] = dailyNutrition[dateKey]!['calories']! + toDouble(nutrition['calories'] ?? 0);
+            dailyNutrition[dateKey]!['protein'] = dailyNutrition[dateKey]!['protein']! + toDouble(nutrition['protein'] ?? 0);
+            dailyNutrition[dateKey]!['carbs'] = dailyNutrition[dateKey]!['carbs']! + toDouble(nutrition['carbs'] ?? 0);
+            dailyNutrition[dateKey]!['fat'] = dailyNutrition[dateKey]!['fat']! + toDouble(nutrition['fat'] ?? 0);
+            dailyNutrition[dateKey]!['fiber'] = dailyNutrition[dateKey]!['fiber']! + toDouble(nutrition['fiber'] ?? 0);
+            dailyNutrition[dateKey]!['sugar'] = dailyNutrition[dateKey]!['sugar']! + toDouble(nutrition['sugar'] ?? 0);
+          }
+        }
+      }
+    }
+
+    // Calculate weekly averages
+    final weeklyAverages = <String, double>{
+      'calories': 0.0,
+      'protein': 0.0,
+      'carbs': 0.0,
+      'fat': 0.0,
+      'fiber': 0.0,
+      'sugar': 0.0,
+    };
+
+    for (var dayData in dailyNutrition.values) {
+      weeklyAverages['calories'] = weeklyAverages['calories']! + dayData['calories']!;
+      weeklyAverages['protein'] = weeklyAverages['protein']! + dayData['protein']!;
+      weeklyAverages['carbs'] = weeklyAverages['carbs']! + dayData['carbs']!;
+      weeklyAverages['fat'] = weeklyAverages['fat']! + dayData['fat']!;
+      weeklyAverages['fiber'] = weeklyAverages['fiber']! + dayData['fiber']!;
+      weeklyAverages['sugar'] = weeklyAverages['sugar']! + dayData['sugar']!;
+    }
+
+    // Convert to daily averages
+    weeklyAverages['calories'] = weeklyAverages['calories']! / 7;
+    weeklyAverages['protein'] = weeklyAverages['protein']! / 7;
+    weeklyAverages['carbs'] = weeklyAverages['carbs']! / 7;
+    weeklyAverages['fat'] = weeklyAverages['fat']! / 7;
+    weeklyAverages['fiber'] = weeklyAverages['fiber']! / 7;
+    weeklyAverages['sugar'] = weeklyAverages['sugar']! / 7;
+
     return {
-      'calories': 880.0,
-      'protein': 61.0,
-      'carbs': 56.0,
-      'fat': 46.0,
-      'fiber': 8.0,
-      'sugar': 9.0,
+      'weeklyAverages': weeklyAverages,
+      'dailyNutrition': dailyNutrition,
     };
   }
 
-  Future<void> _loadWeeklyNutrition() async {
-    // Placeholder implementation
-  }
 }

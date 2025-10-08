@@ -91,9 +91,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'manual entry' ||
           source == 'meal_planner' ||
           source == 'local' ||
+          source == 'expert_plan' ||
           widget.recipe['substituted'] == true) {
-        // This is a local recipe, manually entered meal, substituted recipe, or meal from planner - use the data directly
-        print('DEBUG: Local/manual/substituted/meal_planner recipe, using data directly');
+        // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, or meal from planner - use the data directly
+        print('DEBUG: Local/manual/substituted/expert_plan/meal_planner recipe, using data directly');
         setState(() {
           _recipeDetails = widget.recipe;
           _isLoading = false;
@@ -327,7 +328,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           final ingredients = _extractIngredients(finalRecipe);
           
           // Calculate nutrition from ingredients
-          final nutrition = NutritionService.calculateRecipeNutrition(ingredients);
+          final nutrition = await NutritionService.calculateRecipeNutrition(ingredients);
 
           await NutritionService.saveMealWithNutrition(
             title: finalRecipe['title'] ?? 'Recipe',
@@ -467,9 +468,45 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isValidated = widget.recipe['nutritionValidated'] == true;
+    final validatedBy = widget.recipe['validatedBy'];
+    
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.recipe['title'] ?? 'Recipe Details'),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                widget.recipe['title'] ?? 'Recipe Details',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (isValidated) ...[
+              const SizedBox(width: 8),
+              Tooltip(
+                message: 'Validated by ${validatedBy ?? "Nutritionist"}',
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.verified, color: Colors.white, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Verified',
+                        style: TextStyle(fontSize: 11, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         actions: [

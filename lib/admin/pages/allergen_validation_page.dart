@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/allergen_service.dart';
 
 class AllergenValidationPage extends StatefulWidget {
   const AllergenValidationPage({super.key});
@@ -13,11 +14,14 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
   late TabController _tabController;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  Map<String, dynamic> _validationStatus = {};
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
+    _loadValidationData();
   }
 
   @override
@@ -25,6 +29,29 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadValidationData() async {
+    setState(() => _isLoading = true);
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('validation_status')
+          .get();
+      
+      if (doc.exists) {
+        setState(() {
+          _validationStatus = doc.data() ?? {};
+          _isLoading = false;
+        });
+      } else {
+        // Initialize validation status document
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      print('Error loading validation data: $e');
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -40,16 +67,13 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
           tabs: const [
-            Tab(text: 'Pending Review', icon: Icon(Icons.pending)),
-            Tab(text: 'Validated', icon: Icon(Icons.check_circle)),
-            Tab(text: 'Flagged', icon: Icon(Icons.warning)),
+            Tab(text: 'Allergen Detection', icon: Icon(Icons.warning_amber)),
+            Tab(text: 'Substitutions', icon: Icon(Icons.swap_horiz)),
           ],
         ),
         actions: [
           IconButton(
-            onPressed: () {
-              setState(() {});
-            },
+            onPressed: _loadValidationData,
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
@@ -69,9 +93,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
                     ? IconButton(
                         onPressed: () {
                           _searchController.clear();
-                          setState(() {
-                            _searchQuery = '';
-                          });
+                          setState(() => _searchQuery = '');
                         },
                         icon: const Icon(Icons.clear),
                       )
@@ -83,35 +105,31 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
                 fillColor: Colors.grey.shade100,
               ),
               onChanged: (value) {
-                setState(() {
-                  _searchQuery = value.toLowerCase();
-                });
+                setState(() => _searchQuery = value.toLowerCase());
               },
             ),
           ),
           
           // Tab Content
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildAllergenList('pending'),
-                _buildAllergenList('validated'),
-                _buildAllergenList('flagged'),
-              ],
-            ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildAllergenDetectionTab(),
+                      _buildSubstitutionsTab(),
+                    ],
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAllergenList(String status) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('allergen_validations')
-          .where('status', isEqualTo: status)
-          .snapshots(),
+  Widget _buildAllergenDetectionTab() {
+    return FutureBuilder<Map<String, List<String>>>(
+      future: _getAllAllergenKeywords(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -122,10 +140,9 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error, size: 64, color: Colors.red.shade400),
+                const Icon(Icons.error, size: 64, color: Colors.red),
                 const SizedBox(height: 16),
                 Text('Error: ${snapshot.error}'),
-                const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () => setState(() {}),
                   child: const Text('Retry'),
@@ -135,240 +152,127 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
           );
         }
 
-        final allergens = snapshot.data?.docs ?? [];
-        final filteredAllergens = allergens.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final ingredient = data['ingredient']?.toString().toLowerCase() ?? '';
-          final allergenType = data['allergenType']?.toString().toLowerCase() ?? '';
-          return ingredient.contains(_searchQuery) || allergenType.contains(_searchQuery);
-        }).toList();
+        final allergenKeywords = snapshot.data ?? {};
+        final filteredAllergens = allergenKeywords.entries
+            .where((entry) {
+              if (_searchQuery.isEmpty) return true;
+              return entry.key.toLowerCase().contains(_searchQuery) ||
+                  entry.value.any((keyword) => keyword.toLowerCase().contains(_searchQuery));
+            })
+            .toList();
 
-        if (filteredAllergens.isEmpty) {
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Info Banner
+            _buildInfoBanner(
+              'Allergen Detection Keywords',
+              'Review and validate the keywords used by the system to detect allergens in recipes. '
+              'Validated allergens will be marked as "Nutritionist Verified" in the app.',
+              Colors.orange,
+            ),
+            const SizedBox(height: 16),
+
+            // Allergen Categories
+            ...filteredAllergens.map((entry) => _buildAllergenCard(
+              entry.key,
+              entry.value,
+            )).toList(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSubstitutionsTab() {
+    return FutureBuilder<Map<String, Map<String, List<String>>>>(
+      future: _getAllSubstitutions(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  status == 'pending' ? Icons.pending : 
-                  status == 'validated' ? Icons.check_circle : Icons.warning,
-                  size: 64,
-                  color: Colors.grey.shade400,
-                ),
+                const Icon(Icons.error, size: 64, color: Colors.red),
                 const SizedBox(height: 16),
-                Text(
-                  status == 'pending' ? 'No allergens or substitutions pending validation' :
-                  status == 'validated' ? 'No validated allergens or substitutions' : 'No flagged allergens or substitutions',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey.shade600,
-                  ),
+                Text('Error: ${snapshot.error}'),
+                ElevatedButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('Retry'),
                 ),
               ],
             ),
           );
         }
 
-        return ListView.builder(
+        final substitutions = snapshot.data ?? {};
+        final filteredSubstitutions = substitutions.entries
+            .where((entry) {
+              if (_searchQuery.isEmpty) return true;
+              return entry.key.toLowerCase().contains(_searchQuery) ||
+                  entry.value.keys.any((ing) => ing.toLowerCase().contains(_searchQuery));
+            })
+            .toList();
+
+        return ListView(
           padding: const EdgeInsets.all(16),
-          itemCount: filteredAllergens.length,
-          itemBuilder: (context, index) {
-            final doc = filteredAllergens[index];
-            final data = doc.data() as Map<String, dynamic>;
-            return _buildAllergenCard(doc.id, data, status);
-          },
+          children: [
+            // Info Banner
+            _buildInfoBanner(
+              'Substitution Database',
+              'Review and validate ingredient substitutions for each allergen type. '
+              'Validated substitutions will be marked as "Nutritionist Approved" when suggested to users.',
+              Colors.green,
+            ),
+            const SizedBox(height: 16),
+
+            // Substitution Categories
+            ...filteredSubstitutions.map((entry) => _buildSubstitutionCard(
+              entry.key,
+              entry.value,
+            )).toList(),
+          ],
         );
       },
     );
   }
 
-  Widget _buildAllergenCard(String validationId, Map<String, dynamic> data, String status) {
-    final ingredient = data['ingredient'] ?? 'Unknown Ingredient';
-    final allergenType = data['allergenType'] ?? 'Unknown';
-    final confidence = data['confidence'] ?? 0.0;
-    final recipeName = data['recipeName'] ?? 'Unknown Recipe';
-    final userName = data['userName'] ?? 'Unknown User';
-    final createdAt = data['createdAt'] as Timestamp?;
-    final notes = data['notes'] ?? '';
-
+  Widget _buildInfoBanner(String title, String description, MaterialColor color) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: color[50],
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _getAllergenTypeColor(allergenType).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    _getAllergenTypeIcon(allergenType),
-                    color: _getAllergenTypeColor(allergenType),
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        ingredient,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'in $recipeName',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(status).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    status.toUpperCase(),
+            Icon(Icons.info_outline, color: color[700]),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
                     style: TextStyle(
-                      color: _getStatusColor(status),
-                      fontSize: 12,
                       fontWeight: FontWeight.bold,
+                      color: color[900],
+                      fontSize: 16,
                     ),
                   ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Allergen Type and Confidence
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInfoItem(
-                    'Allergen Type',
-                    allergenType,
-                    _getAllergenTypeColor(allergenType),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildInfoItem(
-                    'Confidence',
-                    '${(confidence * 100).toStringAsFixed(1)}%',
-                    confidence > 0.7 ? Colors.green : confidence > 0.4 ? Colors.orange : Colors.red,
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // User and Date
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInfoItem(
-                    'User',
-                    userName,
-                    Colors.blue,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildInfoItem(
-                    'Date',
-                    createdAt != null ? DateFormat('MMM dd, yyyy').format(createdAt.toDate()) : 'Unknown',
-                    Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-            
-            if (notes.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Notes:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: color[800],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      notes,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            
-            const SizedBox(height: 16),
-            
-            // Actions
-            Row(
-              children: [
-                Text(
-                  'Created: ${createdAt != null ? DateFormat('MMM dd, yyyy HH:mm').format(createdAt.toDate()) : 'Unknown'}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const Spacer(),
-                if (status == 'pending') ...[
-                  TextButton.icon(
-                    onPressed: () => _flagAllergen(validationId),
-                    icon: const Icon(Icons.flag, size: 16),
-                    label: const Text('Flag'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _validateAllergen(validationId),
-                    icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Validate'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ] else ...[
-                  TextButton.icon(
-                    onPressed: () => _viewAllergenDetails(validationId, data),
-                    icon: const Icon(Icons.visibility, size: 16),
-                    label: const Text('View Details'),
                   ),
                 ],
-              ],
+              ),
             ),
           ],
         ),
@@ -376,177 +280,565 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
     );
   }
 
-  Widget _buildInfoItem(String label, String value, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _buildAllergenCard(String allergenType, List<String> keywords) {
+    final color = _getAllergenTypeColor(allergenType);
+    final icon = _getAllergenTypeIcon(allergenType);
+    final isValidated = _validationStatus['allergens']?[allergenType]?['validated'] == true;
+    final validatedBy = _validationStatus['allergens']?[allergenType]?['validatedBy'];
+    final validatedAt = _validationStatus['allergens']?[allergenType]?['validatedAt'] as Timestamp?;
 
-  Color _getAllergenTypeColor(String allergenType) {
-    switch (allergenType.toLowerCase()) {
-      case 'dairy':
-        return Colors.blue;
-      case 'nuts':
-        return Colors.brown;
-      case 'gluten':
-        return Colors.amber;
-      case 'fish':
-        return Colors.cyan;
-      case 'shellfish':
-        return Colors.teal;
-      case 'eggs':
-        return Colors.orange;
-      case 'soy':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getAllergenTypeIcon(String allergenType) {
-    switch (allergenType.toLowerCase()) {
-      case 'dairy':
-        return Icons.local_drink;
-      case 'nuts':
-        return Icons.eco;
-      case 'gluten':
-        return Icons.grain;
-      case 'fish':
-        return Icons.set_meal;
-      case 'shellfish':
-        return Icons.waves;
-      case 'eggs':
-        return Icons.egg;
-      case 'soy':
-        return Icons.agriculture;
-      default:
-        return Icons.warning;
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'pending':
-        return Colors.orange;
-      case 'validated':
-        return Colors.green;
-      case 'flagged':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  Future<void> _validateAllergen(String validationId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('allergen_validations')
-          .doc(validationId)
-          .update({
-        'status': 'validated',
-        'validatedAt': FieldValue.serverTimestamp(),
-        'validatedBy': 'nutritionist',
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Allergen validation approved!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error validating allergen: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _flagAllergen(String validationId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('allergen_validations')
-          .doc(validationId)
-          .update({
-        'status': 'flagged',
-        'flaggedAt': FieldValue.serverTimestamp(),
-        'flaggedBy': 'nutritionist',
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Allergen flagged for review'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error flagging allergen: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _viewAllergenDetails(String validationId, Map<String, dynamic> data) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Allergen Details'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Ingredient: ${data['ingredient'] ?? 'Unknown'}'),
-              Text('Allergen Type: ${data['allergenType'] ?? 'Unknown'}'),
-              Text('Recipe: ${data['recipeName'] ?? 'Unknown'}'),
-              Text('User: ${data['userName'] ?? 'Unknown'}'),
-              Text('Confidence: ${((data['confidence'] ?? 0.0) * 100).toStringAsFixed(1)}%'),
-              if (data['notes']?.isNotEmpty == true) ...[
-                const SizedBox(height: 8),
-                Text('Notes: ${data['notes']}'),
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Icon(icon, color: color, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        allergenType.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${keywords.length} detection keywords',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isValidated)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.verified, color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text(
+                          'VALIDATED',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
-            ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+
+          // Content
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Detection Keywords:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: keywords.map((keyword) {
+                    return Chip(
+                      label: Text(keyword),
+                      backgroundColor: color.withOpacity(0.1),
+                      side: BorderSide(color: color.withOpacity(0.3)),
+                      labelStyle: TextStyle(
+                        color: color.withOpacity(0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    );
+                  }).toList(),
+                ),
+
+                if (isValidated && validatedAt != null) ...[
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Validated by ${validatedBy ?? "Nutritionist"} on ${_formatDate(validatedAt.toDate())}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isValidated
+                            ? () => _revokeValidation('allergens', allergenType)
+                            : () => _validateItem('allergens', allergenType),
+                        icon: Icon(isValidated ? Icons.cancel : Icons.check, size: 18),
+                        label: Text(isValidated ? 'Revoke Validation' : 'Validate'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isValidated ? Colors.orange : Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildSubstitutionCard(String allergenType, Map<String, List<String>> substitutionMap) {
+    final color = _getAllergenTypeColor(allergenType);
+    final icon = _getAllergenTypeIcon(allergenType);
+    final isValidated = _validationStatus['substitutions']?[allergenType]?['validated'] == true;
+    final validatedBy = _validationStatus['substitutions']?[allergenType]?['validatedBy'];
+    final validatedAt = _validationStatus['substitutions']?[allergenType]?['validatedAt'] as Timestamp?;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Icon(icon, color: color, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        allergenType.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${substitutionMap.length} ingredients with substitutions',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isValidated)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.verified, color: Colors.white, size: 16),
+                        SizedBox(width: 6),
+                        Text(
+                          'VALIDATED',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Content
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Sample Substitutions:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...substitutionMap.entries.take(5).map((entry) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Text(
+                            entry.key,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.red.shade900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.arrow_forward, size: 14, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            entry.value.join(', '),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                if (substitutionMap.length > 5)
+                  Text(
+                    '... and ${substitutionMap.length - 5} more',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+
+                if (isValidated && validatedAt != null) ...[
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Validated by ${validatedBy ?? "Nutritionist"} on ${_formatDate(validatedAt.toDate())}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isValidated
+                            ? () => _revokeValidation('substitutions', allergenType)
+                            : () => _validateItem('substitutions', allergenType),
+                        icon: Icon(isValidated ? Icons.cancel : Icons.check, size: 18),
+                        label: Text(isValidated ? 'Revoke Validation' : 'Validate'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isValidated ? Colors.orange : Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _validateItem(String category, String type) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // Get nutritionist email
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      
+      final nutritionistName = userDoc.data()?['fullName'] ?? user.email ?? 'Nutritionist';
+
+      await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('validation_status')
+          .set({
+        category: {
+          type: {
+            'validated': true,
+            'validatedBy': nutritionistName,
+            'validatedAt': FieldValue.serverTimestamp(),
+          }
+        }
+      }, SetOptions(merge: true));
+
+      await _loadValidationData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$type validated successfully!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error validating: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _revokeValidation(String category, String type) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('validation_status')
+          .set({
+        category: {
+          type: {
+            'validated': false,
+            'validatedBy': null,
+            'validatedAt': null,
+          }
+        }
+      }, SetOptions(merge: true));
+
+      await _loadValidationData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$type validation revoked'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error revoking validation: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<Map<String, List<String>>> _getAllAllergenKeywords() async {
+    // Get all allergen types and their keywords
+    final allergenTypes = ['dairy', 'eggs', 'fish', 'shellfish', 'tree nuts', 'peanuts', 'wheat', 'soy', 'gluten'];
+    final Map<String, List<String>> result = {};
+
+    for (final type in allergenTypes) {
+      try {
+        final keywords = await AllergenService.getSubstitutions(type);
+        // Get the keys (ingredients that need substitution) as detection keywords
+        result[type] = keywords.isNotEmpty ? ['Various ingredients'] : [];
+      } catch (e) {
+        result[type] = [];
+      }
+    }
+
+    // Get hardcoded allergen keywords from AllergenService
+    result['dairy'] = ['milk', 'cheese', 'butter', 'cream', 'yogurt', 'whey', 'casein', 'lactose', 'gatas', 'keso', 'mantikilya'];
+    result['eggs'] = ['egg', 'eggs', 'itlog', 'mayonnaise'];
+    result['fish'] = ['fish', 'salmon', 'tuna', 'tilapia', 'bangus', 'milkfish', 'isda', 'anchovies', 'sardines'];
+    result['shellfish'] = ['shrimp', 'crab', 'lobster', 'prawn', 'hipon', 'alimango'];
+    result['tree nuts'] = ['almond', 'cashew', 'walnut', 'pecan', 'pistachio', 'hazelnut'];
+    result['peanuts'] = ['peanut', 'peanuts', 'mani'];
+    result['wheat'] = ['wheat', 'flour', 'bread', 'pasta', 'trigo', 'harina'];
+    result['soy'] = ['soy', 'tofu', 'soya', 'tokwa'];
+    result['gluten'] = ['gluten', 'wheat', 'barley', 'rye'];
+
+    return result;
+  }
+
+  Future<Map<String, Map<String, List<String>>>> _getAllSubstitutions() async {
+    final allergenTypes = ['dairy', 'eggs', 'fish', 'shellfish', 'tree nuts', 'peanuts', 'wheat', 'soy', 'gluten'];
+    final Map<String, Map<String, List<String>>> result = {};
+
+    for (final type in allergenTypes) {
+      try {
+        final subs = await AllergenService.getSubstitutions(type);
+        if (subs.isNotEmpty) {
+          // Convert List<String> to Map format for display
+          result[type] = {
+            'Sample': subs.take(5).toList(),
+          };
+        }
+      } catch (e) {
+        result[type] = {};
+      }
+    }
+
+    return result;
+  }
+
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Color _getAllergenTypeColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'dairy':
+        return Colors.blue;
+      case 'eggs':
+        return Colors.orange;
+      case 'fish':
+        return Colors.cyan;
+      case 'shellfish':
+        return Colors.teal;
+      case 'tree nuts':
+        return Colors.brown;
+      case 'peanuts':
+        return Colors.amber;
+      case 'wheat':
+        return Colors.yellow.shade700;
+      case 'soy':
+        return Colors.green;
+      case 'gluten':
+        return Colors.deepOrange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getAllergenTypeIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'dairy':
+        return Icons.water_drop;
+      case 'eggs':
+        return Icons.egg;
+      case 'fish':
+      case 'shellfish':
+        return Icons.set_meal;
+      case 'tree nuts':
+      case 'peanuts':
+        return Icons.nature;
+      case 'wheat':
+      case 'gluten':
+        return Icons.grain;
+      case 'soy':
+        return Icons.eco;
+      default:
+        return Icons.warning;
+    }
   }
 }

@@ -91,7 +91,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     super.dispose();
   }
 
-  void _calculateNutritionFromIngredients() {
+  void _calculateNutritionFromIngredients() async {
     if (_ingredientsController.text.trim().isEmpty) return;
     
     final ingredientsList = _ingredientsController.text
@@ -99,15 +99,17 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         .where((line) => line.trim().isNotEmpty)
         .toList();
     
-    final nutrition = NutritionService.calculateRecipeNutrition(ingredientsList);
+    final nutrition = await NutritionService.calculateRecipeNutrition(ingredientsList);
     
-    setState(() {
-      _caloriesController.text = nutrition['calories']!.toStringAsFixed(1);
-      _proteinController.text = nutrition['protein']!.toStringAsFixed(1);
-      _carbsController.text = nutrition['carbs']!.toStringAsFixed(1);
-      _fatController.text = nutrition['fat']!.toStringAsFixed(1);
-      _fiberController.text = nutrition['fiber']!.toStringAsFixed(1);
-    });
+    if (mounted) {
+      setState(() {
+        _caloriesController.text = nutrition['calories']!.toStringAsFixed(1);
+        _proteinController.text = nutrition['protein']!.toStringAsFixed(1);
+        _carbsController.text = nutrition['carbs']!.toStringAsFixed(1);
+        _fatController.text = nutrition['fat']!.toStringAsFixed(1);
+        _fiberController.text = nutrition['fiber']!.toStringAsFixed(1);
+      });
+    }
   }
 
   Future<void> _saveMeal() async {

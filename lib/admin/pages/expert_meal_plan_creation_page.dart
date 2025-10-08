@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/nutritionist_recipe_picker_dialog.dart';
 
 class ExpertMealPlanCreationPage extends StatefulWidget {
   const ExpertMealPlanCreationPage({super.key});
@@ -166,7 +167,10 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
                           value: goal,
                           child: Text(goal),
                         )).toList(),
-                        onChanged: (value) => setState(() => _selectedGoal = value!),
+                        onChanged: (value) {
+                          setState(() => _selectedGoal = value!);
+                          _configureNutritionTargets();
+                        },
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -234,6 +238,44 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Info banner
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue[50],
+              border: Border.all(color: Colors.blue[200]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue[700]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Auto-configured for: $_selectedGoal',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[900],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'These values are automatically set based on the health goal. You can still adjust them as needed.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           _buildSectionCard(
             'Daily Calorie Target',
             [
@@ -241,6 +283,7 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
                 children: [
                   Expanded(
                     child: TextFormField(
+                      key: ValueKey(_targetCalories),
                       initialValue: _targetCalories.toString(),
                       decoration: const InputDecoration(
                         labelText: 'Calories per day',
@@ -254,15 +297,20 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
                     ),
                   ),
                   const SizedBox(width: 16),
-                  ElevatedButton(
-                    onPressed: _calculateCalories,
-                    child: const Text('Auto Calculate'),
+                  ElevatedButton.icon(
+                    onPressed: _configureNutritionTargets,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Reset to Default'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[600],
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
               Text(
-                'Recommended range: ${(_targetCalories * 0.8).round()}-${(_targetCalories * 1.2).round()} kcal based on goal',
+                'Recommended range: ${(_targetCalories * 0.8).round()}-${(_targetCalories * 1.2).round()} kcal based on $_selectedGoal',
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
             ],
@@ -501,26 +549,69 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
     }
   }
 
-  void _calculateCalories() {
-    // Basic calorie calculation based on goal
+  void _configureNutritionTargets() {
+    // Configure calories and macronutrient ratios based on health goal
     switch (_selectedGoal) {
       case 'Weight Loss':
         _targetCalories = 1500;
+        _proteinRatio = 0.30; // Higher protein to preserve muscle
+        _carbRatio = 0.40;    // Moderate carbs
+        _fatRatio = 0.30;     // Moderate fat
         break;
       case 'Weight Gain':
         _targetCalories = 2500;
+        _proteinRatio = 0.25; // Moderate protein
+        _carbRatio = 0.50;    // Higher carbs for energy
+        _fatRatio = 0.25;     // Moderate fat
         break;
       case 'Muscle Building':
         _targetCalories = 2200;
+        _proteinRatio = 0.35; // High protein for muscle growth
+        _carbRatio = 0.40;    // Moderate carbs for energy
+        _fatRatio = 0.25;     // Lower fat
         break;
       case 'Diabetes Management':
         _targetCalories = 1800;
+        _proteinRatio = 0.25; // Moderate protein
+        _carbRatio = 0.40;    // Controlled carbs
+        _fatRatio = 0.35;     // Higher healthy fats
         break;
       case 'Heart Health':
         _targetCalories = 2000;
+        _proteinRatio = 0.25; // Moderate protein
+        _carbRatio = 0.45;    // Moderate carbs
+        _fatRatio = 0.30;     // Focus on healthy fats
         break;
+      case 'Athletic Performance':
+        _targetCalories = 2400;
+        _proteinRatio = 0.25; // Moderate protein
+        _carbRatio = 0.50;    // High carbs for energy
+        _fatRatio = 0.25;     // Moderate fat
+        break;
+      case 'Pregnancy':
+        _targetCalories = 2200;
+        _proteinRatio = 0.25; // Adequate protein
+        _carbRatio = 0.50;    // Higher carbs for energy
+        _fatRatio = 0.25;     // Healthy fats
+        break;
+      case 'Elderly Care':
+        _targetCalories = 1800;
+        _proteinRatio = 0.30; // Higher protein to prevent muscle loss
+        _carbRatio = 0.40;    // Moderate carbs
+        _fatRatio = 0.30;     // Moderate fat
+        break;
+      case 'Child Nutrition':
+        _targetCalories = 1600;
+        _proteinRatio = 0.20; // Adequate protein for growth
+        _carbRatio = 0.55;    // Higher carbs for energy
+        _fatRatio = 0.25;     // Healthy fats for development
+        break;
+      case 'General Health':
       default:
         _targetCalories = 2000;
+        _proteinRatio = 0.25; // Balanced
+        _carbRatio = 0.45;    // Balanced
+        _fatRatio = 0.30;     // Balanced
     }
     setState(() {});
   }
@@ -528,12 +619,25 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
   void _editMeal(int dayIndex, String mealKey, String mealType) {
     showDialog(
       context: context,
-      builder: (context) => _MealEditDialog(
-        meal: _meals[dayIndex][mealKey],
-        mealType: mealType,
-        onSave: (updatedMeal) {
+      builder: (context) => NutritionistRecipePickerDialog(
+        onRecipeSelected: (recipe) {
+          final nutrition = recipe['nutrition'] ?? {};
           setState(() {
-            _meals[dayIndex][mealKey] = updatedMeal;
+            _meals[dayIndex][mealKey] = {
+              'name': recipe['title'] ?? 'Untitled Recipe',
+              'calories': nutrition['calories'] ?? 0,
+              'protein': nutrition['protein'] ?? 0,
+              'carbs': nutrition['carbs'] ?? 0,
+              'fat': nutrition['fat'] ?? 0,
+              'fiber': nutrition['fiber'] ?? 0,
+              'sugar': nutrition['sugar'] ?? 0,
+              'source': recipe['source'] ?? 'unknown',
+              'recipeId': recipe['id'],
+              'image': recipe['image'],
+              'ingredients': recipe['ingredients'] ?? recipe['extendedIngredients'] ?? [],
+              'extendedIngredients': recipe['extendedIngredients'],
+              'instructions': recipe['instructions'] ?? '',
+            };
           });
         },
       ),
@@ -541,11 +645,29 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
   }
 
   Future<void> _saveMealPlan() async {
-    if (!_formKey.currentState!.validate()) return;
+    print('DEBUG: Save meal plan button clicked');
+    
+    if (!_formKey.currentState!.validate()) {
+      print('DEBUG: Form validation failed');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in all required fields'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    print('DEBUG: Form validation passed');
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception('User not authenticated');
+      if (user == null) {
+        print('DEBUG: User not authenticated');
+        throw Exception('User not authenticated');
+      }
+
+      print('DEBUG: User authenticated: ${user.uid}');
 
       final mealPlanData = {
         'name': _nameController.text,
@@ -559,12 +681,17 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
         'fatRatio': _fatRatio,
         'meals': _meals,
         'createdBy': 'nutritionist',
+        'createdByUserId': user.uid,
         'isExpertPlan': true,
         'status': 'published',
       };
 
+      print('DEBUG: Meal plan data prepared: ${_nameController.text}');
+      print('DEBUG: Meals count: ${_meals.length}');
+
       if (_currentPlanId != null) {
         // Update existing plan
+        print('DEBUG: Updating existing plan: $_currentPlanId');
         await FirebaseFirestore.instance
             .collection('expert_meal_plans')
             .doc(_currentPlanId)
@@ -572,14 +699,17 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
           ...mealPlanData,
           'lastUpdated': FieldValue.serverTimestamp(),
         });
+        print('DEBUG: Plan updated successfully');
       } else {
         // Create new plan
-        await FirebaseFirestore.instance
+        print('DEBUG: Creating new plan');
+        final docRef = await FirebaseFirestore.instance
             .collection('expert_meal_plans')
             .add({
           ...mealPlanData,
           'createdAt': FieldValue.serverTimestamp(),
         });
+        print('DEBUG: Plan created successfully with ID: ${docRef.id}');
       }
 
       if (mounted) {
@@ -589,19 +719,24 @@ class _ExpertMealPlanCreationPageState extends State<ExpertMealPlanCreationPage>
                 ? 'Meal plan updated successfully!' 
                 : 'Expert meal plan saved successfully!'),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
           ),
         );
         
+        print('DEBUG: Clearing form and resetting tab');
         // Clear the form and reset to first tab
         _clearForm();
         _tabController.animateTo(0);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('DEBUG: Error saving meal plan: $e');
+      print('DEBUG: Stack trace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error saving meal plan: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

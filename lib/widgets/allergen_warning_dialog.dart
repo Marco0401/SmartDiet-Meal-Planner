@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/allergen_detection_service.dart';
 
 class AllergenWarningDialog extends StatelessWidget {
@@ -80,6 +81,40 @@ class AllergenWarningDialog extends StatelessWidget {
                   color: Color(0xFF2E7D32),
                 ),
                 textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              
+              // Validation Badge
+              FutureBuilder<bool>(
+                future: _checkAllergenValidation(),
+                builder: (context, snapshot) {
+                  if (snapshot.data == true) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.green, width: 1),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified_user, size: 16, color: Colors.green),
+                          SizedBox(width: 6),
+                          Text(
+                            'Allergen System Validated by Nutritionist',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
               ),
               const SizedBox(height: 16),
             
@@ -245,6 +280,31 @@ class AllergenWarningDialog extends StatelessWidget {
         return Colors.amber;
       default:
         return Colors.green;
+    }
+  }
+
+  Future<bool> _checkAllergenValidation() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('validation_status')
+          .get();
+      
+      if (!doc.exists) return false;
+      
+      final data = doc.data() ?? {};
+      
+      // Check if any allergen type is validated
+      for (final allergen in detectedAllergens) {
+        final allergenKey = allergen.toLowerCase().replaceAll(' ', '_');
+        final validated = data['allergen_$allergenKey']?['validated'] == true;
+        if (validated) return true;
+      }
+      
+      return false;
+    } catch (e) {
+      print('Error checking allergen validation: $e');
+      return false;
     }
   }
 }

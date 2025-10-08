@@ -128,36 +128,38 @@ class RecipeService {
 
   static Future<Map<String, dynamic>> fetchRecipeDetails(dynamic id) async {
     try {
+      Map<String, dynamic>? recipeDetails;
+      
       // Try admin recipes first - check both admin_ prefix and direct ID lookup
       if (id.toString().startsWith('admin_')) {
         final adminDetails = await _fetchAdminRecipeDetails(id.toString());
         if (adminDetails != null) {
-          return adminDetails;
+          recipeDetails = adminDetails;
         }
       } else {
         // Try direct admin recipe lookup for non-prefixed IDs
         final adminDetails = await _fetchAdminRecipeDetails(id.toString());
         if (adminDetails != null) {
-          return adminDetails;
+          recipeDetails = adminDetails;
         }
       }
       
       // Try Filipino Recipe Service for Filipino recipes
-      if (id.toString().startsWith('curated_') || 
-          id.toString().startsWith('local_filipino_')) {
+      if (recipeDetails == null && (id.toString().startsWith('curated_') || 
+          id.toString().startsWith('local_filipino_'))) {
         final filipinoDetails = await FilipinoRecipeService.getRecipeDetails(id.toString());
         if (filipinoDetails != null) {
-          return filipinoDetails;
+          recipeDetails = filipinoDetails;
         }
       }
       
       // Handle TheMealDB recipes
-      if (id.toString().startsWith('themealdb_')) {
-        return _fetchRecipeDetailsFallback(id);
+      if (recipeDetails == null && id.toString().startsWith('themealdb_')) {
+        recipeDetails = await _fetchRecipeDetailsFallback(id);
       }
       
       // Try Spoonacular for other recipes
-      if (_apiKey.isNotEmpty) {
+      if (recipeDetails == null && _apiKey.isNotEmpty) {
         final url = '$_baseUrl/$id/information?includeNutrition=true&apiKey=$_apiKey';
         final response = await http.get(Uri.parse(url));
         if (response.statusCode == 200) {
@@ -171,19 +173,55 @@ class RecipeService {
             data['nutrition'] = _estimateNutritionFromTitle(data['title'] ?? '');
           }
           
-          return data;
+          recipeDetails = data;
         } else if (response.statusCode == 402) {
           // API limit reached, use fallback
-          return _fetchRecipeDetailsFallback(id);
+          recipeDetails = await _fetchRecipeDetailsFallback(id);
         }
       }
       
       // Use fallback if no API key or Spoonacular fails
-      return _fetchRecipeDetailsFallback(id);
+      if (recipeDetails == null) {
+        recipeDetails = await _fetchRecipeDetailsFallback(id);
+      }
+      
+      // Check for nutrition overrides (for API recipes)
+      final overriddenRecipe = await _applyNutritionOverride(recipeDetails, id);
+      return overriddenRecipe;
+      
     } catch (e) {
       // Use fallback on any error
-      return _fetchRecipeDetailsFallback(id);
+      final fallback = await _fetchRecipeDetailsFallback(id);
+      return await _applyNutritionOverride(fallback, id);
     }
+  }
+
+  /// Check if there's a nutritionist-validated nutrition override for this recipe
+  static Future<Map<String, dynamic>> _applyNutritionOverride(Map<String, dynamic> recipe, dynamic recipeId) async {
+    try {
+      // Check if an override exists for this recipe
+      final overrideDoc = await FirebaseFirestore.instance
+          .collection('api_recipe_overrides')
+          .doc(recipeId.toString())
+          .get();
+      
+      if (overrideDoc.exists) {
+        final overrideData = overrideDoc.data();
+        if (overrideData != null && overrideData['nutrition'] != null) {
+          print('DEBUG: Applying nutrition override for recipe $recipeId');
+          // Apply the validated nutrition override
+          recipe['nutrition'] = overrideData['nutrition'];
+          recipe['nutritionValidated'] = true;
+          recipe['validatedBy'] = overrideData['validatedBy'];
+          recipe['validatedAt'] = overrideData['validatedAt'];
+        }
+      }
+    } catch (e) {
+      print('DEBUG: Error checking nutrition override: $e');
+      // If there's an error, just return the original recipe
+    }
+    
+    return recipe;
   }
 
   static Map<String, dynamic> _extractNutritionInfo(Map<String, dynamic> nutrition) {

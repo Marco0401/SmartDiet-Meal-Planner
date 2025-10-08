@@ -777,7 +777,7 @@ class _EnhancedRecipeDialogState extends State<EnhancedRecipeDialog> {
     return 0.0;
   }
 
-  void _calculateNutrition() {
+  void _calculateNutrition() async {
     if (!_autoCalculateNutrition) return;
 
     final ingredients = _ingredientControllers
@@ -786,10 +786,12 @@ class _EnhancedRecipeDialogState extends State<EnhancedRecipeDialog> {
         .toList();
 
     if (ingredients.isNotEmpty) {
-      final nutrition = NutritionService.calculateRecipeNutrition(ingredients);
-      setState(() {
-        _calculatedNutrition = nutrition;
-      });
+      final nutrition = await NutritionService.calculateRecipeNutrition(ingredients);
+      if (mounted) {
+        setState(() {
+          _calculatedNutrition = nutrition;
+        });
+      }
     }
   }
 
