@@ -3,24 +3,17 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:provider/provider.dart';
 import 'login_page.dart';
 import 'account_settings_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/recipe_service.dart';
-import 'services/filipino_recipe_service.dart';
 import 'recipe_detail_page.dart';
 import 'meal_planner_page.dart';
-import 'nutrition_analytics_page.dart';
 import 'meal_suggestions_page.dart';
 import 'meal_favorites_page.dart';
-import 'dashboard_page.dart';
 import 'progress_tracking_page.dart';
-import 'ai_meal_planner_page.dart';
-import 'unified_meal_planner_page.dart';
 import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
-import 'services/notification_service.dart';
 import 'personalized_guidelines_page.dart';
 
 void main() async {
@@ -799,6 +792,9 @@ class _MyHomePageState extends State<MyHomePage> {
                             ],
                           ),
                         ),
+                        const SizedBox(height: 24),
+                        // Educational Content Section
+                        _buildEducationalContentSection(),
                         const SizedBox(
                           height: 100,
                         ), // Bottom padding for keyboard
@@ -1228,7 +1224,6 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _recipeCard(dynamic recipe) {
-    final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = screenWidth * 0.45; // 45% of screen width
     final cardHeight = screenWidth * 0.55; // Responsive height based on width
@@ -1307,7 +1302,6 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildRecipeImage(dynamic recipe) {
-    final theme = Theme.of(context);
 
     if (recipe['image'] != null && recipe['image'].toString().isNotEmpty) {
       return ClipRRect(
@@ -1321,7 +1315,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 height: double.infinity,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) {
-                  return _buildImagePlaceholder(theme);
+                  return _buildImagePlaceholder(Theme.of(context));
                 },
               )
             : Image.network(
@@ -1330,12 +1324,12 @@ class _MyHomePageState extends State<MyHomePage> {
                 height: double.infinity,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
-                  return _buildImagePlaceholder(theme);
+                  return _buildImagePlaceholder(Theme.of(context));
                 },
               ),
       );
     }
-    return _buildImagePlaceholder(theme);
+    return _buildImagePlaceholder(Theme.of(context));
   }
 
   Widget _buildImagePlaceholder(ThemeData theme) {
@@ -1568,5 +1562,834 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       },
     );
+  }
+
+  Widget _buildEducationalContentSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.school, color: Colors.blue[600], size: 24),
+              const SizedBox(width: 8),
+              Text(
+                "Educational Content",
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[800],
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  // TODO: Navigate to all content page
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('View all content coming soon!')),
+                  );
+                },
+                child: Text(
+                  'View All',
+                  style: TextStyle(color: Colors.blue[600]),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 240, // Further increased height to prevent overflow
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('educational_content')
+                  .orderBy('createdAt', descending: true)
+                  .limit(10)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red[300], size: 48),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Error loading content',
+                          style: TextStyle(color: Colors.red[600]),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${snapshot.error}',
+                          style: TextStyle(color: Colors.red[400], fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                final allContent = snapshot.data?.docs ?? [];
+                final content = allContent.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return data['isPublished'] == true;
+                }).toList();
+                
+                if (content.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.article_outlined, color: Colors.grey[400], size: 48),
+                        const SizedBox(height: 8),
+                        Text(
+                          'No educational content yet',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Nutritionists are working on it!',
+                          style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Calculate responsive card width based on screen size
+                    final screenWidth = constraints.maxWidth;
+                    final cardWidth = screenWidth > 600 
+                        ? (screenWidth - 60) / 2.5  // Tablet: 2.5 cards visible
+                        : screenWidth * 0.75;       // Mobile: 0.75 screen width
+                    
+                    return ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: content.length,
+                      itemBuilder: (context, index) {
+                        final doc = content[index];
+                        final data = doc.data() as Map<String, dynamic>;
+                        return Container(
+                          width: cardWidth,
+                          margin: const EdgeInsets.only(right: 16),
+                          child: _buildContentCard(data, doc.id),
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContentCard(Map<String, dynamic> content, String contentId) {
+    final type = content['type'] ?? 'tips';
+    final title = content['title'] ?? 'Untitled';
+    final description = content['description'] ?? '';
+    final category = content['category'] ?? '';
+    final author = content['author'] ?? 'Nutritionist';
+    final createdAt = content['createdAt'] as Timestamp?;
+    final contentSource = content['contentSource'] ?? 'text';
+    
+    // Get content type specific styling
+    final typeInfo = _getContentTypeInfo(type);
+    
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: InkWell(
+        onTap: () {
+          _incrementContentView(contentId);
+          _openContentDetail(content, contentId);
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+              // Header with type icon and category
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: typeInfo['color'].withOpacity(0.1),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: typeInfo['color'],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        typeInfo['icon'],
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            typeInfo['name'],
+                            style: TextStyle(
+                              color: typeInfo['color'],
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          if (category.isNotEmpty)
+                            Text(
+                              category,
+                              style: TextStyle(
+                                color: typeInfo['color'].withOpacity(0.7),
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15, // Slightly smaller font
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6), // Reduced spacing
+                      Expanded(
+                        child: Text(
+                          description,
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 13, // Slightly smaller font
+                          ),
+                          maxLines: 2, // Reduced from 3 to 2
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(height: 6), // Reduced spacing
+                      
+                      // Footer with author and date
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person,
+                            size: 14,
+                            color: Colors.grey[500],
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              author,
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (createdAt != null)
+                            Text(
+                              _formatDate(createdAt.toDate()),
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 10,
+                              ),
+                            ),
+                        ],
+                      ),
+                      
+                      // Content source indicator
+                      if (contentSource == 'url')
+                        Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue[200]!),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.link,
+                                size: 12,
+                                color: Colors.blue[600],
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'External Link',
+                                style: TextStyle(
+                                  color: Colors.blue[600],
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+    );
+  }
+
+  Map<String, dynamic> _getContentTypeInfo(String type) {
+    switch (type) {
+      case 'tips':
+        return {
+          'name': 'Tip',
+          'icon': Icons.lightbulb,
+          'color': Colors.orange,
+        };
+      case 'articles':
+        return {
+          'name': 'Article',
+          'icon': Icons.article,
+          'color': Colors.blue,
+        };
+      case 'videos':
+        return {
+          'name': 'Video',
+          'icon': Icons.video_library,
+          'color': Colors.purple,
+        };
+      case 'recipes':
+        return {
+          'name': 'Recipe',
+          'icon': Icons.restaurant,
+          'color': Colors.green,
+        };
+      default:
+        return {
+          'name': 'Content',
+          'icon': Icons.info,
+          'color': Colors.grey,
+        };
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    
+    if (difference.inDays > 7) {
+      return '${date.day}/${date.month}/${date.year}';
+    } else if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else {
+      return 'Just now';
+    }
+  }
+
+  void _openContentDetail(Map<String, dynamic> content, String contentId) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with gradient background
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _getContentTypeInfo(content['type'] ?? 'tips')['color'],
+                      _getContentTypeInfo(content['type'] ?? 'tips')['color'].withOpacity(0.8),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        _getContentTypeInfo(content['type'] ?? 'tips')['icon'],
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            content['title'] ?? 'Untitled',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (content['category'] != null)
+                            Container(
+                              margin: const EdgeInsets.only(top: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                content['category'],
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Content body
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Author and metadata
+                      if (content['author'] != null) ...[
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.person,
+                                size: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              'By ${content['author']}',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      
+                      // Main content
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[200]!),
+                        ),
+                        child: Text(
+                          content['description'] ?? '',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Article content (if available)
+                      if (content['type'] == 'articles' && content['content'] != null && content['content'].toString().isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[300]!),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                spreadRadius: 1,
+                                blurRadius: 3,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.article, color: Colors.blue[600], size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Article Content',
+                                    style: TextStyle(
+                                      color: Colors.blue[600],
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                content['content'],
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  height: 1.6,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      
+                      // External link for articles or URL-based content
+                      if (content['url'] != null && content['url'].toString().isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.blue[50]!,
+                                Colors.blue[100]!,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue[200]!),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.link, color: Colors.blue[600], size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'External Link',
+                                    style: TextStyle(
+                                      color: Colors.blue[600],
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                content['url'],
+                                style: TextStyle(
+                                  color: Colors.blue[700],
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      
+                      // Additional content for non-articles
+                      if (content['type'] != 'articles' && content['content'] != null && content['content'].toString().isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[200]!),
+                          ),
+                          child: Text(
+                            content['content'],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                      
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
+              ),
+              
+              // Action buttons
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(20),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    if (content['contentSource'] == 'url' && content['url'] != null)
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            final url = content['url'];
+                            if (url != null && url.isNotEmpty) {
+                              // Show URL in a dialog for manual copying/opening
+                              showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: Row(
+                                    children: [
+                                      Icon(Icons.link, color: Colors.blue[600]),
+                                      const SizedBox(width: 8),
+                                      const Text('External Link'),
+                                    ],
+                                  ),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Tap and hold the URL below to copy it, then paste it in your browser:'),
+                                      const SizedBox(height: 16),
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue[50],
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.blue[200]!),
+                                        ),
+                                        child: SelectableText(
+                                          url,
+                                          style: TextStyle(
+                                            color: Colors.blue[700],
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange[50],
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.orange[200]!),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.info_outline, color: Colors.orange[600], size: 20),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                'Long press the URL above to copy it to your clipboard',
+                                                style: TextStyle(
+                                                  color: Colors.orange[700],
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Close'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.open_in_new),
+                          label: const Text('Open Link'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[600],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    if (content['contentSource'] == 'url' && content['url'] != null)
+                      const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _toggleContentLike(contentId),
+                        icon: Icon(
+                          Icons.favorite,
+                          color: Colors.red[400],
+                        ),
+                        label: const Text('Like'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[50],
+                          foregroundColor: Colors.red[600],
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _incrementContentView(String contentId) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('educational_content')
+          .doc(contentId)
+          .get();
+
+      if (!doc.exists) return;
+
+      final data = doc.data() as Map<String, dynamic>;
+      final viewedBy = List<String>.from(data['viewedBy'] ?? []);
+      
+      // Only increment if user hasn't viewed this content before
+      if (!viewedBy.contains(user.uid)) {
+        await FirebaseFirestore.instance
+            .collection('educational_content')
+            .doc(contentId)
+            .update({
+          'views': FieldValue.increment(1),
+          'viewedBy': FieldValue.arrayUnion([user.uid]),
+          'lastViewed': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      print('Error incrementing view count: $e');
+    }
+  }
+
+  Future<void> _toggleContentLike(String contentId) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('educational_content')
+          .doc(contentId)
+          .get();
+
+      if (!doc.exists) return;
+
+      final data = doc.data() as Map<String, dynamic>;
+      final likedBy = List<String>.from(data['likedBy'] ?? []);
+      final isLiked = likedBy.contains(user.uid);
+
+      if (isLiked) {
+        // Unlike
+        await FirebaseFirestore.instance
+            .collection('educational_content')
+            .doc(contentId)
+            .update({
+          'likes': FieldValue.increment(-1),
+          'likedBy': FieldValue.arrayRemove([user.uid]),
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Removed from favorites')),
+        );
+      } else {
+        // Like
+        await FirebaseFirestore.instance
+            .collection('educational_content')
+            .doc(contentId)
+            .update({
+          'likes': FieldValue.increment(1),
+          'likedBy': FieldValue.arrayUnion([user.uid]),
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Added to favorites!')),
+        );
+      }
+    } catch (e) {
+      print('Error toggling like: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
   }
 }

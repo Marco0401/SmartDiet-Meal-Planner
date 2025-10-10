@@ -37,17 +37,18 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
       _userProfile = userDoc.data();
       if (_userProfile == null) return;
 
-      // Fetch matching personalized nutrition rules
-      final rulesSnapshot = await FirebaseFirestore.instance
-          .collection('personalized_nutrition_rules')
+      // Fetch nutritional guidelines from nutritionist dashboard
+      final guidelinesSnapshot = await FirebaseFirestore.instance
+          .collection('nutritional_guidelines')
+          .where('isActive', isEqualTo: true)
+          .orderBy('priority', descending: true)
           .get();
 
-      _matchingGuidelines = rulesSnapshot.docs
+      _matchingGuidelines = guidelinesSnapshot.docs
           .map((doc) => {'id': doc.id, ...doc.data()})
-          .where((rule) => _doesRuleMatchUser(rule, _userProfile!))
           .toList();
 
-      // Calculate nutrition targets based on matching rules
+      // Calculate nutrition targets based on user's account settings
       _nutritionTargets = _calculateNutritionTargets();
 
       setState(() => _isLoading = false);
@@ -57,63 +58,6 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
     }
   }
 
-  bool _doesRuleMatchUser(Map<String, dynamic> rule, Map<String, dynamic> user) {
-    final conditions = rule['conditions'] as Map<String, dynamic>?;
-    if (conditions == null) return false;
-
-    // Check age range
-    if (conditions['ageRange'] != null) {
-      final ageRange = conditions['ageRange'] as Map<String, dynamic>;
-      final userAge = _calculateAge(user['birthday']);
-      final min = ageRange['min'] ?? 0;
-      final max = ageRange['max'] ?? 200;
-      if (userAge < min || userAge > max) return false;
-    }
-
-    // Check gender
-    if (conditions['gender'] != null && conditions['gender'] != 'any') {
-      if (user['gender'] != conditions['gender']) return false;
-    }
-
-    // Check health conditions
-    if (conditions['healthConditions'] != null) {
-      final ruleConditions = List<String>.from(conditions['healthConditions']);
-      final userConditions = List<String>.from(user['healthConditions'] ?? []);
-      
-      // Check if any of the rule's conditions match the user's conditions
-      bool hasMatchingCondition = ruleConditions.any((condition) => 
-        userConditions.contains(condition)
-      );
-      if (!hasMatchingCondition && ruleConditions.isNotEmpty) return false;
-    }
-
-    // Check dietary preferences
-    if (conditions['dietaryPreferences'] != null) {
-      final ruleDiet = List<String>.from(conditions['dietaryPreferences']);
-      final userDiet = List<String>.from(user['dietaryPreferences'] ?? []);
-      
-      bool hasMatchingDiet = ruleDiet.any((diet) => userDiet.contains(diet));
-      if (!hasMatchingDiet && ruleDiet.isNotEmpty) return false;
-    }
-
-    // Check body goals
-    if (conditions['bodyGoals'] != null) {
-      final ruleGoals = List<String>.from(conditions['bodyGoals']);
-      final userGoals = user['bodyGoals'] as String? ?? '';
-      
-      if (!ruleGoals.contains(userGoals) && ruleGoals.isNotEmpty) return false;
-    }
-
-    // Check pregnancy/lactation
-    if (conditions['isPregnant'] != null) {
-      if (user['isPregnant'] != conditions['isPregnant']) return false;
-    }
-    if (conditions['isLactating'] != null) {
-      if (user['isLactating'] != conditions['isLactating']) return false;
-    }
-
-    return true;
-  }
 
   int _calculateAge(dynamic birthday) {
     if (birthday == null) return 0;
@@ -137,105 +81,47 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
   }
 
   Map<String, dynamic> _calculateNutritionTargets() {
-    if (_matchingGuidelines.isEmpty || _userProfile == null) {
+    if (_userProfile == null) {
       return _getDefaultTargets();
     }
 
-    // Start with base calories (e.g., BMR calculation)
-    double baseCalories = _calculateBMR();
-    
-    // Apply multipliers from matching rules
-    double totalMultiplier = 1.0;
-    double proteinRatio = 0.25;
-    double carbRatio = 0.50;
-    double fatRatio = 0.25;
-    int mealFrequency = 3;
+    // Get user's nutrition goals from account settings
+    final calories = (_userProfile!['daily_calories'] ?? 2000).toDouble();
+    final protein = (_userProfile!['daily_protein'] ?? 150).toDouble();
+    final carbs = (_userProfile!['daily_carbs'] ?? 250).toDouble();
+    final fat = (_userProfile!['daily_fat'] ?? 67).toDouble();
+    final fiber = (_userProfile!['daily_fiber'] ?? 25).toDouble();
 
-    for (var rule in _matchingGuidelines) {
-      final adjustments = rule['adjustments'] as Map<String, dynamic>?;
-      if (adjustments == null) continue;
-
-      if (adjustments['calorieMultiplier'] != null) {
-        totalMultiplier *= (adjustments['calorieMultiplier'] as num).toDouble();
-      }
-      if (adjustments['proteinRatio'] != null) {
-        proteinRatio = (adjustments['proteinRatio'] as num).toDouble();
-      }
-      if (adjustments['carbRatio'] != null) {
-        carbRatio = (adjustments['carbRatio'] as num).toDouble();
-      }
-      if (adjustments['fatRatio'] != null) {
-        fatRatio = (adjustments['fatRatio'] as num).toDouble();
-      }
-      if (adjustments['mealFrequency'] != null) {
-        mealFrequency = adjustments['mealFrequency'] as int;
-      }
-    }
-
-    final targetCalories = (baseCalories * totalMultiplier).round();
+    // Calculate ratios
+    final proteinRatio = (protein * 4) / calories; // 4 cal per gram
+    final carbRatio = (carbs * 4) / calories; // 4 cal per gram
+    final fatRatio = (fat * 9) / calories; // 9 cal per gram
 
     return {
-      'calories': targetCalories,
-      'protein': ((targetCalories * proteinRatio) / 4).round(), // 4 cal per gram
-      'carbs': ((targetCalories * carbRatio) / 4).round(),
-      'fat': ((targetCalories * fatRatio) / 9).round(), // 9 cal per gram
-      'mealFrequency': mealFrequency,
+      'calories': calories.round(),
+      'protein': protein.round(),
+      'carbs': carbs.round(),
+      'fat': fat.round(),
+      'fiber': fiber.round(),
       'proteinRatio': proteinRatio,
       'carbRatio': carbRatio,
       'fatRatio': fatRatio,
+      'mealFrequency': 3, // Default meal frequency
     };
   }
 
-  double _calculateBMR() {
-    if (_userProfile == null) return 2000;
-
-    final weight = (_userProfile!['weight'] as num?)?.toDouble() ?? 70;
-    final height = (_userProfile!['height'] as num?)?.toDouble() ?? 170;
-    final age = _calculateAge(_userProfile!['birthday']);
-    final gender = _userProfile!['gender'] as String? ?? 'male';
-
-    // Mifflin-St Jeor Equation
-    double bmr;
-    if (gender == 'male') {
-      bmr = 10 * weight + 6.25 * height - 5 * age + 5;
-    } else {
-      bmr = 10 * weight + 6.25 * height - 5 * age - 161;
-    }
-
-    // Apply activity level multiplier
-    final activityLevel = _userProfile!['activityLevel'] as String? ?? 'moderate';
-    double activityMultiplier = 1.55; // moderate
-    switch (activityLevel) {
-      case 'sedentary':
-        activityMultiplier = 1.2;
-        break;
-      case 'light':
-        activityMultiplier = 1.375;
-        break;
-      case 'moderate':
-        activityMultiplier = 1.55;
-        break;
-      case 'active':
-        activityMultiplier = 1.725;
-        break;
-      case 'very_active':
-        activityMultiplier = 1.9;
-        break;
-    }
-
-    return bmr * activityMultiplier;
-  }
 
   Map<String, dynamic> _getDefaultTargets() {
     return {
       'calories': 2000,
-      'protein': 125, // 25% of 2000 cal
-      'carbs': 250,   // 50% of 2000 cal
-      'fat': 56,      // 25% of 2000 cal
+      'protein': 150,
+      'carbs': 250,
+      'fat': 67,
+      'fiber': 25,
+      'proteinRatio': 0.30, // 30% of calories
+      'carbRatio': 0.50,    // 50% of calories
+      'fatRatio': 0.30,     // 30% of calories
       'mealFrequency': 3,
-      'proteinRatio': 0.25,
-      'carbRatio': 0.50,
-      'fatRatio': 0.25,
     };
   }
 
@@ -280,9 +166,9 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
                     _buildNutritionTargets(),
                     const SizedBox(height: 20),
 
-                    // Matching Guidelines
+                    // Nutritional Guidelines
                     if (_matchingGuidelines.isNotEmpty) ...[
-                      _buildSectionHeader('Personalized Recommendations'),
+                      _buildSectionHeader('Nutritional Guidelines'),
                       const SizedBox(height: 12),
                       ..._matchingGuidelines.map((guideline) => 
                         _buildGuidelineCard(guideline)
@@ -306,7 +192,17 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
     final gender = _userProfile!['gender'] ?? 'Not specified';
     final weight = _userProfile!['weight']?.toString() ?? 'N/A';
     final height = _userProfile!['height']?.toString() ?? 'N/A';
-    final bodyGoals = _userProfile!['bodyGoals'] ?? 'Not specified';
+    
+    // Handle bodyGoals - could be String or List
+    String bodyGoals = 'Not specified';
+    if (_userProfile!['bodyGoals'] != null) {
+      if (_userProfile!['bodyGoals'] is List) {
+        final goalsList = List<String>.from(_userProfile!['bodyGoals']);
+        bodyGoals = goalsList.isNotEmpty ? goalsList.join(', ') : 'Not specified';
+      } else {
+        bodyGoals = _userProfile!['bodyGoals'].toString();
+      }
+    }
 
     return Card(
       elevation: 4,
@@ -444,6 +340,12 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
               '${_nutritionTargets!['fat']}g (${(_nutritionTargets!['fatRatio'] * 100).toInt()}%)',
               Colors.purple,
             ),
+            _buildTargetRow(
+              Icons.grass,
+              'Fiber',
+              '${_nutritionTargets!['fiber']}g',
+              Colors.green,
+            ),
             const Divider(height: 24),
             _buildTargetRow(
               Icons.restaurant,
@@ -512,8 +414,6 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
   }
 
   Widget _buildGuidelineCard(Map<String, dynamic> guideline) {
-    final adjustments = guideline['adjustments'] as Map<String, dynamic>? ?? {};
-    
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
@@ -528,88 +428,90 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.green[50],
+                    color: _getCategoryColor(guideline['category']).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(Icons.check_circle, color: Colors.green[700], size: 20),
+                  child: Icon(
+                    _getCategoryIcon(guideline['category']), 
+                    color: _getCategoryColor(guideline['category']), 
+                    size: 20
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    guideline['name'] ?? 'Guideline',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2D3748),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (guideline['description'] != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                guideline['description'],
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                  height: 1.4,
-                ),
-              ),
-            ],
-            if (adjustments['foodsToInclude'] != null && 
-                (adjustments['foodsToInclude'] as List).isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _buildFoodsList(
-                '✅ Recommended Foods:',
-                adjustments['foodsToInclude'],
-                Colors.green,
-              ),
-            ],
-            if (adjustments['foodsToAvoid'] != null && 
-                (adjustments['foodsToAvoid'] as List).isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _buildFoodsList(
-                '⚠️ Foods to Limit:',
-                adjustments['foodsToAvoid'],
-                Colors.orange,
-              ),
-            ],
-            if (adjustments['supplements'] != null && 
-                (adjustments['supplements'] as List).isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _buildFoodsList(
-                '💊 Recommended Supplements:',
-                adjustments['supplements'],
-                Colors.blue,
-              ),
-            ],
-            if (adjustments['specialInstructions'] != null &&
-                (adjustments['specialInstructions'] as String).isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue[200]!),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info, color: Colors.blue[700], size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        adjustments['specialInstructions'],
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.blue[900],
-                          height: 1.4,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        guideline['title'] ?? 'Guideline',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3748),
                         ),
                       ),
+                      if (guideline['category'] != null) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _getCategoryColor(guideline['category']).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _getCategoryColor(guideline['category']).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            guideline['category'].toString().toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: _getCategoryColor(guideline['category']),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (guideline['priority'] != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _getPriorityColor(guideline['priority']).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ],
+                    child: Text(
+                      _getPriorityText(guideline['priority']),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: _getPriorityColor(guideline['priority']),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (guideline['content'] != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                guideline['content'],
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[700],
+                  height: 1.5,
+                ),
+              ),
+            ],
+            if (guideline['lastUpdated'] != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Last updated: ${_formatDate(guideline['lastUpdated'])}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                  fontStyle: FontStyle.italic,
                 ),
               ),
             ],
@@ -619,38 +521,6 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
     );
   }
 
-  Widget _buildFoodsList(String title, dynamic foods, Color color) {
-    final foodList = List<String>.from(foods);
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: color.withOpacity(0.9),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: foodList.map((food) => Chip(
-            label: Text(
-              food,
-              style: const TextStyle(fontSize: 12),
-            ),
-            backgroundColor: color.withOpacity(0.1),
-            side: BorderSide(color: color.withOpacity(0.3)),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          )).toList(),
-        ),
-      ],
-    );
-  }
 
   Widget _buildGeneralTips() {
     return Card(
@@ -714,6 +584,89 @@ class _PersonalizedGuidelinesPageState extends State<PersonalizedGuidelinesPage>
         ],
       ),
     );
+  }
+
+  Color _getCategoryColor(String? category) {
+    switch (category?.toLowerCase()) {
+      case 'general':
+        return Colors.blue;
+      case 'weight management':
+        return Colors.orange;
+      case 'muscle building':
+        return Colors.red;
+      case 'heart health':
+        return Colors.pink;
+      case 'diabetes management':
+        return Colors.purple;
+      case 'pregnancy':
+        return Colors.amber;
+      case 'sports nutrition':
+        return Colors.teal;
+      default:
+        return Colors.green;
+    }
+  }
+
+  IconData _getCategoryIcon(String? category) {
+    switch (category?.toLowerCase()) {
+      case 'general':
+        return Icons.info;
+      case 'weight management':
+        return Icons.monitor_weight;
+      case 'muscle building':
+        return Icons.fitness_center;
+      case 'heart health':
+        return Icons.favorite;
+      case 'diabetes management':
+        return Icons.bloodtype;
+      case 'pregnancy':
+        return Icons.pregnant_woman;
+      case 'sports nutrition':
+        return Icons.sports;
+      default:
+        return Icons.article;
+    }
+  }
+
+  Color _getPriorityColor(String? priority) {
+    switch (priority?.toLowerCase()) {
+      case 'high':
+        return Colors.red;
+      case 'medium':
+        return Colors.orange;
+      case 'low':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getPriorityText(String? priority) {
+    switch (priority?.toLowerCase()) {
+      case 'high':
+        return 'HIGH';
+      case 'medium':
+        return 'MED';
+      case 'low':
+        return 'LOW';
+      default:
+        return 'N/A';
+    }
+  }
+
+  String _formatDate(dynamic timestamp) {
+    if (timestamp == null) return 'Unknown';
+    
+    DateTime date;
+    if (timestamp is Timestamp) {
+      date = timestamp.toDate();
+    } else if (timestamp is String) {
+      date = DateTime.parse(timestamp);
+    } else {
+      return 'Unknown';
+    }
+    
+    return '${date.day}/${date.month}/${date.year}';
   }
 }
 

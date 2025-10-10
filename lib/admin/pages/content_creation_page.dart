@@ -595,8 +595,29 @@ class _AddContentDialogState extends State<_AddContentDialog> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _contentController = TextEditingController();
+  final _urlController = TextEditingController();
+  final _authorController = TextEditingController();
+  final _durationController = TextEditingController();
+  final _servingsController = TextEditingController();
+  final _prepTimeController = TextEditingController();
+  final _cookTimeController = TextEditingController();
+  
   String _selectedType = 'tips';
   bool _isPublished = false;
+  String _contentSource = 'text'; // 'text', 'url', 'video'
+  String? _selectedCategory;
+  List<String> _selectedTags = [];
+  String? _difficultyLevel;
+  String? _targetAudience;
+
+  // Content type specific options
+  final List<String> _tipCategories = ['Nutrition', 'Exercise', 'Lifestyle', 'Health', 'Cooking'];
+  final List<String> _articleCategories = ['Research', 'News', 'Guide', 'Review', 'Opinion'];
+  final List<String> _videoCategories = ['Tutorial', 'Educational', 'Demonstration', 'Interview', 'Documentary'];
+  final List<String> _recipeCategories = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Beverage'];
+  
+  final List<String> _difficultyLevels = ['Beginner', 'Intermediate', 'Advanced'];
+  final List<String> _targetAudiences = ['General', 'Athletes', 'Seniors', 'Children', 'Pregnant Women', 'Diabetics'];
 
   @override
   void initState() {
@@ -607,8 +628,19 @@ class _AddContentDialogState extends State<_AddContentDialog> {
       _titleController.text = widget.initialData!['title'] ?? '';
       _descriptionController.text = widget.initialData!['description'] ?? '';
       _contentController.text = widget.initialData!['content'] ?? '';
+      _urlController.text = widget.initialData!['url'] ?? '';
+      _authorController.text = widget.initialData!['author'] ?? '';
+      _durationController.text = widget.initialData!['duration'] ?? '';
+      _servingsController.text = widget.initialData!['servings']?.toString() ?? '';
+      _prepTimeController.text = widget.initialData!['prepTime'] ?? '';
+      _cookTimeController.text = widget.initialData!['cookTime'] ?? '';
       _selectedType = widget.initialData!['type'] ?? 'tips';
       _isPublished = widget.initialData!['isPublished'] ?? false;
+      _contentSource = widget.initialData!['contentSource'] ?? 'text';
+      _selectedCategory = widget.initialData!['category'];
+      _selectedTags = List<String>.from(widget.initialData!['tags'] ?? []);
+      _difficultyLevel = widget.initialData!['difficultyLevel'];
+      _targetAudience = widget.initialData!['targetAudience'];
     }
   }
 
@@ -617,6 +649,12 @@ class _AddContentDialogState extends State<_AddContentDialog> {
     _titleController.dispose();
     _descriptionController.dispose();
     _contentController.dispose();
+    _urlController.dispose();
+    _authorController.dispose();
+    _durationController.dispose();
+    _servingsController.dispose();
+    _prepTimeController.dispose();
+    _cookTimeController.dispose();
     super.dispose();
   }
 
@@ -624,17 +662,23 @@ class _AddContentDialogState extends State<_AddContentDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       child: Container(
-        width: MediaQuery.of(context).size.width * 0.8,
-        height: MediaQuery.of(context).size.height * 0.8,
+        width: MediaQuery.of(context).size.width * 0.9,
+        height: MediaQuery.of(context).size.height * 0.9,
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            Text(
-              widget.contentId != null ? 'Edit Content' : 'Add New Content',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Icon(_getContentTypeIcon(_selectedType), size: 28, color: _getContentTypeColor(_selectedType)),
+                const SizedBox(width: 12),
+                Text(
+                  widget.contentId != null ? 'Edit ${_getContentTypeName(_selectedType)}' : 'Create New ${_getContentTypeName(_selectedType)}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 24),
             Expanded(
@@ -642,90 +686,10 @@ class _AddContentDialogState extends State<_AddContentDialog> {
                 key: _formKey,
                 child: SingleChildScrollView(
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Title
-                      TextFormField(
-                        controller: _titleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Title',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter a title';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      // Type
-                      DropdownButtonFormField<String>(
-                        value: _selectedType,
-                        decoration: const InputDecoration(
-                          labelText: 'Content Type',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'tips', child: Text('Tips')),
-                          DropdownMenuItem(value: 'articles', child: Text('Articles')),
-                          DropdownMenuItem(value: 'videos', child: Text('Videos')),
-                          DropdownMenuItem(value: 'recipes', child: Text('Recipes')),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedType = value!;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      // Description
-                      TextFormField(
-                        controller: _descriptionController,
-                        decoration: const InputDecoration(
-                          labelText: 'Description',
-                          border: OutlineInputBorder(),
-                        ),
-                        maxLines: 3,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter a description';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      // Content
-                      TextFormField(
-                        controller: _contentController,
-                        decoration: const InputDecoration(
-                          labelText: 'Content',
-                          border: OutlineInputBorder(),
-                          alignLabelWithHint: true,
-                        ),
-                        maxLines: 8,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter content';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      // Published Status
-                      SwitchListTile(
-                        title: const Text('Published'),
-                        subtitle: const Text('Content is visible to users'),
-                        value: _isPublished,
-                        onChanged: (value) {
-                          setState(() {
-                            _isPublished = value;
-                          });
-                        },
-                      ),
+                      // Content Type Specific Form
+                      _buildContentTypeForm(),
                     ],
                   ),
                 ),
@@ -740,9 +704,14 @@ class _AddContentDialogState extends State<_AddContentDialog> {
                   child: const Text('Cancel'),
                 ),
                 const SizedBox(width: 16),
-                ElevatedButton(
+                ElevatedButton.icon(
                   onPressed: _saveContent,
-                  child: Text(widget.contentId != null ? 'Update' : 'Create'),
+                  icon: Icon(_getContentTypeIcon(_selectedType)),
+                  label: Text(widget.contentId != null ? 'Update' : 'Create'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _getContentTypeColor(_selectedType),
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ],
             ),
@@ -752,6 +721,542 @@ class _AddContentDialogState extends State<_AddContentDialog> {
     );
   }
 
+  Widget _buildContentTypeForm() {
+    switch (_selectedType) {
+      case 'tips':
+        return _buildTipsForm();
+      case 'articles':
+        return _buildArticlesForm();
+      case 'videos':
+        return _buildVideosForm();
+      case 'recipes':
+        return _buildRecipesForm();
+      default:
+        return _buildTipsForm();
+    }
+  }
+
+  Widget _buildTipsForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildBasicFields(),
+        const SizedBox(height: 20),
+        _buildCategoryDropdown(_tipCategories),
+        const SizedBox(height: 20),
+        _buildTagsField(),
+        const SizedBox(height: 20),
+        _buildTargetAudienceDropdown(),
+        const SizedBox(height: 20),
+        _buildPublishedSwitch(),
+      ],
+    );
+  }
+
+  Widget _buildArticlesForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildBasicFields(),
+        const SizedBox(height: 20),
+        _buildAuthorField(),
+        const SizedBox(height: 20),
+        _buildContentField(),
+        const SizedBox(height: 20),
+        _buildOptionalUrlField(),
+        const SizedBox(height: 20),
+        _buildCategoryDropdown(_articleCategories),
+        const SizedBox(height: 20),
+        _buildTagsField(),
+        const SizedBox(height: 20),
+        _buildTargetAudienceDropdown(),
+        const SizedBox(height: 20),
+        _buildPublishedSwitch(),
+      ],
+    );
+  }
+
+  Widget _buildVideosForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildBasicFields(),
+        const SizedBox(height: 20),
+        _buildAuthorField(),
+        const SizedBox(height: 20),
+        _buildContentSourceSelector(),
+        const SizedBox(height: 20),
+        if (_contentSource == 'url') _buildUrlField(),
+        if (_contentSource == 'video') _buildVideoUploadField(),
+        const SizedBox(height: 20),
+        _buildDurationField(),
+        const SizedBox(height: 20),
+        _buildCategoryDropdown(_videoCategories),
+        const SizedBox(height: 20),
+        _buildDifficultyDropdown(),
+        const SizedBox(height: 20),
+        _buildTagsField(),
+        const SizedBox(height: 20),
+        _buildTargetAudienceDropdown(),
+        const SizedBox(height: 20),
+        _buildPublishedSwitch(),
+      ],
+    );
+  }
+
+  Widget _buildRecipesForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildBasicFields(),
+        const SizedBox(height: 20),
+        _buildAuthorField(),
+        const SizedBox(height: 20),
+        _buildContentField(),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(child: _buildServingsField()),
+            const SizedBox(width: 16),
+            Expanded(child: _buildPrepTimeField()),
+            const SizedBox(width: 16),
+            Expanded(child: _buildCookTimeField()),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildCategoryDropdown(_recipeCategories),
+        const SizedBox(height: 20),
+        _buildDifficultyDropdown(),
+        const SizedBox(height: 20),
+        _buildTagsField(),
+        const SizedBox(height: 20),
+        _buildTargetAudienceDropdown(),
+        const SizedBox(height: 20),
+        _buildPublishedSwitch(),
+      ],
+    );
+  }
+
+  Widget _buildBasicFields() {
+    return Column(
+      children: [
+        TextFormField(
+          controller: _titleController,
+          decoration: InputDecoration(
+            labelText: 'Title',
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(Icons.title, color: _getContentTypeColor(_selectedType)),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter a title';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _descriptionController,
+          decoration: InputDecoration(
+            labelText: 'Description',
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(Icons.description, color: _getContentTypeColor(_selectedType)),
+          ),
+          maxLines: 3,
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter a description';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAuthorField() {
+    return TextFormField(
+      controller: _authorController,
+      decoration: InputDecoration(
+        labelText: 'Author/Creator',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.person, color: _getContentTypeColor(_selectedType)),
+      ),
+    );
+  }
+
+  Widget _buildContentSourceSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Content Source', style: TextStyle(fontWeight: FontWeight.bold, color: _getContentTypeColor(_selectedType))),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('Text Content'),
+                subtitle: const Text('Write content directly'),
+                value: 'text',
+                groupValue: _contentSource,
+                onChanged: (value) => setState(() => _contentSource = value!),
+                activeColor: _getContentTypeColor(_selectedType),
+              ),
+            ),
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('URL Link'),
+                subtitle: const Text('Link to external content'),
+                value: 'url',
+                groupValue: _contentSource,
+                onChanged: (value) => setState(() => _contentSource = value!),
+                activeColor: _getContentTypeColor(_selectedType),
+              ),
+            ),
+            if (_selectedType == 'videos')
+              Expanded(
+                child: RadioListTile<String>(
+                  title: const Text('Video Upload'),
+                  subtitle: const Text('Upload video file'),
+                  value: 'video',
+                  groupValue: _contentSource,
+                  onChanged: (value) => setState(() => _contentSource = value!),
+                  activeColor: _getContentTypeColor(_selectedType),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContentField() {
+    return TextFormField(
+      controller: _contentController,
+      decoration: InputDecoration(
+        labelText: 'Content',
+        border: const OutlineInputBorder(),
+        alignLabelWithHint: true,
+        prefixIcon: Icon(Icons.article, color: _getContentTypeColor(_selectedType)),
+      ),
+      maxLines: 8,
+      validator: (value) {
+        if (_contentSource == 'text' && (value == null || value.isEmpty)) {
+          return 'Please enter content';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildUrlField() {
+    return TextFormField(
+      controller: _urlController,
+      decoration: InputDecoration(
+        labelText: 'URL',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.link, color: _getContentTypeColor(_selectedType)),
+        hintText: 'https://example.com',
+      ),
+      validator: (value) {
+        if (_contentSource == 'url' && (value == null || value.isEmpty)) {
+          return 'Please enter a URL';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildOptionalUrlField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.link, color: _getContentTypeColor(_selectedType), size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Optional External Link',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _getContentTypeColor(_selectedType),
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blue[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue[600], size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Add a URL if this article references external content or if users should read more elsewhere',
+                  style: TextStyle(
+                    color: Colors.blue[700],
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _urlController,
+          decoration: InputDecoration(
+            labelText: 'External URL (Optional)',
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(Icons.open_in_new, color: _getContentTypeColor(_selectedType)),
+            hintText: 'https://example.com/article',
+            helperText: 'Leave empty if this is your own article content',
+          ),
+          validator: (value) {
+            if (value != null && value.isNotEmpty) {
+              // Basic URL validation
+              if (!value.startsWith('http://') && !value.startsWith('https://')) {
+                return 'Please enter a valid URL starting with http:// or https://';
+              }
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVideoUploadField() {
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        border: Border.all(color: _getContentTypeColor(_selectedType)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: InkWell(
+        onTap: () {
+          // TODO: Implement video upload
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Video upload feature coming soon!')),
+          );
+        },
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.video_file, size: 48, color: _getContentTypeColor(_selectedType)),
+            const SizedBox(height: 8),
+            Text('Tap to upload video', style: TextStyle(color: _getContentTypeColor(_selectedType))),
+            const Text('MP4, MOV, AVI supported'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDurationField() {
+    return TextFormField(
+      controller: _durationController,
+      decoration: InputDecoration(
+        labelText: 'Duration (minutes)',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.timer, color: _getContentTypeColor(_selectedType)),
+        hintText: 'e.g., 15',
+      ),
+      keyboardType: TextInputType.number,
+    );
+  }
+
+  Widget _buildServingsField() {
+    return TextFormField(
+      controller: _servingsController,
+      decoration: InputDecoration(
+        labelText: 'Servings',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.people, color: _getContentTypeColor(_selectedType)),
+        hintText: '4',
+      ),
+      keyboardType: TextInputType.number,
+    );
+  }
+
+  Widget _buildPrepTimeField() {
+    return TextFormField(
+      controller: _prepTimeController,
+      decoration: InputDecoration(
+        labelText: 'Prep Time',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.schedule, color: _getContentTypeColor(_selectedType)),
+        hintText: '15 mins',
+      ),
+    );
+  }
+
+  Widget _buildCookTimeField() {
+    return TextFormField(
+      controller: _cookTimeController,
+      decoration: InputDecoration(
+        labelText: 'Cook Time',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.schedule, color: _getContentTypeColor(_selectedType)),
+        hintText: '30 mins',
+      ),
+    );
+  }
+
+  Widget _buildCategoryDropdown(List<String> categories) {
+    return DropdownButtonFormField<String>(
+      value: _selectedCategory,
+      decoration: InputDecoration(
+        labelText: 'Category',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.category, color: _getContentTypeColor(_selectedType)),
+      ),
+      items: categories.map((category) => DropdownMenuItem(
+        value: category,
+        child: Text(category),
+      )).toList(),
+      onChanged: (value) => setState(() => _selectedCategory = value),
+    );
+  }
+
+  Widget _buildDifficultyDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _difficultyLevel,
+      decoration: InputDecoration(
+        labelText: 'Difficulty Level',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.trending_up, color: _getContentTypeColor(_selectedType)),
+      ),
+      items: _difficultyLevels.map((level) => DropdownMenuItem(
+        value: level,
+        child: Text(level),
+      )).toList(),
+      onChanged: (value) => setState(() => _difficultyLevel = value),
+    );
+  }
+
+  Widget _buildTargetAudienceDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _targetAudience,
+      decoration: InputDecoration(
+        labelText: 'Target Audience',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.group, color: _getContentTypeColor(_selectedType)),
+      ),
+      items: _targetAudiences.map((audience) => DropdownMenuItem(
+        value: audience,
+        child: Text(audience),
+      )).toList(),
+      onChanged: (value) => setState(() => _targetAudience = value),
+    );
+  }
+
+  Widget _buildTagsField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Tags', style: TextStyle(fontWeight: FontWeight.bold, color: _getContentTypeColor(_selectedType))),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ..._selectedTags.map((tag) => Chip(
+              label: Text(tag),
+              onDeleted: () => setState(() => _selectedTags.remove(tag)),
+              deleteIconColor: _getContentTypeColor(_selectedType),
+            )),
+            ActionChip(
+              label: const Text('+ Add Tag'),
+              onPressed: _addTag,
+              backgroundColor: _getContentTypeColor(_selectedType).withOpacity(0.1),
+              labelStyle: TextStyle(color: _getContentTypeColor(_selectedType)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPublishedSwitch() {
+    return SwitchListTile(
+      title: const Text('Published'),
+      subtitle: const Text('Content is visible to users'),
+      value: _isPublished,
+      onChanged: (value) => setState(() => _isPublished = value),
+      activeColor: _getContentTypeColor(_selectedType),
+    );
+  }
+
+  void _addTag() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Tag'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Tag name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.isNotEmpty) {
+                setState(() => _selectedTags.add(controller.text.trim()));
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getContentTypeIcon(String type) {
+    switch (type) {
+      case 'tips': return Icons.lightbulb;
+      case 'articles': return Icons.article;
+      case 'videos': return Icons.video_library;
+      case 'recipes': return Icons.restaurant;
+      default: return Icons.lightbulb;
+    }
+  }
+
+  Color _getContentTypeColor(String type) {
+    switch (type) {
+      case 'tips': return Colors.orange;
+      case 'articles': return Colors.blue;
+      case 'videos': return Colors.purple;
+      case 'recipes': return Colors.green;
+      default: return Colors.orange;
+    }
+  }
+
+  String _getContentTypeName(String type) {
+    switch (type) {
+      case 'tips': return 'Tip';
+      case 'articles': return 'Article';
+      case 'videos': return 'Video';
+      case 'recipes': return 'Recipe';
+      default: return 'Content';
+    }
+  }
+
   Future<void> _saveContent() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -759,14 +1264,59 @@ class _AddContentDialogState extends State<_AddContentDialog> {
       final data = {
         'title': _titleController.text.trim(),
         'description': _descriptionController.text.trim(),
-        'content': _contentController.text.trim(),
         'type': _selectedType,
         'isPublished': _isPublished,
         'lastUpdated': FieldValue.serverTimestamp(),
         'createdBy': 'nutritionist',
         'views': 0,
         'likes': 0,
+        'contentSource': _contentSource,
+        'category': _selectedCategory,
+        'tags': _selectedTags,
+        'difficultyLevel': _difficultyLevel,
+        'targetAudience': _targetAudience,
       };
+
+      // Add content-specific fields
+      if (_selectedType == 'articles') {
+        // Articles always have content
+        data['content'] = _contentController.text.trim();
+        data['contentSource'] = 'text'; // Articles are always text-based
+        
+        // Add optional URL if provided
+        if (_urlController.text.isNotEmpty) {
+          data['url'] = _urlController.text.trim();
+        }
+      } else if (_contentSource == 'text') {
+        data['content'] = _contentController.text.trim();
+      } else if (_contentSource == 'url') {
+        data['url'] = _urlController.text.trim();
+      }
+
+      // Add author if provided
+      if (_authorController.text.isNotEmpty) {
+        data['author'] = _authorController.text.trim();
+      }
+
+      // Add video-specific fields
+      if (_selectedType == 'videos') {
+        if (_durationController.text.isNotEmpty) {
+          data['duration'] = _durationController.text.trim();
+        }
+      }
+
+      // Add recipe-specific fields
+      if (_selectedType == 'recipes') {
+        if (_servingsController.text.isNotEmpty) {
+          data['servings'] = int.tryParse(_servingsController.text.trim()) ?? 1;
+        }
+        if (_prepTimeController.text.isNotEmpty) {
+          data['prepTime'] = _prepTimeController.text.trim();
+        }
+        if (_cookTimeController.text.isNotEmpty) {
+          data['cookTime'] = _cookTimeController.text.trim();
+        }
+      }
 
       if (widget.contentId != null) {
         // Update existing content
@@ -790,8 +1340,10 @@ class _AddContentDialogState extends State<_AddContentDialog> {
         widget.onContentAdded();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.contentId != null ? 'Content updated!' : 'Content created!'),
-            backgroundColor: Colors.green,
+            content: Text(widget.contentId != null 
+                ? '${_getContentTypeName(_selectedType)} updated!' 
+                : '${_getContentTypeName(_selectedType)} created!'),
+            backgroundColor: _getContentTypeColor(_selectedType),
           ),
         );
       }
