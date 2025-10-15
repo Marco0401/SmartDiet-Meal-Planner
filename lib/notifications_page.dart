@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/notification_service.dart';
+import 'meal_planner_page.dart';
+import 'meal_suggestions_page.dart';
+import 'recipe_detail_page.dart';
+import 'account_settings_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   final VoidCallback? onNotificationRead;
@@ -44,10 +48,30 @@ class _NotificationsPageState extends State<NotificationsPage> {
     });
 
     try {
+      String? typeFilter;
+      bool? readFilter;
+      
+      // Handle filter logic
+      if (_selectedFilter == 'All') {
+        typeFilter = null;
+        readFilter = null;
+      } else if (_selectedFilter == 'Unread') {
+        typeFilter = null;
+        readFilter = false;
+      } else {
+        // Map filter names to actual notification types
+        typeFilter = _mapFilterToNotificationType(_selectedFilter);
+        readFilter = null;
+      }
+
       final notifications = await NotificationService.getUserNotifications(
-        type: _selectedFilter == 'All' ? null : _selectedFilter,
-        isRead: _selectedFilter == 'Unread' ? false : null,
+        type: typeFilter,
+        isRead: readFilter,
       );
+
+      // Debug: Print filter info
+      print('Filter: $_selectedFilter, Type: $typeFilter, Read: $readFilter');
+      print('Found ${notifications.length} notifications');
 
       setState(() {
         _notifications = notifications;
@@ -60,6 +84,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error loading notifications: $e')),
       );
+    }
+  }
+
+  String? _mapFilterToNotificationType(String filter) {
+    switch (filter) {
+      case 'Meal reminders':
+        return 'Meal reminders';
+      case 'Tips':
+        return 'Tips';
+      case 'Updates':
+        return 'Updates';
+      case 'News':
+        return 'News';
+      default:
+        return null;
     }
   }
 
@@ -301,6 +340,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           if (!isRead) {
             _markAsRead(notification['id']);
           }
+          _showNotificationDetails(notification);
         },
       ),
     );
@@ -341,6 +381,265 @@ class _NotificationsPageState extends State<NotificationsPage> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showNotificationDetails(Map<String, dynamic> notification) {
+    final title = notification['title'] ?? 'Notification';
+    final message = notification['message'] ?? '';
+    final type = notification['type'] ?? 'general';
+    final actionData = notification['actionData'];
+    final timestamp = notification['createdAt'];
+    final isRead = notification['isRead'] ?? false;
+    
+    DateTime dateTime;
+    if (timestamp is Timestamp) {
+      dateTime = timestamp.toDate();
+    } else if (timestamp is DateTime) {
+      dateTime = timestamp;
+    } else {
+      dateTime = DateTime.now();
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: (notification['color'] as Color?)?.withOpacity(0.1) ?? Colors.green.withOpacity(0.1),
+              child: Icon(
+                notification['icon'] as IconData? ?? Icons.notifications,
+                color: notification['color'] as Color? ?? Colors.green,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    _getNotificationTypeDisplayName(type),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Message content
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Text(
+                  message,
+                  style: const TextStyle(fontSize: 14, height: 1.4),
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              // Notification info
+              Row(
+                children: [
+                  Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatTimestamp(dateTime),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (!isRead)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'NEW',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          // Action buttons based on notification type
+          ..._buildActionButtons(notification, actionData),
+          
+          // Close button
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildActionButtons(Map<String, dynamic> notification, String? actionData) {
+    final type = notification['type'] ?? 'general';
+    final List<Widget> buttons = [];
+
+    // Add action buttons based on notification type
+    switch (type) {
+      case 'Meal reminders':
+        buttons.add(
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _navigateToMealLogging();
+            },
+            icon: const Icon(Icons.restaurant, size: 16),
+            label: const Text('Log Meal'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        );
+        break;
+        
+      case 'Tips':
+        buttons.add(
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _navigateToNutritionTips();
+            },
+            icon: const Icon(Icons.lightbulb, size: 16),
+            label: const Text('View Tips'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        );
+        break;
+        
+      case 'News':
+        if (actionData != null && actionData.startsWith('recipe:')) {
+          buttons.add(
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _navigateToRecipe(actionData);
+              },
+              icon: const Icon(Icons.restaurant_menu, size: 16),
+              label: const Text('View Recipe'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          );
+        }
+        break;
+        
+      case 'Updates':
+        buttons.add(
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _navigateToUpdates();
+            },
+            icon: const Icon(Icons.update, size: 16),
+            label: const Text('Learn More'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        );
+        break;
+    }
+
+    return buttons;
+  }
+
+  String _getNotificationTypeDisplayName(String type) {
+    switch (type) {
+      case 'Meal reminders':
+        return 'Meal Reminder';
+      case 'Tips':
+        return 'Nutrition Tip';
+      case 'News':
+        return 'Health News';
+      case 'Updates':
+        return 'App Update';
+      default:
+        return 'Notification';
+    }
+  }
+
+  void _navigateToMealLogging() {
+    // Navigate to meal planner page
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const MealPlannerPage()),
+    );
+  }
+
+  void _navigateToNutritionTips() {
+    // Navigate to meal suggestions page (nutrition tips)
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
+    );
+  }
+
+  void _navigateToRecipe(String actionData) {
+    // Extract recipe name from actionData
+    final recipeName = actionData.replaceFirst('recipe:', '');
+    
+    // For now, navigate to meal suggestions page
+    // In the future, this could navigate to a specific recipe detail page
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
+    );
+    
+    // Show a snackbar with the recipe name
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Looking for recipe: $recipeName'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _navigateToUpdates() {
+    // Navigate to account settings page (where updates info might be)
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
     );
   }
 }

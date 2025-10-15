@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 
 class ContentCreationPage extends StatefulWidget {
   const ContentCreationPage({super.key});
@@ -49,7 +51,7 @@ class _ContentCreationPageState extends State<ContentCreationPage> with TickerPr
         ),
         actions: [
           IconButton(
-            onPressed: () => _showAddContentDialog(contentType: 'tips'),
+            onPressed: () => _showAddContentDialog(contentType: _getCurrentTabContentType()),
             icon: const Icon(Icons.add),
             tooltip: 'Add New Content',
           ),
@@ -404,6 +406,21 @@ class _ContentCreationPageState extends State<ContentCreationPage> with TickerPr
     }
   }
 
+  String _getCurrentTabContentType() {
+    switch (_tabController.index) {
+      case 0:
+        return 'tips';
+      case 1:
+        return 'articles';
+      case 2:
+        return 'videos';
+      case 3:
+        return 'recipes';
+      default:
+        return 'tips';
+    }
+  }
+
   Color _getContentTypeColor(String type) {
     switch (type) {
       case 'tips':
@@ -601,6 +618,10 @@ class _AddContentDialogState extends State<_AddContentDialog> {
   final _servingsController = TextEditingController();
   final _prepTimeController = TextEditingController();
   final _cookTimeController = TextEditingController();
+  final _recipeDescriptionController = TextEditingController();
+  final _ingredientsController = TextEditingController();
+  final _instructionsController = TextEditingController();
+  final _nutritionInfoController = TextEditingController();
   
   String _selectedType = 'tips';
   bool _isPublished = false;
@@ -784,10 +805,10 @@ class _AddContentDialogState extends State<_AddContentDialog> {
         const SizedBox(height: 20),
         _buildAuthorField(),
         const SizedBox(height: 20),
-        _buildContentSourceSelector(),
+        _buildVideoSourceSelector(),
         const SizedBox(height: 20),
-        if (_contentSource == 'url') _buildUrlField(),
-        if (_contentSource == 'video') _buildVideoUploadField(),
+        if (_contentSource == 'url') _buildVideoUrlField(),
+        if (_contentSource == 'text') _buildContentField(),
         const SizedBox(height: 20),
         _buildDurationField(),
         const SizedBox(height: 20),
@@ -812,7 +833,11 @@ class _AddContentDialogState extends State<_AddContentDialog> {
         const SizedBox(height: 20),
         _buildAuthorField(),
         const SizedBox(height: 20),
-        _buildContentField(),
+        _buildRecipeDescriptionField(),
+        const SizedBox(height: 20),
+        _buildIngredientsField(),
+        const SizedBox(height: 20),
+        _buildInstructionsField(),
         const SizedBox(height: 20),
         Row(
           children: [
@@ -823,6 +848,10 @@ class _AddContentDialogState extends State<_AddContentDialog> {
             Expanded(child: _buildCookTimeField()),
           ],
         ),
+        const SizedBox(height: 20),
+        _buildNutritionInfoField(),
+        const SizedBox(height: 20),
+        _buildRecipeImageField(),
         const SizedBox(height: 20),
         _buildCategoryDropdown(_recipeCategories),
         const SizedBox(height: 20),
@@ -885,50 +914,6 @@ class _AddContentDialogState extends State<_AddContentDialog> {
     );
   }
 
-  Widget _buildContentSourceSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Content Source', style: TextStyle(fontWeight: FontWeight.bold, color: _getContentTypeColor(_selectedType))),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: RadioListTile<String>(
-                title: const Text('Text Content'),
-                subtitle: const Text('Write content directly'),
-                value: 'text',
-                groupValue: _contentSource,
-                onChanged: (value) => setState(() => _contentSource = value!),
-                activeColor: _getContentTypeColor(_selectedType),
-              ),
-            ),
-            Expanded(
-              child: RadioListTile<String>(
-                title: const Text('URL Link'),
-                subtitle: const Text('Link to external content'),
-                value: 'url',
-                groupValue: _contentSource,
-                onChanged: (value) => setState(() => _contentSource = value!),
-                activeColor: _getContentTypeColor(_selectedType),
-              ),
-            ),
-            if (_selectedType == 'videos')
-              Expanded(
-                child: RadioListTile<String>(
-                  title: const Text('Video Upload'),
-                  subtitle: const Text('Upload video file'),
-                  value: 'video',
-                  groupValue: _contentSource,
-                  onChanged: (value) => setState(() => _contentSource = value!),
-                  activeColor: _getContentTypeColor(_selectedType),
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
 
   Widget _buildContentField() {
     return TextFormField(
@@ -949,23 +934,6 @@ class _AddContentDialogState extends State<_AddContentDialog> {
     );
   }
 
-  Widget _buildUrlField() {
-    return TextFormField(
-      controller: _urlController,
-      decoration: InputDecoration(
-        labelText: 'URL',
-        border: const OutlineInputBorder(),
-        prefixIcon: Icon(Icons.link, color: _getContentTypeColor(_selectedType)),
-        hintText: 'https://example.com',
-      ),
-      validator: (value) {
-        if (_contentSource == 'url' && (value == null || value.isEmpty)) {
-          return 'Please enter a URL';
-        }
-        return null;
-      },
-    );
-  }
 
   Widget _buildOptionalUrlField() {
     return Column(
@@ -1033,30 +1001,90 @@ class _AddContentDialogState extends State<_AddContentDialog> {
     );
   }
 
-  Widget _buildVideoUploadField() {
-    return Container(
-      height: 120,
-      decoration: BoxDecoration(
-        border: Border.all(color: _getContentTypeColor(_selectedType)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: InkWell(
-        onTap: () {
-          // TODO: Implement video upload
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Video upload feature coming soon!')),
-          );
-        },
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildVideoSourceSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Video Source', style: TextStyle(fontWeight: FontWeight.bold, color: _getContentTypeColor(_selectedType))),
+        const SizedBox(height: 8),
+        Row(
           children: [
-            Icon(Icons.video_file, size: 48, color: _getContentTypeColor(_selectedType)),
-            const SizedBox(height: 8),
-            Text('Tap to upload video', style: TextStyle(color: _getContentTypeColor(_selectedType))),
-            const Text('MP4, MOV, AVI supported'),
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('YouTube Video'),
+                subtitle: const Text('Embed YouTube video'),
+                value: 'url',
+                groupValue: _contentSource,
+                onChanged: (value) => setState(() => _contentSource = value!),
+                activeColor: _getContentTypeColor(_selectedType),
+              ),
+            ),
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('Text Description'),
+                subtitle: const Text('Describe video content'),
+                value: 'text',
+                groupValue: _contentSource,
+                onChanged: (value) => setState(() => _contentSource = value!),
+                activeColor: _getContentTypeColor(_selectedType),
+              ),
+            ),
           ],
         ),
-      ),
+      ],
+    );
+  }
+
+  Widget _buildVideoUrlField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: _urlController,
+          decoration: InputDecoration(
+            labelText: 'YouTube Video URL',
+            border: const OutlineInputBorder(),
+            prefixIcon: Icon(Icons.play_circle_filled, color: _getContentTypeColor(_selectedType)),
+            hintText: 'https://www.youtube.com/watch?v=VIDEO_ID',
+            helperText: 'Paste the YouTube video URL here',
+          ),
+          validator: (value) {
+            if (_contentSource == 'url' && (value == null || value.isEmpty)) {
+              return 'Please enter a YouTube video URL';
+            }
+            if (value != null && value.isNotEmpty) {
+              if (!value.contains('youtube.com') && !value.contains('youtu.be')) {
+                return 'Please enter a valid YouTube URL';
+              }
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.red[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.red[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.red[600], size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Paste the YouTube video URL. The video will be embedded and playable in the app.',
+                  style: TextStyle(
+                    color: Colors.red[700],
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1257,6 +1285,16 @@ class _AddContentDialogState extends State<_AddContentDialog> {
     }
   }
 
+  String _extractYouTubeVideoId(String url) {
+    // Extract video ID from various YouTube URL formats
+    RegExp regExp = RegExp(
+      r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})',
+      caseSensitive: false,
+    );
+    Match? match = regExp.firstMatch(url);
+    return match?.group(1) ?? '';
+  }
+
   Future<void> _saveContent() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -1303,10 +1341,23 @@ class _AddContentDialogState extends State<_AddContentDialog> {
         if (_durationController.text.isNotEmpty) {
           data['duration'] = _durationController.text.trim();
         }
+        // Set contentSource based on video type
+        data['contentSource'] = _contentSource;
+        
+        // Add YouTube URL if provided
+        if (_contentSource == 'url' && _urlController.text.isNotEmpty) {
+          data['youtubeUrl'] = _urlController.text.trim();
+          // Extract video ID for embedding
+          String videoId = _extractYouTubeVideoId(_urlController.text.trim());
+          if (videoId.isNotEmpty) {
+            data['youtubeVideoId'] = videoId;
+          }
+        }
       }
 
       // Add recipe-specific fields
       if (_selectedType == 'recipes') {
+        // Basic recipe info
         if (_servingsController.text.isNotEmpty) {
           data['servings'] = int.tryParse(_servingsController.text.trim()) ?? 1;
         }
@@ -1316,6 +1367,23 @@ class _AddContentDialogState extends State<_AddContentDialog> {
         if (_cookTimeController.text.isNotEmpty) {
           data['cookTime'] = _cookTimeController.text.trim();
         }
+        
+        // Enhanced recipe fields
+        if (_recipeDescriptionController.text.isNotEmpty) {
+          data['recipeDescription'] = _recipeDescriptionController.text.trim();
+        }
+        if (_ingredientsController.text.isNotEmpty) {
+          data['ingredients'] = _ingredientsController.text.trim();
+        }
+        if (_instructionsController.text.isNotEmpty) {
+          data['instructions'] = _instructionsController.text.trim();
+        }
+        if (_nutritionInfoController.text.isNotEmpty) {
+          data['nutritionInfo'] = _nutritionInfoController.text.trim();
+        }
+        
+        // Set content type for recipes
+        data['contentSource'] = 'recipe';
       }
 
       if (widget.contentId != null) {
@@ -1357,5 +1425,138 @@ class _AddContentDialogState extends State<_AddContentDialog> {
         );
       }
     }
+  }
+
+  Widget _buildRecipeDescriptionField() {
+    return TextFormField(
+      controller: _recipeDescriptionController,
+      decoration: InputDecoration(
+        labelText: 'Recipe Description',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.description, color: _getContentTypeColor(_selectedType)),
+        hintText: 'Brief description of the recipe...',
+        helperText: 'Describe what makes this recipe special',
+      ),
+      maxLines: 3,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter a recipe description';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildIngredientsField() {
+    return TextFormField(
+      controller: _ingredientsController,
+      decoration: InputDecoration(
+        labelText: 'Ingredients',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.list_alt, color: _getContentTypeColor(_selectedType)),
+        hintText: 'List all ingredients with measurements...',
+        helperText: 'Example: 2 cups flour, 1 tsp salt, 3 eggs',
+      ),
+      maxLines: 5,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter the ingredients';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildInstructionsField() {
+    return TextFormField(
+      controller: _instructionsController,
+      decoration: InputDecoration(
+        labelText: 'Cooking Instructions',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.format_list_numbered, color: _getContentTypeColor(_selectedType)),
+        hintText: 'Step-by-step cooking instructions...',
+        helperText: 'Provide clear, numbered steps',
+      ),
+      maxLines: 8,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter cooking instructions';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildNutritionInfoField() {
+    return TextFormField(
+      controller: _nutritionInfoController,
+      decoration: InputDecoration(
+        labelText: 'Nutrition Information (Optional)',
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(Icons.local_fire_department, color: _getContentTypeColor(_selectedType)),
+        hintText: 'Calories per serving, protein, carbs, etc.',
+        helperText: 'Example: 350 calories, 25g protein, 30g carbs per serving',
+      ),
+      maxLines: 3,
+    );
+  }
+
+  Widget _buildRecipeImageField() {
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: _getContentTypeColor(_selectedType)
+        ),
+        borderRadius: BorderRadius.circular(12),
+        color: _getContentTypeColor(_selectedType).withOpacity(0.05),
+      ),
+      child: InkWell(
+        onTap: () {
+          // TODO: Implement image picker for recipe photos
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Recipe image upload coming soon!'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _getContentTypeColor(_selectedType).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: Icon(
+                Icons.add_a_photo, 
+                size: 32, 
+                color: _getContentTypeColor(_selectedType)
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add Recipe Photo', 
+              style: TextStyle(
+                color: _getContentTypeColor(_selectedType),
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              )
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Tap to upload recipe image',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

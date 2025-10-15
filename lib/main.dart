@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'login_page.dart';
 import 'account_settings_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -14,7 +15,8 @@ import 'meal_favorites_page.dart';
 import 'progress_tracking_page.dart';
 import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
-import 'personalized_guidelines_page.dart';
+import 'ingredient_scanner_page.dart';
+import 'about_smartdiet_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -293,12 +295,10 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
-            _drawerOption(1, "App Settings", Icons.settings),
+            _drawerOption(1, "Ingredient Scanner", Icons.qr_code_scanner),
             _drawerOption(2, "Get Meal Suggestions", Icons.lightbulb),
-            _drawerOption(3, "Nutritional Guidelines", Icons.article),
-            _drawerOption(4, "Data & Privacy", Icons.privacy_tip),
-            _drawerOption(5, "About SmartDiet", Icons.info),
-            _drawerOption(6, "Design Showcase", Icons.palette),
+            _drawerOption(3, "App Settings", Icons.settings),
+            _drawerOption(4, "About SmartDiet", Icons.info),
             const Divider(),
           ],
         ),
@@ -1405,26 +1405,22 @@ class _MyHomePageState extends State<MyHomePage> {
         onTap: () {
           Navigator.pop(context);
           if (number == 1) {
-            _showAppSettingsDialog();
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const IngredientScannerPage()),
+            );
           } else if (number == 2) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
             );
           } else if (number == 3) {
+            _showAppSettingsDialog();
+          } else if (number == 4) {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const PersonalizedGuidelinesPage()),
+              MaterialPageRoute(builder: (context) => const AboutSmartDietPage()),
             );
-          } else if (number == 6) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const Scaffold(
-                body: Center(child: Text('Design Showcase coming soon!')),
-              )),
-            );
-          } else {
-            _showComingSoonDialog(text);
           }
         },
       ),
@@ -1439,6 +1435,7 @@ class _MyHomePageState extends State<MyHomePage> {
       )),
     );
   }
+
 
 
   void _showComingSoonDialog(String feature) {
@@ -2117,6 +2114,55 @@ class _MyHomePageState extends State<MyHomePage> {
                         const SizedBox(height: 16),
                       ],
                       
+                      // Video content (if available)
+                      if (content['type'] == 'videos' && (content['videoFileName'] != null || content['youtubeVideoId'] != null || content['youtubeUrl'] != null)) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[300]!),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                spreadRadius: 1,
+                                blurRadius: 3,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.play_circle_filled, color: Colors.purple[600], size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Video Content',
+                                    style: TextStyle(
+                                      color: Colors.purple[600],
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              _buildVideoPlayer(content),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      
+                      // Recipe content (if available)
+                      if (content['type'] == 'recipes') ...[
+                        _buildRecipeContent(content),
+                        const SizedBox(height: 16),
+                      ],
+                      
                       // External link for articles or URL-based content
                       if (content['url'] != null && content['url'].toString().isNotEmpty) ...[
                         Container(
@@ -2205,78 +2251,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     if (content['contentSource'] == 'url' && content['url'] != null)
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            final url = content['url'];
-                            if (url != null && url.isNotEmpty) {
-                              // Show URL in a dialog for manual copying/opening
-                              showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: Row(
-                                    children: [
-                                      Icon(Icons.link, color: Colors.blue[600]),
-                                      const SizedBox(width: 8),
-                                      const Text('External Link'),
-                                    ],
-                                  ),
-                                  content: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('Tap and hold the URL below to copy it, then paste it in your browser:'),
-                                      const SizedBox(height: 16),
-                                      Container(
-                                        padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue[50],
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: Colors.blue[200]!),
-                                        ),
-                                        child: SelectableText(
-                                          url,
-                                          style: TextStyle(
-                                            color: Colors.blue[700],
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.orange[50],
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: Colors.orange[200]!),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.info_outline, color: Colors.orange[600], size: 20),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                'Long press the URL above to copy it to your clipboard',
-                                                style: TextStyle(
-                                                  color: Colors.orange[700],
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('Close'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-                          },
+                          onPressed: () => _openExternalUrl(context, content['url']),
                           icon: const Icon(Icons.open_in_new),
                           label: const Text('Open Link'),
                           style: ElevatedButton.styleFrom(
@@ -2391,5 +2366,649 @@ class _MyHomePageState extends State<MyHomePage> {
         SnackBar(content: Text('Error: $e')),
       );
     }
+  }
+
+  Widget _buildVideoPlayer(Map<String, dynamic> content) {
+    return VideoPlayerWidget(
+      youtubeUrl: content['youtubeUrl'],
+      youtubeVideoId: content['youtubeVideoId'],
+      videoFileName: content['videoFileName'],
+      videoFileSize: content['videoFileSize'],
+      isWebFile: content['isWebFile'],
+    );
+  }
+
+  Widget _buildRecipeContent(Map<String, dynamic> content) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 3,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Recipe header
+          Row(
+            children: [
+              Icon(Icons.restaurant, color: Colors.orange[600], size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Recipe Details',
+                style: TextStyle(
+                  color: Colors.orange[600],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Recipe description
+          if (content['recipeDescription'] != null && content['recipeDescription'].toString().isNotEmpty) ...[
+            _buildRecipeSection('Description', content['recipeDescription'], Icons.description),
+            const SizedBox(height: 12),
+          ],
+          
+          // Recipe info row
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (content['servings'] != null)
+                _buildRecipeInfoChip('Servings', '${content['servings']}', Icons.people),
+              if (content['prepTime'] != null)
+                _buildRecipeInfoChip('Prep', content['prepTime'], Icons.schedule),
+              if (content['cookTime'] != null)
+                _buildRecipeInfoChip('Cook', content['cookTime'], Icons.timer),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Ingredients
+          if (content['ingredients'] != null && content['ingredients'].toString().isNotEmpty) ...[
+            _buildRecipeSection('Ingredients', content['ingredients'], Icons.list_alt),
+            const SizedBox(height: 12),
+          ],
+          
+          // Instructions
+          if (content['instructions'] != null && content['instructions'].toString().isNotEmpty) ...[
+            _buildRecipeSection('Instructions', content['instructions'], Icons.format_list_numbered),
+            const SizedBox(height: 12),
+          ],
+          
+          // Nutrition info
+          if (content['nutritionInfo'] != null && content['nutritionInfo'].toString().isNotEmpty) ...[
+            _buildRecipeSection('Nutrition Info', content['nutritionInfo'], Icons.local_fire_department),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecipeSection(String title, String content, IconData icon) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: Colors.orange[600], size: 16),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                color: Colors.orange[600],
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          content,
+          style: TextStyle(
+            color: Colors.grey[700],
+            fontSize: 13,
+            height: 1.4,
+          ),
+          softWrap: true,
+          overflow: TextOverflow.visible,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecipeInfoChip(String label, String value, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange[200]!),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.orange[600], size: 14),
+          const SizedBox(width: 4),
+          Text(
+            '$label: $value',
+            style: TextStyle(
+              color: Colors.orange[700],
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openExternalUrl(BuildContext context, String? url) async {
+    if (url == null || url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No URL available')),
+      );
+      return;
+    }
+
+    try {
+      // Try different launch modes
+      bool launched = false;
+      
+      // First try: External application mode
+      try {
+        if (await canLaunchUrl(Uri.parse(url))) {
+          await launchUrl(
+            Uri.parse(url),
+            mode: LaunchMode.externalApplication,
+          );
+          launched = true;
+        }
+      } catch (e) {
+        print('External application launch failed: $e');
+      }
+      
+      // Second try: Platform default mode
+      if (!launched) {
+        try {
+          await launchUrl(
+            Uri.parse(url),
+            mode: LaunchMode.platformDefault,
+          );
+          launched = true;
+        } catch (e) {
+          print('Platform default launch failed: $e');
+        }
+      }
+      
+      // Third try: External non-browser mode
+      if (!launched) {
+        try {
+          await launchUrl(
+            Uri.parse(url),
+            mode: LaunchMode.externalNonBrowserApplication,
+          );
+          launched = true;
+        } catch (e) {
+          print('External non-browser launch failed: $e');
+        }
+      }
+      
+      // If all methods fail, show URL in dialog
+      if (!launched) {
+        _showUrlDialog(context, url);
+      }
+      
+    } catch (e) {
+      print('All launch methods failed: $e');
+      _showUrlDialog(context, url);
+    }
+  }
+
+  void _showUrlDialog(BuildContext context, String url) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Open Link'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Copy this URL and open it in your browser:'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: SelectableText(
+                url,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Or try opening the link manually in your browser.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class VideoPlayerWidget extends StatefulWidget {
+  final String? youtubeUrl;
+  final String? youtubeVideoId;
+  final String? videoFileName;
+  final int? videoFileSize;
+  final bool? isWebFile;
+
+  const VideoPlayerWidget({
+    super.key,
+    this.youtubeUrl,
+    this.youtubeVideoId,
+    this.videoFileName,
+    this.videoFileSize,
+    this.isWebFile,
+  });
+
+  @override
+  State<VideoPlayerWidget> createState() => _VideoPlayerWidgetState();
+}
+
+class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // If we have YouTube video ID or URL, show embedded player
+    if ((widget.youtubeVideoId != null && widget.youtubeVideoId!.isNotEmpty) || 
+        (widget.youtubeUrl != null && widget.youtubeUrl!.isNotEmpty)) {
+      return _buildYouTubeEmbeddedPlayer(context);
+    }
+    
+    // Fallback to old video display
+    return _buildFallbackPlayer(context);
+  }
+
+  Widget _buildYouTubeEmbeddedPlayer(BuildContext context) {
+    // Check if we have a valid video ID
+    String videoId = widget.youtubeVideoId ?? '';
+    if (videoId.isEmpty && widget.youtubeUrl != null) {
+      RegExp regExp = RegExp(
+        r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})',
+        caseSensitive: false,
+      );
+      Match? match = regExp.firstMatch(widget.youtubeUrl!);
+      videoId = match?.group(1) ?? '';
+    }
+
+    // For now, let's use a simpler approach with YouTube thumbnail
+    return _buildYouTubeThumbnailPlayer(context, videoId);
+  }
+
+  Widget _buildYouTubeThumbnailPlayer(BuildContext context, String videoId) {
+    String thumbnailUrl = 'https://img.youtube.com/vi/$videoId/maxresdefault.jpg';
+    
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            spreadRadius: 1,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          children: [
+            // YouTube thumbnail
+            Image.network(
+              thumbnailUrl,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.red[50],
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.play_circle_filled,
+                          size: 64,
+                          color: Colors.red[600],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'YouTube Video',
+                          style: TextStyle(
+                            color: Colors.red[600],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            
+            // Play button overlay
+            Center(
+              child: GestureDetector(
+                onTap: () => _openYouTubeVideo(context),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.play_arrow,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+              ),
+            ),
+            
+            // YouTube branding overlay
+            Positioned(
+              bottom: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.play_circle_filled,
+                      color: Colors.red[400],
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'YouTube',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Future<void> _openYouTubeVideo(BuildContext context) async {
+    String videoUrl = widget.youtubeUrl ?? '';
+    if (videoUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No video URL available')),
+      );
+      return;
+    }
+
+    try {
+      // Try different launch modes
+      bool launched = false;
+      
+      // First try: External application mode
+      try {
+        if (await canLaunchUrl(Uri.parse(videoUrl))) {
+          await launchUrl(
+            Uri.parse(videoUrl),
+            mode: LaunchMode.externalApplication,
+          );
+          launched = true;
+        }
+      } catch (e) {
+        print('External application launch failed: $e');
+      }
+      
+      // Second try: Platform default mode
+      if (!launched) {
+        try {
+          await launchUrl(
+            Uri.parse(videoUrl),
+            mode: LaunchMode.platformDefault,
+          );
+          launched = true;
+        } catch (e) {
+          print('Platform default launch failed: $e');
+        }
+      }
+      
+      // Third try: External non-browser mode
+      if (!launched) {
+        try {
+          await launchUrl(
+            Uri.parse(videoUrl),
+            mode: LaunchMode.externalNonBrowserApplication,
+          );
+          launched = true;
+        } catch (e) {
+          print('External non-browser launch failed: $e');
+        }
+      }
+      
+      // If all methods fail, show URL in dialog
+      if (!launched) {
+        _showVideoUrlDialog(context, videoUrl);
+      }
+      
+    } catch (e) {
+      print('All launch methods failed: $e');
+      _showVideoUrlDialog(context, videoUrl);
+    }
+  }
+
+  void _showVideoUrlDialog(BuildContext context, String videoUrl) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Open Video'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Copy this URL and open it in your browser:'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: SelectableText(
+                videoUrl,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Or try opening YouTube app manually and search for the video.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFallbackPlayer(BuildContext context) {
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        color: Colors.purple[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.purple[200]!),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.purple.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.purple[100],
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.play_circle_filled,
+              size: 48,
+              color: Colors.purple[600],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Watch Video',
+            style: TextStyle(
+              color: Colors.purple[600],
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.videoFileName ?? 'Video Content',
+            style: TextStyle(
+              color: Colors.purple[500],
+              fontSize: 14,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () => _playVideo(context),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Play Video'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple[600],
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _playVideo(BuildContext context) async {
+    // Get the video URL based on filename
+    String videoUrl;
+    
+    switch (widget.videoFileName) {
+      case 'nutrition_basics.mp4':
+        videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+        break;
+      case 'exercise_tips.mov':
+        videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4';
+        break;
+      case 'meal_prep_tutorial.avi':
+        videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+        break;
+      default:
+        videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+    }
+
+    try {
+      // Try to launch the video in the default video player
+      if (await canLaunchUrl(Uri.parse(videoUrl))) {
+        await launchUrl(
+          Uri.parse(videoUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        // Fallback: show video info dialog
+        _showVideoInfoDialog(context, videoUrl);
+      }
+    } catch (e) {
+      // Fallback: show video info dialog
+      _showVideoInfoDialog(context, videoUrl);
+    }
+  }
+
+  void _showVideoInfoDialog(BuildContext context, String videoUrl) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Video Information'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.videoFileName != null) Text('File: ${widget.videoFileName}'),
+            if (widget.videoFileSize != null) Text('Size: ${widget.videoFileSize! ~/ (1024 * 1024)} MB'),
+            const SizedBox(height: 16),
+            const Text('Video URL:'),
+            SelectableText(
+              videoUrl,
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            const Text('You can copy this URL and open it in your browser to watch the video.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 }

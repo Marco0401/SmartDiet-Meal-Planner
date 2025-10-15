@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import '../../services/notification_service.dart';
 
 class NotificationCenterPage extends StatefulWidget {
   const NotificationCenterPage({super.key});
@@ -31,7 +32,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notification Center'),
+        title: const Text('Nutritionist Notifications'),
         backgroundColor: const Color(0xFFE91E63),
         foregroundColor: Colors.white,
         bottom: TabBar(
@@ -40,12 +41,42 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
           tabs: const [
-            Tab(text: 'Draft Notifications', icon: Icon(Icons.drafts)),
-            Tab(text: 'Sent Notifications', icon: Icon(Icons.send)),
+            Tab(text: 'Draft Messages', icon: Icon(Icons.drafts)),
+            Tab(text: 'Sent Messages', icon: Icon(Icons.send)),
             Tab(text: 'Scheduled', icon: Icon(Icons.schedule)),
           ],
         ),
         actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) => _createQuickNotification(value),
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'nutrition_tip',
+                child: ListTile(
+                  leading: Icon(Icons.lightbulb, color: Colors.amber),
+                  title: Text('Quick Nutrition Tip'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'meal_reminder',
+                child: ListTile(
+                  leading: Icon(Icons.notifications, color: Colors.red),
+                  title: Text('Meal Reminder'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'recipe_update',
+                child: ListTile(
+                  leading: Icon(Icons.restaurant_menu, color: Colors.green),
+                  title: Text('Recipe Update'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+            child: const Icon(Icons.add_circle_outline),
+          ),
           IconButton(
             onPressed: () => _showCreateNotificationDialog(),
             icon: const Icon(Icons.add),
@@ -161,8 +192,8 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  status == 'draft' ? 'No draft notifications' :
-                  status == 'sent' ? 'No sent notifications' : 'No scheduled notifications',
+                  status == 'draft' ? 'No draft messages' :
+                  status == 'sent' ? 'No sent messages' : 'No scheduled messages',
                   style: TextStyle(
                     fontSize: 18,
                     color: Colors.grey.shade600,
@@ -172,7 +203,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
                 ElevatedButton.icon(
                   onPressed: () => _showCreateNotificationDialog(),
                   icon: const Icon(Icons.add),
-                  label: const Text('Create First Notification'),
+                  label: const Text('Create First Message'),
                 ),
               ],
             ),
@@ -415,57 +446,91 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
 
   String _getNotificationTypeDisplayName(String type) {
     switch (type) {
-      case 'tips':
+      case 'nutrition_tips':
         return 'Nutrition Tips';
-      case 'updates':
-        return 'App Updates';
-      case 'news':
-        return 'Health News';
+      case 'meal_plans':
+        return 'Meal Plan Updates';
+      case 'content_approval':
+        return 'Content Approval';
+      case 'user_questions':
+        return 'User Questions';
+      case 'recipe_reviews':
+        return 'Recipe Reviews';
+      case 'guideline_updates':
+        return 'Guideline Updates';
       case 'reminders':
         return 'Meal Reminders';
-      default:
+      case 'general':
         return 'General Notification';
+      default:
+        return 'Nutritionist Notification';
     }
   }
 
   Color _getNotificationTypeColor(String type) {
     switch (type) {
-      case 'tips':
+      case 'nutrition_tips':
         return Colors.amber;
-      case 'updates':
-        return Colors.blue;
-      case 'news':
+      case 'meal_plans':
         return Colors.green;
-      case 'reminders':
+      case 'content_approval':
+        return Colors.blue;
+      case 'user_questions':
         return Colors.orange;
-      default:
+      case 'recipe_reviews':
+        return Colors.purple;
+      case 'guideline_updates':
+        return Colors.teal;
+      case 'reminders':
+        return Colors.red;
+      case 'general':
         return Colors.grey;
+      default:
+        return Colors.indigo;
     }
   }
 
   IconData _getNotificationTypeIcon(String type) {
     switch (type) {
-      case 'tips':
+      case 'nutrition_tips':
         return Icons.lightbulb;
-      case 'updates':
-        return Icons.system_update;
-      case 'news':
-        return Icons.newspaper;
+      case 'meal_plans':
+        return Icons.restaurant_menu;
+      case 'content_approval':
+        return Icons.approval;
+      case 'user_questions':
+        return Icons.help_outline;
+      case 'recipe_reviews':
+        return Icons.rate_review;
+      case 'guideline_updates':
+        return Icons.update;
       case 'reminders':
         return Icons.notifications;
-      default:
+      case 'general':
         return Icons.message;
+      default:
+        return Icons.fastfood;
     }
   }
 
   String _getTargetAudienceDisplayName(String audience) {
     switch (audience) {
-      case 'all':
+      case 'all_users':
         return 'All Users';
-      case 'nutritionist':
+      case 'nutritionists':
         return 'Nutritionists';
-      case 'admin':
+      case 'admins':
         return 'Admins';
+      case 'premium_users':
+        return 'Premium Users';
+      case 'new_users':
+        return 'New Users';
+      case 'dietary_restrictions':
+        return 'Users with Dietary Restrictions';
+      case 'weight_loss':
+        return 'Weight Loss Users';
+      case 'muscle_gain':
+        return 'Muscle Gain Users';
       default:
         return 'Specific Users';
     }
@@ -482,6 +547,50 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
       default:
         return Colors.grey;
     }
+  }
+
+  void _createQuickNotification(String type) {
+    String title = '';
+    String message = '';
+    String notificationType = '';
+    String? actionData;
+    
+    switch (type) {
+      case 'nutrition_tip':
+        title = 'Daily Nutrition Tip';
+        message = 'Remember to stay hydrated! Drink at least 8 glasses of water throughout the day to support your metabolism and overall health.';
+        notificationType = 'nutrition_tips';
+        actionData = 'tips:hydration';
+        break;
+      case 'meal_reminder':
+        title = 'Meal Time Reminder';
+        message = 'Don\'t forget to have your scheduled meal! Regular meal times help maintain stable blood sugar levels and support your health goals.';
+        notificationType = 'reminders';
+        actionData = 'meal:logging';
+        break;
+      case 'recipe_update':
+        title = 'New Recipe Available';
+        message = 'Check out our latest healthy recipe! We\'ve added a new nutritious option that fits your dietary preferences.';
+        notificationType = 'meal_plans';
+        actionData = 'recipe:new_healthy_recipe';
+        break;
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => _CreateNotificationDialog(
+        initialData: {
+          'title': title,
+          'message': message,
+          'type': notificationType,
+          'targetAudience': 'all_users',
+          'actionData': actionData,
+        },
+        onNotificationCreated: () {
+          setState(() {});
+        },
+      ),
+    );
   }
 
   void _showCreateNotificationDialog() {
@@ -587,13 +696,37 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
 
   Future<void> _sendNotification(String notificationId) async {
     try {
+      // Get the notification data
+      final doc = await FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(notificationId)
+          .get();
+      
+      if (!doc.exists) return;
+      
+      final data = doc.data()!;
+      final title = data['title'] ?? 'Notification';
+      final message = data['message'] ?? '';
+      final type = data['type'] ?? 'general';
+      final targetAudience = data['targetAudience'] ?? 'all_users';
+
+      // Send to users based on target audience
+      await _sendToTargetUsers(
+        title: title,
+        message: message,
+        type: type,
+        targetAudience: targetAudience,
+        actionData: data['actionData'],
+      );
+
+      // Update notification status
       await FirebaseFirestore.instance
           .collection('notifications')
           .doc(notificationId)
           .update({
         'status': 'sent',
         'sentAt': FieldValue.serverTimestamp(),
-        'sentCount': 0, // This would be updated by the actual sending logic
+        'sentCount': await _getTargetUserCount(targetAudience),
       });
 
       if (mounted) {
@@ -613,6 +746,138 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> with Ti
           ),
         );
       }
+    }
+  }
+
+  // Send notification to target users
+  Future<void> _sendToTargetUsers({
+    required String title,
+    required String message,
+    required String type,
+    required String targetAudience,
+    String? actionData,
+  }) async {
+    try {
+      // Get user IDs based on target audience
+      final userIds = await _getTargetUserIds(targetAudience);
+      
+      if (userIds.isEmpty) return;
+
+      // Send notification to each user using the existing NotificationService
+      for (final userId in userIds) {
+        await _sendNotificationToUser(
+          userId: userId,
+          title: title,
+          message: message,
+          type: type,
+          actionData: actionData,
+        );
+      }
+    } catch (e) {
+      print('Error sending to target users: $e');
+    }
+  }
+
+  // Send notification to a specific user
+  Future<void> _sendNotificationToUser({
+    required String userId,
+    required String title,
+    required String message,
+    required String type,
+    String? actionData,
+  }) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('notifications')
+          .add({
+        'title': title,
+        'message': message,
+        'type': _mapNotificationType(type),
+        'icon': _getNotificationTypeIcon(type).codePoint,
+        'color': _getNotificationTypeColor(type).value,
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'sentBy': 'nutritionist',
+        'actionData': actionData,
+      });
+    } catch (e) {
+      print('Error sending notification to user $userId: $e');
+    }
+  }
+
+  // Get user IDs based on target audience
+  Future<List<String>> _getTargetUserIds(String targetAudience) async {
+    try {
+      Query query = FirebaseFirestore.instance.collection('users');
+
+      switch (targetAudience) {
+        case 'all_users':
+          // Get all users
+          break;
+        case 'premium_users':
+          query = query.where('isPremium', isEqualTo: true);
+          break;
+        case 'new_users':
+          // Users created in last 30 days
+          final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+          query = query.where('createdAt', isGreaterThan: Timestamp.fromDate(thirtyDaysAgo));
+          break;
+        case 'dietary_restrictions':
+          query = query.where('hasDietaryRestrictions', isEqualTo: true);
+          break;
+        case 'weight_loss':
+          query = query.where('bodyGoals', arrayContains: 'weight_loss');
+          break;
+        case 'muscle_gain':
+          query = query.where('bodyGoals', arrayContains: 'muscle_gain');
+          break;
+        case 'nutritionists':
+          query = query.where('role', isEqualTo: 'nutritionist');
+          break;
+        case 'admins':
+          query = query.where('role', isEqualTo: 'admin');
+          break;
+        default:
+          return [];
+      }
+
+      final snapshot = await query.get();
+      return snapshot.docs.map((doc) => doc.id).toList();
+    } catch (e) {
+      print('Error getting target user IDs: $e');
+      return [];
+    }
+  }
+
+  // Get count of target users
+  Future<int> _getTargetUserCount(String targetAudience) async {
+    final userIds = await _getTargetUserIds(targetAudience);
+    return userIds.length;
+  }
+
+  // Map nutritionist notification types to user notification types
+  String _mapNotificationType(String type) {
+    switch (type) {
+      case 'nutrition_tips':
+        return 'Tips';
+      case 'meal_plans':
+        return 'News';
+      case 'content_approval':
+        return 'Updates';
+      case 'user_questions':
+        return 'Updates';
+      case 'recipe_reviews':
+        return 'News';
+      case 'guideline_updates':
+        return 'Updates';
+      case 'reminders':
+        return 'Meal reminders';
+      case 'general':
+        return 'Updates';
+      default:
+        return 'Updates';
     }
   }
 
@@ -769,8 +1034,8 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _messageController = TextEditingController();
-  String _selectedType = 'tips';
-  String _selectedTargetAudience = 'all';
+  String _selectedType = 'nutrition_tips';
+  String _selectedTargetAudience = 'all_users';
 
   @override
   void initState() {
@@ -779,8 +1044,8 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
     if (widget.initialData != null) {
       _titleController.text = widget.initialData!['title'] ?? '';
       _messageController.text = widget.initialData!['message'] ?? '';
-      _selectedType = widget.initialData!['type'] ?? 'tips';
-      _selectedTargetAudience = widget.initialData!['targetAudience'] ?? 'all';
+      _selectedType = widget.initialData!['type'] ?? 'nutrition_tips';
+      _selectedTargetAudience = widget.initialData!['targetAudience'] ?? 'all_users';
     }
   }
 
@@ -801,7 +1066,7 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
         child: Column(
           children: [
             Text(
-              widget.notificationId != null ? 'Edit Notification' : 'Create New Notification',
+              widget.notificationId != null ? 'Edit Message' : 'Create New Message',
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -834,14 +1099,18 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
                       DropdownButtonFormField<String>(
                         value: _selectedType,
                         decoration: const InputDecoration(
-                          labelText: 'Notification Type',
+                          labelText: 'Message Type',
                           border: OutlineInputBorder(),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'tips', child: Text('Nutrition Tips')),
-                          DropdownMenuItem(value: 'updates', child: Text('App Updates')),
-                          DropdownMenuItem(value: 'news', child: Text('Health News')),
+                          DropdownMenuItem(value: 'nutrition_tips', child: Text('Nutrition Tips')),
+                          DropdownMenuItem(value: 'meal_plans', child: Text('Meal Plan Updates')),
+                          DropdownMenuItem(value: 'content_approval', child: Text('Content Approval')),
+                          DropdownMenuItem(value: 'user_questions', child: Text('User Questions')),
+                          DropdownMenuItem(value: 'recipe_reviews', child: Text('Recipe Reviews')),
+                          DropdownMenuItem(value: 'guideline_updates', child: Text('Guideline Updates')),
                           DropdownMenuItem(value: 'reminders', child: Text('Meal Reminders')),
+                          DropdownMenuItem(value: 'general', child: Text('General Notification')),
                         ],
                         onChanged: (value) {
                           setState(() {
@@ -859,9 +1128,14 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
                           border: OutlineInputBorder(),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'all', child: Text('All Users')),
-                          DropdownMenuItem(value: 'nutritionist', child: Text('Nutritionists')),
-                          DropdownMenuItem(value: 'admin', child: Text('Admins')),
+                          DropdownMenuItem(value: 'all_users', child: Text('All Users')),
+                          DropdownMenuItem(value: 'nutritionists', child: Text('Nutritionists')),
+                          DropdownMenuItem(value: 'admins', child: Text('Admins')),
+                          DropdownMenuItem(value: 'premium_users', child: Text('Premium Users')),
+                          DropdownMenuItem(value: 'new_users', child: Text('New Users')),
+                          DropdownMenuItem(value: 'dietary_restrictions', child: Text('Users with Dietary Restrictions')),
+                          DropdownMenuItem(value: 'weight_loss', child: Text('Weight Loss Users')),
+                          DropdownMenuItem(value: 'muscle_gain', child: Text('Muscle Gain Users')),
                         ],
                         onChanged: (value) {
                           setState(() {
@@ -927,6 +1201,9 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
         'createdBy': 'nutritionist',
         'sentCount': 0,
         'readCount': 0,
+        'priority': 'normal', // normal, high, urgent
+        'category': _selectedType, // For easier filtering
+        'isNutritionistMessage': true, // Flag to identify nutritionist messages
       };
 
       if (widget.notificationId != null) {
@@ -948,7 +1225,7 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
         widget.onNotificationCreated();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.notificationId != null ? 'Notification updated!' : 'Notification created!'),
+            content: Text(widget.notificationId != null ? 'Message updated!' : 'Message created!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -957,7 +1234,7 @@ class _CreateNotificationDialogState extends State<_CreateNotificationDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error saving notification: $e'),
+            content: Text('Error saving message: $e'),
             backgroundColor: Colors.red,
           ),
         );

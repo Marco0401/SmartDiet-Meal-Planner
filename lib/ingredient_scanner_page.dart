@@ -1,0 +1,1202 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'dart:io';
+
+
+class IngredientScannerPage extends StatefulWidget {
+  const IngredientScannerPage({super.key});
+
+  @override
+  State<IngredientScannerPage> createState() => _IngredientScannerPageState();
+}
+
+class _IngredientScannerPageState extends State<IngredientScannerPage> {
+  bool _isAnalyzing = false;
+  Map<String, dynamic>? _scannedProduct;
+  List<String> _detectedAllergens = [];
+  String? _errorMessage;
+  bool _isProcessingOCR = false;
+  final ImagePicker _imagePicker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+
+
+
+
+
+
+
+
+  Future<void> _analyzeIngredients(Map<String, dynamic> product) async {
+    final ingredientsText = product['ingredients_text'] ?? '';
+    final ingredients = _parseIngredients(ingredientsText);
+    
+    // Check for allergens
+    
+    final detectedAllergens = _checkForAllergens(ingredients);
+    final allergenDetails = _checkForAllergensWithDetails(ingredients);
+    final ingredientAllergenMap = allergenDetails['ingredientMap'] as Map<String, List<String>>;
+    
+    setState(() {
+      _scannedProduct = {
+        ...product,
+        'ingredients': ingredients,
+        'barcode': product['code'] ?? 'Unknown',
+        'ingredientAllergenMap': ingredientAllergenMap,
+      };
+      _detectedAllergens = detectedAllergens;
+      _isAnalyzing = false;
+    });
+  }
+
+  List<String> _parseIngredients(String ingredientsText) {
+    if (ingredientsText.isEmpty) return [];
+    
+    // Split by common separators and clean up
+    final ingredients = ingredientsText
+        .split(RegExp(r'[,;]'))
+        .map((ingredient) => ingredient.trim())
+        .where((ingredient) => ingredient.isNotEmpty)
+        .toList();
+    
+    print('Raw ingredients: $ingredients');
+    return ingredients;
+  }
+
+  Map<String, dynamic> _checkForAllergensWithDetails(List<String> ingredients) {
+    final detectedAllergens = <String>[];
+    final ingredientAllergenMap = <String, List<String>>{};
+    
+    for (final ingredient in ingredients) {
+      final lowerIngredient = ingredient.toLowerCase().trim();
+      final ingredientAllergens = <String>[];
+      
+      // Check for common allergens
+      final commonAllergens = _detectCommonAllergens(lowerIngredient);
+      for (final allergen in commonAllergens) {
+        ingredientAllergens.add(allergen);
+        if (!detectedAllergens.contains(allergen)) {
+          detectedAllergens.add(allergen);
+        }
+      }
+      
+      // Store which allergens were found in this specific ingredient
+      if (ingredientAllergens.isNotEmpty) {
+        ingredientAllergenMap[ingredient] = ingredientAllergens;
+      }
+    }
+    
+    return {
+      'allergens': detectedAllergens,
+      'ingredientMap': ingredientAllergenMap,
+    };
+  }
+
+  List<String> _checkForAllergens(List<String> ingredients) {
+    return _checkForAllergensWithDetails(ingredients)['allergens'] as List<String>;
+  }
+
+  List<String> _getAllergenSynonyms(String allergen) {
+    // Comprehensive allergen synonyms and variations
+    final allergenSynonyms = {
+      'milk': ['dairy', 'lactose', 'casein', 'whey', 'cream', 'butter', 'cheese', 'yogurt', 'kefir'],
+      'eggs': ['egg', 'albumin', 'lecithin', 'mayonnaise', 'custard', 'meringue'],
+      'nuts': ['almond', 'walnut', 'pecan', 'cashew', 'pistachio', 'hazelnut', 'macadamia', 'pine nut', 'brazil nut'],
+      'peanuts': ['peanut', 'groundnut', 'arachis', 'goober'],
+      'soy': ['soy', 'soybean', 'soya', 'tofu', 'tempeh', 'miso', 'edamame', 'soy sauce'],
+      'wheat': ['wheat', 'gluten', 'flour', 'bread', 'pasta', 'semolina', 'bulgur', 'couscous'],
+      'fish': ['fish', 'salmon', 'tuna', 'cod', 'anchovy', 'sardine', 'mackerel', 'herring'],
+      'shellfish': ['shrimp', 'crab', 'lobster', 'scallop', 'mussel', 'clam', 'oyster', 'prawn'],
+      'sesame': ['sesame', 'tahini', 'halva', 'benne'],
+    };
+    
+    return allergenSynonyms[allergen] ?? [];
+  }
+
+  List<String> _detectCommonAllergens(String ingredient) {
+    final detectedAllergens = <String>[];
+    
+    // Common allergen patterns
+    final allergenPatterns = {
+      'milk': ['milk', 'dairy', 'lactose', 'casein', 'whey', 'cream', 'butter', 'cheese', 'yogurt'],
+      'eggs': ['egg', 'albumin', 'lecithin', 'mayonnaise', 'custard'],
+      'nuts': ['almond', 'walnut', 'pecan', 'cashew', 'pistachio', 'hazelnut', 'macadamia', 'pine nut'],
+      'peanuts': ['peanut', 'groundnut', 'arachis'],
+      'soy': ['soy', 'soybean', 'soya', 'tofu', 'tempeh', 'miso', 'edamame'],
+      'wheat': ['wheat', 'gluten', 'flour', 'bread', 'pasta', 'semolina', 'bulgur'],
+      'fish': ['fish', 'salmon', 'tuna', 'cod', 'anchovy', 'sardine', 'mackerel'],
+      'shellfish': ['shrimp', 'crab', 'lobster', 'scallop', 'mussel', 'clam', 'oyster'],
+      'sesame': ['sesame', 'tahini', 'halva'],
+    };
+    
+    for (final allergen in allergenPatterns.keys) {
+      for (final pattern in allergenPatterns[allergen]!) {
+        if (ingredient.contains(pattern)) {
+          detectedAllergens.add(allergen);
+          break; // Only add each allergen once per ingredient
+        }
+      }
+    }
+    
+    return detectedAllergens;
+  }
+
+
+
+  void _resetScan() {
+    setState(() {
+      _scannedProduct = null;
+      _detectedAllergens = [];
+      _errorMessage = null;
+    });
+  }
+
+
+  Future<void> _captureIngredientPhoto() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
+        maxWidth: 1920,
+        maxHeight: 1080,
+      );
+
+      if (image != null) {
+        await _processIngredientPhoto(image.path);
+      } else {
+        setState(() {
+          _isProcessingOCR = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Camera not available. Please try again or use gallery instead.';
+        _isProcessingOCR = false;
+      });
+    }
+  }
+
+  Future<void> _pickIngredientPhoto() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1920,
+        maxHeight: 1080,
+      );
+
+      if (image != null) {
+        await _processIngredientPhoto(image.path);
+      } else {
+        setState(() {
+          _isProcessingOCR = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Gallery not available. Please try again or use camera instead.';
+        _isProcessingOCR = false;
+      });
+    }
+  }
+
+  Future<void> _processIngredientPhoto(String imagePath) async {
+    setState(() {
+      _isProcessingOCR = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Try cropping first, but fallback to direct processing if cropping fails
+      try {
+        final croppedFile = await ImageCropper().cropImage(
+          sourcePath: imagePath,
+          aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1.5),
+          uiSettings: [
+            AndroidUiSettings(
+              toolbarTitle: 'Crop Ingredient Section',
+              toolbarColor: Colors.green,
+              toolbarWidgetColor: Colors.white,
+              initAspectRatio: CropAspectRatioPreset.original,
+              lockAspectRatio: false,
+            ),
+            IOSUiSettings(
+              title: 'Crop Ingredient Section',
+            ),
+          ],
+        );
+
+        if (croppedFile != null) {
+          await _extractTextFromImage(croppedFile.path);
+        } else {
+          // User cancelled cropping, process original image
+          await _extractTextFromImage(imagePath);
+        }
+      } catch (cropError) {
+        // If cropping fails, process the original image
+        print('Cropping failed, processing original image: $cropError');
+        await _extractTextFromImage(imagePath);
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error processing photo: ${e.toString()}';
+        _isProcessingOCR = false;
+      });
+    }
+  }
+
+  Future<void> _extractTextFromImage(String imagePath) async {
+    try {
+      final inputImage = InputImage.fromFilePath(imagePath);
+      final textRecognizer = TextRecognizer();
+
+      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
+      
+      String extractedText = recognizedText.text;
+      
+      // Clean up the text
+      extractedText = _cleanExtractedText(extractedText);
+      
+      if (extractedText.isNotEmpty) {
+        // Process the extracted text as ingredients
+        final product = {
+          'product_name': 'Photo Scanned Product',
+          'ingredients_text': extractedText,
+          'brands': 'Unknown Brand',
+          'categories': 'Unknown Category',
+          'code': 'photo_scan',
+          'is_photo_scan': true,
+        };
+
+        await _analyzeIngredients(product);
+        setState(() {
+          _isProcessingOCR = false;
+          _errorMessage = null;
+        });
+      } else {
+        setState(() {
+          _errorMessage = 'No text found in the image. Please try again with a clearer photo of the ingredient section.';
+          _isProcessingOCR = false;
+        });
+      }
+
+      textRecognizer.close();
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error extracting text: $e';
+        _isProcessingOCR = false;
+      });
+    }
+  }
+
+  String _cleanExtractedText(String text) {
+    // Clean up OCR text to extract ingredients
+    List<String> lines = text.split('\n');
+    List<String> cleanedLines = [];
+
+    for (String line in lines) {
+      line = line.trim();
+      if (line.isNotEmpty) {
+        // Skip common non-ingredient words
+        if (!_isNonIngredientWord(line.toLowerCase())) {
+          cleanedLines.add(line);
+        }
+      }
+    }
+
+    // Join lines and clean up
+    String cleanedText = cleanedLines.join(', ');
+    
+    // Remove common OCR artifacts
+    cleanedText = cleanedText
+        .replaceAll(RegExp(r'[^\w\s,.-]'), '') // Remove special chars except basic punctuation
+        .replaceAll(RegExp(r'\s+'), ' ') // Normalize whitespace
+        .replaceAll(RegExp(r',\s*,+'), ',') // Remove multiple commas
+        .trim();
+
+    return cleanedText;
+  }
+
+  bool _isNonIngredientWord(String word) {
+    final nonIngredientWords = [
+      'ingredients',
+      'ingredient',
+      'contains',
+      'may contain',
+      'allergens',
+      'allergen',
+      'nutrition',
+      'nutritional',
+      'information',
+      'serving',
+      'size',
+      'calories',
+      'protein',
+      'fat',
+      'carbohydrate',
+      'sodium',
+      'sugar',
+      'fiber',
+      'vitamin',
+      'mineral',
+      'net weight',
+      'weight',
+      'volume',
+      'manufactured',
+      'distributed',
+      'by',
+      'company',
+      'inc',
+      'ltd',
+      'corp',
+      'llc',
+    ];
+
+    return nonIngredientWords.contains(word.toLowerCase());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ingredient Scanner'),
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: _buildResultsSection(),
+    );
+  }
+
+
+  Widget _buildResultsSection() {
+    if (_errorMessage != null) {
+      return _buildErrorState();
+    }
+    
+    if (_scannedProduct == null) {
+      return _buildEmptyState();
+    }
+    
+    return _buildProductResults();
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.camera_alt_rounded,
+            size: 80,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Take a photo of ingredients to analyze for allergens',
+            style: TextStyle(
+              fontSize: 18,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Point your camera at the ingredient list on the packaging',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 40),
+          // Take Photo Button
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _isProcessingOCR = true;
+                });
+                _captureIngredientPhoto();
+              },
+              icon: const Icon(Icons.camera_alt_rounded, size: 24),
+              label: const Text(
+                'Take Photo of Ingredients',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[600],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 4,
+                shadowColor: Colors.green.withOpacity(0.3),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Choose from Gallery Button
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _isProcessingOCR = true;
+                });
+                _pickIngredientPhoto();
+              },
+              icon: const Icon(Icons.photo_library_rounded, size: 24),
+              label: const Text(
+                'Choose Photo from Gallery',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue[600],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 4,
+                shadowColor: Colors.blue.withOpacity(0.3),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 80,
+            color: Colors.red[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage!,
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.red[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _resetScan,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Again'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isProcessingOCR = true;
+                  });
+                  _captureIngredientPhoto();
+                },
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Take Photo'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildDetailedAllergenWarnings(Map<String, dynamic> product) {
+    final ingredientAllergenMap = product['ingredientAllergenMap'] as Map<String, List<String>>? ?? {};
+    final widgets = <Widget>[];
+    
+    // Group allergens by type and show which ingredients contain them
+    final allergenToIngredients = <String, List<String>>{};
+    
+    for (final entry in ingredientAllergenMap.entries) {
+      final ingredient = entry.key;
+      final allergens = entry.value;
+      
+      for (final allergen in allergens) {
+        if (!allergenToIngredients.containsKey(allergen)) {
+          allergenToIngredients[allergen] = [];
+        }
+        allergenToIngredients[allergen]!.add(ingredient);
+      }
+    }
+    
+    // Create warning widgets for each allergen
+    for (final entry in allergenToIngredients.entries) {
+      final allergen = entry.key;
+      final ingredients = entry.value;
+      
+      widgets.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.red[100],
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.red[300]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.red[700],
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Allergen: $allergen',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red[700],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Found in: ${ingredients.join(', ')}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    return widgets;
+  }
+
+  Widget _buildProductResults() {
+    final product = _scannedProduct!;
+    final hasAllergens = _detectedAllergens.isNotEmpty;
+    final ingredients = product['ingredients'] as List<String>? ?? [];
+    final ingredientAllergenMap = product['ingredientAllergenMap'] as Map<String, List<String>>? ?? {};
+    
+    // Calculate safety score
+    final totalIngredients = ingredients.length;
+    final allergenIngredients = ingredientAllergenMap.keys.length;
+    final safetyScore = totalIngredients > 0 ? ((totalIngredients - allergenIngredients) / totalIngredients * 100).round() : 100;
+    
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Container(
+        margin: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Modern Product Header with Safety Score
+            _buildModernProductHeader(product, hasAllergens, safetyScore),
+            
+            const SizedBox(height: 16),
+            
+            // Safety Score Card
+            _buildSafetyScoreCard(safetyScore, hasAllergens),
+            
+            const SizedBox(height: 16),
+            
+            // Allergen Alerts (if any)
+            if (hasAllergens) ...[
+              _buildAllergenAlertsCard(product),
+              const SizedBox(height: 16),
+            ],
+            
+            // Ingredients Analysis - Fixed height instead of Expanded
+            SizedBox(
+              height: 400, // Fixed height for ingredients section
+              child: _buildIngredientsAnalysisCard(ingredients, ingredientAllergenMap, product),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Action Buttons
+            _buildActionButtons(),
+            
+            const SizedBox(height: 20), // Extra space at bottom
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernProductHeader(Map<String, dynamic> product, bool hasAllergens, int safetyScore) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: hasAllergens 
+            ? [Colors.red[400]!, Colors.red[600]!, Colors.red[800]!]
+            : [Colors.green[400]!, Colors.green[600]!, Colors.green[800]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: (hasAllergens ? Colors.red : Colors.green).withOpacity(0.4),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  hasAllergens ? Icons.warning_amber_rounded : Icons.verified_user_rounded,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hasAllergens ? '⚠️ Allergen Detected!' : '✅ Safe to Consume',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      product['product_name'] ?? 'Unknown Product',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Safety Score Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$safetyScore% Safe',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSafetyScoreCard(int safetyScore, bool hasAllergens) {
+    Color scoreColor;
+    String scoreText;
+    IconData scoreIcon;
+    
+    if (safetyScore >= 90) {
+      scoreColor = Colors.green;
+      scoreText = 'Excellent';
+      scoreIcon = Icons.thumb_up_rounded;
+    } else if (safetyScore >= 70) {
+      scoreColor = Colors.orange;
+      scoreText = 'Good';
+      scoreIcon = Icons.check_circle_rounded;
+    } else {
+      scoreColor = Colors.red;
+      scoreText = 'Caution';
+      scoreIcon = Icons.warning_rounded;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: scoreColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              scoreIcon,
+              color: scoreColor,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Safety Score',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$safetyScore% - $scoreText',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: scoreColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  hasAllergens 
+                    ? 'Contains allergens that may affect you'
+                    : 'No allergens detected in your profile',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllergenAlertsCard(Map<String, dynamic> product) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.red[50]!, Colors.red[100]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red[200]!, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.red[700],
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Allergen Alert',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red[700],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ..._buildDetailedAllergenWarnings(product),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIngredientsAnalysisCard(List<String> ingredients, Map<String, List<String>> ingredientAllergenMap, Map<String, dynamic> product) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.analytics_rounded,
+                color: Colors.blue[600],
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Ingredient Analysis',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[600],
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${ingredients.length} ingredients',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue[700],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (product['is_mock_ingredients'] == true) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.orange[700], size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Sample data - actual ingredients not available',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Expanded(
+            child: ingredients.isEmpty 
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.search_off_rounded,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No ingredients found',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Column(
+                  children: [
+                    // Scroll indicator
+                    if (ingredients.length > 5)
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.swipe_up_rounded,
+                              color: Colors.blue[600],
+                              size: 16,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Scroll to see all ${ingredients.length} ingredients',
+                              style: TextStyle(
+                                color: Colors.blue[600],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    // Ingredients list
+                    Expanded(
+                      child: ListView.builder(
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: ingredients.length,
+                        itemBuilder: (context, index) {
+                          final ingredient = ingredients[index];
+                          final ingredientAllergens = ingredientAllergenMap[ingredient] ?? [];
+                          final isAllergen = ingredientAllergens.isNotEmpty;
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isAllergen ? Colors.red[50] : Colors.green[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isAllergen ? Colors.red[200]! : Colors.green[200]!,
+                                width: 1.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (isAllergen ? Colors.red : Colors.green).withOpacity(0.1),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isAllergen ? Colors.red[100] : Colors.green[100],
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    isAllergen ? Icons.warning_rounded : Icons.check_circle_rounded,
+                                    color: isAllergen ? Colors.red[600] : Colors.green[600],
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        ingredient,
+                                        style: TextStyle(
+                                          color: isAllergen ? Colors.red[700] : Colors.green[700],
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      if (isAllergen) ...[
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          children: ingredientAllergens.map((allergen) {
+                                            return Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red[200],
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: Text(
+                                                '⚠️ $allergen',
+                                                style: TextStyle(
+                                                  color: Colors.red[700],
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.blue[400]!, Colors.blue[600]!],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _isProcessingOCR = true;
+                });
+                _pickIngredientPhoto();
+              },
+              icon: const Icon(Icons.photo_library_rounded, color: Colors.white),
+              label: const Text(
+                'Choose Photo',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green[400]!, Colors.green[600]!],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _isProcessingOCR = true;
+                });
+                _captureIngredientPhoto();
+              },
+              icon: const Icon(Icons.camera_alt_rounded, color: Colors.white),
+              label: const Text(
+                'Take Photo',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+
+}
+
+

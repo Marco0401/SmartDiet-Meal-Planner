@@ -82,7 +82,7 @@ class NotificationService {
     }
   }
 
-  /// Get notifications for user
+  /// Get notifications for user (including nutritionist/admin notifications)
   static Future<List<Map<String, dynamic>>> getUserNotifications({
     String? type,
     bool? isRead,
@@ -92,31 +92,50 @@ class NotificationService {
     if (user == null) return [];
 
     try {
-      Query query = FirebaseFirestore.instance
+      // Get all notifications first (to avoid Firestore index issues)
+      Query userQuery = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection(_collectionName)
           .orderBy('createdAt', descending: true)
-          .limit(limit);
+          .limit(limit * 2); // Get more to account for filtering
 
-      if (type != null && type != 'All') {
-        query = query.where('type', isEqualTo: type);
-      }
-
-      if (isRead != null) {
-        query = query.where('isRead', isEqualTo: isRead);
-      }
-
-      final snapshot = await query.get();
-      return snapshot.docs.map((doc) {
+      final userSnapshot = await userQuery.get();
+      List<Map<String, dynamic>> allNotifications = userSnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         return {
           'id': doc.id,
+          'source': 'user',
           ...data,
           'icon': data['icon'] != null ? IconData(data['icon'], fontFamily: 'MaterialIcons') : Icons.notifications,
           'color': data['color'] != null ? Color(data['color']) : Colors.green,
         };
       }).toList();
+
+      // Apply client-side filtering
+      if (type != null && type != 'All') {
+        allNotifications = allNotifications.where((notification) {
+          return notification['type'] == type;
+        }).toList();
+      }
+
+      if (isRead != null) {
+        allNotifications = allNotifications.where((notification) {
+          return notification['isRead'] == isRead;
+        }).toList();
+      }
+
+      // Sort by creation date and limit
+      allNotifications.sort((a, b) {
+        final aTime = a['createdAt'] as Timestamp?;
+        final bTime = b['createdAt'] as Timestamp?;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+
+      return allNotifications.take(limit).toList();
     } catch (e) {
       print('Error getting notifications: $e');
       return [];
@@ -129,12 +148,16 @@ class NotificationService {
     if (user == null) return;
 
     try {
+      // Mark as read in user's notifications (includes nutritionist notifications)
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection(_collectionName)
           .doc(notificationId)
           .update({'isRead': true});
+
+      // Update read count in nutritionist notifications if this was sent by nutritionist
+      await _updateNutritionistNotificationReadCount(notificationId);
     } catch (e) {
       print('Error marking notification as read: $e');
     }
@@ -146,6 +169,7 @@ class NotificationService {
     if (user == null) return;
 
     try {
+      // Mark all notifications as read (user + nutritionist notifications are in same collection)
       final batch = FirebaseFirestore.instance.batch();
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
@@ -156,6 +180,8 @@ class NotificationService {
 
       for (final doc in snapshot.docs) {
         batch.update(doc.reference, {'isRead': true});
+        // Update read count for nutritionist notifications
+        await _updateNutritionistNotificationReadCount(doc.id);
       }
 
       await batch.commit();
@@ -204,12 +230,13 @@ class NotificationService {
     }
   }
 
-  /// Get unread notification count
+  /// Get unread notification count (including nutritionist/admin notifications)
   static Future<int> getUnreadCount() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return 0;
 
     try {
+      // Get all unread notifications (user + nutritionist notifications are in same collection)
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -454,6 +481,50 @@ class NotificationService {
     final reminderMinute = reminderMinutes % 60;
     
     return TimeOfDay(hour: reminderHour, minute: reminderMinute);
+  }
+
+  /// Update read count in nutritionist notifications
+  static Future<void> _updateNutritionistNotificationReadCount(String userNotificationId) async {
+    try {
+      // Get the user notification to check if it was sent by nutritionist
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final userNotificationDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection(_collectionName)
+          .doc(userNotificationId)
+          .get();
+
+      if (!userNotificationDoc.exists) return;
+
+      final userNotificationData = userNotificationDoc.data()!;
+      final sentBy = userNotificationData['sentBy'];
+
+      // Only update if this was sent by nutritionist
+      if (sentBy == 'nutritionist') {
+        // Find the corresponding nutritionist notification
+        final nutritionistNotifications = await FirebaseFirestore.instance
+            .collection('notifications')
+            .where('title', isEqualTo: userNotificationData['title'])
+            .where('message', isEqualTo: userNotificationData['message'])
+            .where('status', isEqualTo: 'sent')
+            .get();
+
+        for (final doc in nutritionistNotifications.docs) {
+          // Increment read count
+          await FirebaseFirestore.instance
+              .collection('notifications')
+              .doc(doc.id)
+              .update({
+            'readCount': FieldValue.increment(1),
+          });
+        }
+      }
+    } catch (e) {
+      print('Error updating nutritionist notification read count: $e');
+    }
   }
 
 }

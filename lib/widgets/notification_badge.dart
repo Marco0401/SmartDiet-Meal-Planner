@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
+import '../services/notification_service.dart';
 
 class NotificationBadge extends StatefulWidget {
   final Widget child;
@@ -22,28 +24,46 @@ class NotificationBadge extends StatefulWidget {
 
 class NotificationBadgeState extends State<NotificationBadge> {
   int _unreadCount = 0;
+  StreamSubscription<QuerySnapshot>? _subscription;
 
   @override
   void initState() {
     super.initState();
-    _loadUnreadCount();
+    _setupRealtimeUpdates();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  void _setupRealtimeUpdates() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Listen to real-time updates for unread notifications
+    _subscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('notifications')
+        .where('isRead', isEqualTo: false)
+        .snapshots()
+        .listen((snapshot) {
+      if (mounted) {
+        setState(() {
+          _unreadCount = snapshot.docs.length;
+        });
+      }
+    });
   }
 
   Future<void> _loadUnreadCount() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('notifications')
-          .where('isRead', isEqualTo: false)
-          .get();
-
+      final count = await NotificationService.getUnreadCount();
       if (mounted) {
         setState(() {
-          _unreadCount = snapshot.docs.length;
+          _unreadCount = count;
         });
       }
     } catch (e) {
