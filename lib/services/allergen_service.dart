@@ -110,12 +110,30 @@ class AllergenService {
     for (final ingredient in ingredients) {
       // Handle both object format (API recipes) and string format (manual/substituted recipes)
       String ingredientName;
-      if (ingredient is Map<String, dynamic>) {
-        // API recipe format with name field
-        ingredientName = ingredient['name']?.toString().toLowerCase() ?? '';
+      String displayName;
+      
+      if (ingredient is Map) {
+        // API recipe format with name field - handle Map objects
+        if (ingredient['name'] is Map) {
+          // If name is a Map, extract the actual name string
+          final nameMap = ingredient['name'] as Map;
+          if (nameMap.containsKey('name') && nameMap['name'] is String) {
+            ingredientName = nameMap['name'].toString().toLowerCase();
+            displayName = nameMap['name'].toString();
+          } else {
+            // If no nested name, use the Map as string (fallback)
+            ingredientName = nameMap.toString().toLowerCase();
+            displayName = nameMap.toString();
+          }
+        } else {
+          // Name is a string
+          ingredientName = ingredient['name']?.toString().toLowerCase() ?? '';
+          displayName = ingredient['name']?.toString() ?? '';
+        }
       } else {
         // String format (manual meals or substituted recipes)
         ingredientName = ingredient.toString().toLowerCase();
+        displayName = ingredient.toString();
       }
       
       final ingredientText = ingredientName;
@@ -135,13 +153,6 @@ class AllergenService {
           if (regex.hasMatch(ingredientText)) {
             if (!foundAllergens.containsKey(allergenType)) {
               foundAllergens[allergenType] = [];
-            }
-            // Extract just the ingredient name for display
-            String displayName;
-            if (ingredient is Map<String, dynamic>) {
-              displayName = ingredient['name']?.toString() ?? ingredientName;
-            } else {
-              displayName = ingredientName;
             }
             
             if (!foundAllergens[allergenType]!.contains(displayName)) {
@@ -168,7 +179,24 @@ class AllergenService {
       if (doc.exists) {
         final data = doc.data();
         final substitutions = data?['data'] as Map<String, dynamic>? ?? {};
-        return List<String>.from(substitutions[allergenType] ?? []);
+        final allergenSubstitutions = substitutions[allergenType] as List<dynamic>? ?? [];
+        
+        // Handle both old format (List<String>) and new format (List<Map>)
+        final substitutionStrings = <String>[];
+        for (final sub in allergenSubstitutions) {
+          if (sub is String) {
+            // Old format - just substitution string
+            substitutionStrings.add(sub);
+          } else if (sub is Map<String, dynamic>) {
+            // New format - extract substitution text
+            final substitutionText = sub['substitution']?.toString() ?? '';
+            if (substitutionText.isNotEmpty) {
+              substitutionStrings.add(substitutionText);
+            }
+          }
+        }
+        
+        return substitutionStrings;
       }
     } catch (e) {
       print('Error getting substitutions from Firestore: $e');
@@ -190,7 +218,31 @@ class AllergenService {
       if (doc.exists) {
         final data = doc.data();
         final substitutions = data?['data'] as Map<String, dynamic>? ?? {};
-        return substitutions.map((key, value) => MapEntry(key, List<String>.from(value)));
+        
+        // Convert to the expected format, handling both old and new data structures
+        final result = <String, List<String>>{};
+        for (final entry in substitutions.entries) {
+          final allergenType = entry.key;
+          final allergenSubstitutions = entry.value as List<dynamic>? ?? [];
+          
+          final substitutionStrings = <String>[];
+          for (final sub in allergenSubstitutions) {
+            if (sub is String) {
+              // Old format - just substitution string
+              substitutionStrings.add(sub);
+            } else if (sub is Map<String, dynamic>) {
+              // New format - extract substitution text
+              final substitutionText = sub['substitution']?.toString() ?? '';
+              if (substitutionText.isNotEmpty) {
+                substitutionStrings.add(substitutionText);
+              }
+            }
+          }
+          
+          result[allergenType] = substitutionStrings;
+        }
+        
+        return result;
       }
     } catch (e) {
       print('Error getting all substitutions from Firestore: $e');

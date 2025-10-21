@@ -145,8 +145,9 @@ class RecipeService {
       }
       
       // Try Filipino Recipe Service for Filipino recipes
-      if (recipeDetails == null && (id.toString().startsWith('curated_') || 
-          id.toString().startsWith('local_filipino_'))) {
+      if (recipeDetails == null) {
+        // Check if it's a Filipino recipe by trying FilipinoRecipeService
+        // This handles both prefixed IDs and Firestore IDs
         final filipinoDetails = await FilipinoRecipeService.getRecipeDetails(id.toString());
         if (filipinoDetails != null) {
           recipeDetails = filipinoDetails;
@@ -412,14 +413,20 @@ class RecipeService {
       actualId = actualId.substring('themealdb_'.length);
     }
     
+    print('DEBUG: Fetching recipe details for ID: $actualId');
     final url = 'https://www.themealdb.com/api/json/v1/1/lookup.php?i=$actualId';
     final response = await http.get(Uri.parse(url));
     
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      final meal = data['meals']?[0];
+      print('DEBUG: TheMealDB response data type: ${data.runtimeType}');
+      print('DEBUG: TheMealDB meals field: ${data['meals']}');
       
-      if (meal != null) {
+      final meals = data['meals'];
+      if (meals != null && meals is List && meals.isNotEmpty) {
+        final meal = meals[0];
+        print('DEBUG: Found meal: ${meal['strMeal']}');
+        
         // Convert to similar format as Spoonacular
         return {
           'id': id.toString(), // Keep the original prefixed ID
@@ -432,7 +439,11 @@ class RecipeService {
           'cuisine': meal['strArea'] ?? 'International',
           'category': meal['strCategory'] ?? 'Main Course',
         };
+      } else {
+        print('DEBUG: No meals found in TheMealDB response');
       }
+    } else {
+      print('DEBUG: TheMealDB API error: ${response.statusCode}');
     }
     
     throw Exception('Failed to load recipe details from fallback API');
@@ -458,7 +469,7 @@ class RecipeService {
         }
         
         ingredients.add({
-          'id': i,
+          'id': i.toString(), // Convert to string to avoid type issues
           'name': ingredient.trim(),
           'nameClean': ingredient.trim().toLowerCase(),
           'original': '${measure?.trim() ?? '1'} ${ingredient.trim()}',

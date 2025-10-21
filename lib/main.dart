@@ -17,11 +17,20 @@ import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
 import 'ingredient_scanner_page.dart';
 import 'about_smartdiet_page.dart';
+import 'utils/initialize_substitution_nutrition.dart';
+import 'utils/migrate_substitution_nutrition.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load();
   await Firebase.initializeApp();
+  
+  // Initialize substitution nutrition data
+  await InitializeSubstitutionNutrition.initialize();
+  
+  // Run migration to convert existing substitutions to new format
+  // Uncomment the line below to run migration
+  // await MigrateSubstitutionNutrition.migrateAllSubstitutions();
   
   runApp(const MyApp());
 }
@@ -89,8 +98,12 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       // Use comprehensive recipe service for all sources (Spoonacular + TheMealDB + Filipino)
       final recipes = await RecipeService.fetchRecipes(query);
+      
+      // Shuffle recipes based on current date for daily randomization
+      final shuffledRecipes = _shuffleRecipesForToday(recipes);
+      
       setState(() {
-        _recipes = recipes;
+        _recipes = shuffledRecipes;
         _isLoading = false;
       });
     } catch (e) {
@@ -99,6 +112,28 @@ class _MyHomePageState extends State<MyHomePage> {
         _isLoading = false;
       });
     }
+  }
+
+  // Shuffle recipes based on current date for consistent daily randomization
+  List<dynamic> _shuffleRecipesForToday(List<dynamic> recipes) {
+    if (recipes.isEmpty) return recipes;
+    
+    // Use current date as seed for consistent randomization per day
+    final today = DateTime.now();
+    final seed = today.year * 10000 + today.month * 100 + today.day;
+    
+    // Create a copy of the list to avoid modifying the original
+    final shuffled = List<dynamic>.from(recipes);
+    
+    // Simple shuffle algorithm using the date seed
+    for (int i = shuffled.length - 1; i > 0; i--) {
+      final j = (seed + i) % (i + 1);
+      final temp = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = temp;
+    }
+    
+    return shuffled;
   }
 
   Future<Map<String, dynamic>?> _fetchUserProfile() async {
@@ -540,7 +575,19 @@ class _MyHomePageState extends State<MyHomePage> {
                         if (_recipes.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 24),
-                            child: Card(
+                            child: InkWell(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => RecipeDetailPage(
+                                      recipe: _recipes[0],
+                                    ),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(18),
+                              child: Card(
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(18),
                               ),
@@ -747,6 +794,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ],
                               ),
                             ),
+                            ),
                           ),
                         const SizedBox(height: 24),
                         // Recipes List Section - only show when not searching
@@ -932,8 +980,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                         horizontal: 8,
                                       ),
                                       child: InkWell(
-                                        onTap: () {
-                                          Navigator.push(
+                                        onTap: () async {
+                                          final result = await Navigator.push(
                                             context,
                                             MaterialPageRoute(
                                               builder: (context) =>
@@ -942,6 +990,16 @@ class _MyHomePageState extends State<MyHomePage> {
                                                   ),
                                             ),
                                           );
+                                          
+                                          // If a meal was added, navigate to meal planner
+                                          if (result == true) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => const MealPlannerPage(),
+                                              ),
+                                            );
+                                          }
                                         },
                                         borderRadius: BorderRadius.circular(8),
                                         child: Padding(
@@ -1160,7 +1218,15 @@ class _MyHomePageState extends State<MyHomePage> {
               // Navigate to different pages based on selected tab
               switch (index) {
                 case 0:
-                  // Already on search page, do nothing
+                  // Reset to home page - clear search and show main content
+                  setState(() {
+                    _searchQuery = '';
+                    _ingredientFilter = '';
+                    _searchController.clear();
+                    _ingredientFilterController.clear();
+                    _isLoading = false;
+                    _error = null;
+                  });
                   break;
                 case 1:
           Navigator.push(
@@ -1169,7 +1235,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   );
                   break;
                 case 2:
-                  _showMyRecipesOptionsDialog();
+                  // Navigate directly to Favorite Meals page
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
+                  );
                   break;
                 case 3:
                   Navigator.push(
@@ -1197,8 +1267,8 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             items: const [
               BottomNavigationBarItem(
-                icon: Icon(Icons.search, size: 24),
-                label: 'Search',
+                icon: Icon(Icons.home, size: 24),
+                label: 'Home',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.calendar_today, size: 24),
@@ -1233,13 +1303,23 @@ class _MyHomePageState extends State<MyHomePage> {
       height: cardHeight,
       margin: const EdgeInsets.only(right: 12),
       child: GestureDetector(
-      onTap: () {
-        Navigator.push(
+      onTap: () async {
+        final result = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => RecipeDetailPage(recipe: recipe),
           ),
         );
+        
+        // If a meal was added, navigate to meal planner
+        if (result == true) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MealPlannerPage(),
+            ),
+          );
+        }
       },
         child: Card(
           elevation: 2,
@@ -1323,6 +1403,8 @@ class _MyHomePageState extends State<MyHomePage> {
                 width: double.infinity,
                 height: double.infinity,
                 fit: BoxFit.cover,
+                cacheWidth: 400, // Limit cache size to reduce memory usage
+                cacheHeight: 300,
                 errorBuilder: (context, error, stackTrace) {
                   return _buildImagePlaceholder(Theme.of(context));
                 },
@@ -3012,3 +3094,4 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     );
   }
 }
+

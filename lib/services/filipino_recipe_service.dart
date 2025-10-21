@@ -492,9 +492,10 @@ class FilipinoRecipeService {
     final recipes = await _getCuratedFilipinoRecipes('');
     try {
       return recipes.firstWhere(
-        (recipe) => recipe['id'] == id,
+        (recipe) => recipe['id'].toString() == id.toString(),
       );
     } catch (e) {
+      print('DEBUG: Error finding recipe with id $id: $e');
       return null;
     }
   }

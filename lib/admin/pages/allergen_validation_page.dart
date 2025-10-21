@@ -742,7 +742,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
 
   Future<Map<String, List<String>>> _getAllAllergenKeywords() async {
     // Get all allergen types and their keywords
-    final allergenTypes = ['dairy', 'eggs', 'fish', 'shellfish', 'tree nuts', 'peanuts', 'wheat', 'soy', 'gluten'];
+    final allergenTypes = ['dairy', 'eggs', 'fish', 'shellfish', 'tree_nuts', 'peanuts', 'wheat', 'soy'];
     final Map<String, List<String>> result = {};
 
     for (final type in allergenTypes) {
@@ -770,7 +770,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
   }
 
   Future<Map<String, Map<String, List<String>>>> _getAllSubstitutions() async {
-    final allergenTypes = ['dairy', 'eggs', 'fish', 'shellfish', 'tree nuts', 'peanuts', 'wheat', 'soy', 'gluten'];
+    final allergenTypes = ['dairy', 'eggs', 'fish', 'shellfish', 'tree_nuts', 'peanuts', 'wheat', 'soy'];
     final Map<String, Map<String, List<String>>> result = {};
 
     for (final type in allergenTypes) {

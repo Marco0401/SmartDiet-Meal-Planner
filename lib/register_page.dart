@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// ignore: unused_import
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'main.dart';
+import 'onboarding/onboarding_page.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -100,6 +102,88 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _signUpWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _showVerify = false;
+    });
+    try {
+      print("Starting Google sign-up...");
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) {
+        setState(() {
+          _isLoading = false;
+          _error = "Google sign-up cancelled.";
+        });
+        print("Google sign-up cancelled by user.");
+        return;
+      }
+      print("Google user: ${googleUser.email}");
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
+      print("Firebase user: ${userCredential.user?.uid}");
+      
+      // Check if user profile exists in Firestore
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(userCredential.user!.uid);
+      final doc = await docRef.get();
+      print("Firestore doc exists: ${doc.exists}");
+      if (!doc.exists) {
+        // --- CREATE USER DOCUMENT IF NOT EXISTS ---
+        await docRef.set({
+          'email': userCredential.user!.email,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => OnboardingPage(uid: userCredential.user!.uid),
+                ),
+              );
+            }
+          });
+        }
+      } else {
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MyHomePage(title: 'SmartDiet'),
+                ),
+              );
+            }
+          });
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _error = e.message;
+      });
+    } catch (e) {
+      setState(() {
+        _error = "An error occurred during Google sign-up: $e";
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -359,7 +443,63 @@ class _RegisterPageState extends State<RegisterPage> {
                                         ),
                                       ),
                               ),
+                            ),
+                            const SizedBox(height: 16),
+                            // Divider with "OR" text
+                            Row(
+                              children: [
+                                Expanded(child: Divider(color: Colors.grey[300])),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: Text(
+                                    'OR',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(child: Divider(color: Colors.grey[300])),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Google Sign-In Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: Image.asset(
+                                  'assets/icon/google_logo.png',
+                                  height: 20,
+                                  width: 20,
+                                  fit: BoxFit.contain,
+                                ),
+                                label: const Text(
+                                  'Sign up with Google',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF2E7D32),
+                                  ),
+                                ),
+                                onPressed: _isLoading
+                                    ? null
+                                    : _signUpWithGoogle,
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                    horizontal: 16,
+                                  ),
+                                  side: const BorderSide(
+                                    color: Color(0xFF2E7D32),
+                                    width: 2,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                  backgroundColor: Colors.white,
+                                ),
                               ),
+                            ),
                             if (_showVerify)
                               Column(
                                 children: [

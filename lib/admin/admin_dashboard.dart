@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'pages/users_management_page.dart';
 import 'pages/recipes_management_page.dart';
 import 'pages/substitutions_management_page.dart';
+import 'pages/migration_page.dart';
 import 'pages/analytics_page.dart';
 import 'pages/announcements_page.dart';
 import 'pages/curated_content_management_page.dart';
@@ -205,6 +206,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
           title: 'Manage Substitutions',
           icon: Icons.swap_horiz,
           widget: const SubstitutionsManagementPage(),
+        ),
+        AdminPage(
+          title: 'Migration Tools',
+          icon: Icons.sync,
+          widget: const MigrationPage(),
         ),
         AdminPage(
           title: 'Analytics & Reports',

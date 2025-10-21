@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:io';
 import 'services/allergen_ml_service.dart';
 import 'services/allergen_service.dart';
 import 'services/allergen_detection_service.dart';
 import 'services/nutrition_service.dart';
 import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
+import 'services/substitution_nutrition_service.dart';
 import 'meal_favorites_page.dart';
 import 'meal_plan_dialog.dart';
 import 'widgets/allergen_warning_dialog.dart';
@@ -84,7 +87,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       
       // Check if this is a local/manual recipe that should use data directly
       final source = widget.recipe['source']?.toString().toLowerCase() ?? '';
-      print('DEBUG: Recipe source: $source, recipeId: $recipeId');
+      final substituted = widget.recipe['substituted'];
+      print('DEBUG: Recipe source: $source, recipeId: $recipeId, substituted: $substituted');
+      print('DEBUG: Meal data keys: ${widget.recipe.keys.toList()}');
+      print('DEBUG: Meal data summary: ${widget.recipe['summary']}');
+      print('DEBUG: Meal data description: ${widget.recipe['description']}');
       
       if (recipeId.toString().startsWith('local_') || 
           source == 'manual_entry' ||
@@ -92,18 +99,52 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'meal_planner' ||
           source == 'local' ||
           source == 'expert_plan' ||
-          widget.recipe['substituted'] == true) {
+          substituted == true) {
         // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, or meal from planner - use the data directly
         print('DEBUG: Local/manual/substituted/expert_plan/meal_planner recipe, using data directly');
+        print('DEBUG: Using meal data directly - summary: ${widget.recipe['summary']}, description: ${widget.recipe['description']}');
+        
+        // If this is a substituted recipe, recalculate nutrition
+        if (substituted == true) {
+          print('DEBUG: Recipe is substituted, recalculating nutrition...');
+          try {
+            // Store original nutrition if not already stored
+            if (widget.recipe['originalNutrition'] == null) {
+              widget.recipe['originalNutrition'] = Map<String, dynamic>.from(widget.recipe['nutrition'] ?? {});
+            }
+            
+            final adjustedNutrition = await SubstitutionNutritionService.recalculateNutritionWithSubstitutions(widget.recipe);
+            widget.recipe['nutrition'] = adjustedNutrition;
+            print('DEBUG: Nutrition recalculated for substituted recipe');
+            
+            // Update the meal in Firestore to persist the changes
+            await _updateMealInFirestore(widget.recipe);
+            print('DEBUG: Updated meal in Firestore with recalculated nutrition');
+          } catch (e) {
+            print('DEBUG: Error recalculating nutrition for substituted recipe: $e');
+          }
+        }
+        
         setState(() {
           _recipeDetails = widget.recipe;
           _isLoading = false;
+        });
+        
+        // Force additional refresh to ensure clean display
+        setState(() {
+          print('DEBUG: Refreshing recipe details page UI for clean display');
         });
         return;
       }
       
       // Try Filipino Recipe Service first for Filipino recipes
       Map<String, dynamic>? details;
+      
+      // Store original summary/description from meal data as fallback
+      final originalSummary = widget.recipe['summary'];
+      final originalDescription = widget.recipe['description'];
+      print('DEBUG: Original summary: $originalSummary, description: $originalDescription');
+      
       if (widget.recipe['cuisine'] == 'Filipino' || 
           recipeId.toString().startsWith('curated_') ||
           recipeId.toString().startsWith('themealdb_') ||
@@ -118,10 +159,27 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         details = await RecipeService.fetchRecipeDetails(recipeId);
       }
       
+      // Apply fallback for summary/description if API data doesn't have it
+      if ((details['summary'] == null || details['summary'].toString().isEmpty) && 
+          originalSummary != null && originalSummary.toString().isNotEmpty) {
+        print('DEBUG: Using original summary as fallback');
+        details['summary'] = originalSummary;
+      }
+      if ((details['description'] == null || details['description'].toString().isEmpty) && 
+          originalDescription != null && originalDescription.toString().isNotEmpty) {
+        print('DEBUG: Using original description as fallback');
+        details['description'] = originalDescription;
+      }
+      
       print('DEBUG: Recipe details loaded successfully');
       setState(() {
         _recipeDetails = details;
         _isLoading = false;
+      });
+      
+      // Force additional refresh to ensure clean display
+      setState(() {
+        print('DEBUG: Refreshing recipe details page UI for API-fetched recipe');
       });
     } catch (e) {
       print('DEBUG: Error in _loadRecipeDetails: $e');
@@ -246,8 +304,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   }
 
   Future<void> _addToMealPlan() async {
+    print('DEBUG: ===== _addToMealPlan CALLED =====');
+    print('DEBUG: Button pressed, starting meal plan addition process');
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
+      print('DEBUG: No user logged in');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please log in to add meals to your plan'),
@@ -259,6 +320,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
     try {
       final recipe = _recipeDetails ?? widget.recipe;
+      print('DEBUG: Using recipe: ${recipe['title']}');
       
       // Check for allergens first
       final allergenResult = await AllergenDetectionService.getDetailedAnalysis(recipe);
@@ -271,12 +333,24 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         // Get substitution suggestions
         final substitutionSuggestions = <String>[];
         for (final allergen in detectedAllergens) {
-          final suggestions = await AllergenService.getSubstitutions(allergen);
+          // Convert display name to allergen type
+          String allergenType = allergen.toLowerCase().replaceAll(' ', '_');
+          if (allergen == 'Eggs') allergenType = 'eggs';
+          if (allergen == 'Dairy') allergenType = 'dairy';
+          if (allergen == 'Fish') allergenType = 'fish';
+          if (allergen == 'Shellfish') allergenType = 'shellfish';
+          if (allergen == 'Tree Nuts') allergenType = 'tree_nuts';
+          if (allergen == 'Peanuts') allergenType = 'peanuts';
+          if (allergen == 'Wheat/Gluten') allergenType = 'wheat';
+          if (allergen == 'Soy') allergenType = 'soy';
+          
+          final suggestions = await AllergenService.getSubstitutions(allergenType);
           substitutionSuggestions.addAll(suggestions);
         }
         
         // Show allergen warning dialog with substitution options
-        final warningResult = await showDialog<String>(
+        String? warningResult;
+        await showDialog<String>(
           context: context,
           barrierDismissible: false,
           builder: (context) => AllergenWarningDialog(
@@ -291,13 +365,21 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
               Navigator.of(context).pop('substitute'); // Return substitute signal
             },
           ),
-        );
+        ).then((result) {
+          warningResult = result;
+        });
         
         if (warningResult == 'continue') {
           // User chose to continue with original recipe
-          finalRecipe = recipe;
+          print('DEBUG: User chose to continue with original recipe');
+          finalRecipe = Map<String, dynamic>.from(recipe);
+          // Add allergen information to the recipe
+          finalRecipe['hasAllergens'] = hasAllergens;
+          finalRecipe['detectedAllergens'] = detectedAllergens;
+          print('DEBUG: Added allergen info to finalRecipe - hasAllergens: $hasAllergens, detectedAllergens: $detectedAllergens');
         } else if (warningResult == 'substitute') {
           // User chose to substitute, show substitution dialog
+          print('DEBUG: User chose to substitute, showing substitution dialog');
           final substitutionResult = await showDialog<Map<String, dynamic>>(
             context: context,
             barrierDismissible: false,
@@ -308,57 +390,82 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           );
           
           if (substitutionResult != null) {
+            print('DEBUG: Substitution completed, using substituted recipe');
             finalRecipe = substitutionResult;
           } else {
+            print('DEBUG: User cancelled substitution');
             return; // User cancelled substitution
           }
         } else {
+          print('DEBUG: User cancelled allergen warning dialog');
           return; // User cancelled
         }
       }
 
       // Show dialog to select date and meal type
+      print('DEBUG: Showing MealPlanDialog');
       final result = await showDialog<Map<String, dynamic>>(
         context: context,
         builder: (context) => const MealPlanDialog(),
       );
+      print('DEBUG: MealPlanDialog closed, result: $result');
+      
+      if (result == null) {
+        print('DEBUG: User cancelled MealPlanDialog');
+        return;
+      }
 
-      if (result != null) {
+        print('DEBUG: MealPlanDialog result: $result');
         try {
-          final ingredients = _extractIngredients(finalRecipe);
+          print('DEBUG: Final recipe keys: ${finalRecipe.keys.toList()}');
           
-          // Calculate nutrition from ingredients
-          final nutrition = await NutritionService.calculateRecipeNutrition(ingredients);
+          // Check if this is a substituted recipe or original recipe
+          final isSubstituted = finalRecipe['substituted'] == true;
+          print('DEBUG: Is substituted recipe: $isSubstituted');
+          
+          if (isSubstituted) {
+            // For substituted recipes, use the existing nutrition and save with substitution data
+            print('DEBUG: Saving substituted recipe with existing nutrition');
+            await _saveSubstitutedMeal(finalRecipe, result);
+          } else {
+            // For original recipes, use the existing nutrition values (don't recalculate)
+            print('DEBUG: Using original recipe nutrition without recalculation');
+            final ingredients = _extractIngredients(finalRecipe);
+            print('DEBUG: Extracted ingredients: ${ingredients.length} items');
+            print('DEBUG: Ingredients list: $ingredients');
+            
+            // Use the original recipe's nutrition values
+            final nutrition = finalRecipe['nutrition'] as Map<String, dynamic>? ?? {};
+            print('DEBUG: Using original nutrition: $nutrition');
 
-          await NutritionService.saveMealWithNutrition(
-            title: finalRecipe['title'] ?? 'Recipe',
-            date: result['date'],
-            mealType: result['mealType'],
-            ingredients: ingredients,
-            instructions: _extractInstructions(finalRecipe),
-            customNutrition: nutrition,
-            image: finalRecipe['image'],
-          );
+            print('DEBUG: Saving original recipe to Firestore with original nutrition');
+            await _saveOriginalMeal(finalRecipe, result, ingredients, nutrition);
+          }
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(finalRecipe['substituted'] == true 
-                ? 'Substituted recipe added to meal plan!' 
-                : 'Recipe added to meal plan!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error adding to meal plan: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        print('DEBUG: Meal saved successfully, showing success message');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(finalRecipe['substituted'] == true 
+              ? 'Substituted recipe added to meal plan!' 
+              : 'Recipe added to meal plan!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Navigate back to meal planner to refresh the view
+        print('DEBUG: Navigating back to meal planner to refresh');
+        Navigator.pop(context, true); // Return true to indicate refresh needed
+      } catch (e) {
+        print('DEBUG: Error in meal saving: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error adding to meal plan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
-      print('Error in _addToMealPlan: $e');
+      print('DEBUG: Error in _addToMealPlan: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error adding to meal plan: $e'),
@@ -466,6 +573,126 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
+  /// Save original meal with all its data to Firestore (no nutrition recalculation)
+  Future<void> _saveOriginalMeal(Map<String, dynamic> recipe, Map<String, dynamic> mealPlanData, List<String> ingredients, Map<String, dynamic> nutrition) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+
+      print('DEBUG: Saving original meal with complete data');
+      print('DEBUG: Recipe keys: ${recipe.keys.toList()}');
+      print('DEBUG: Recipe summary: ${recipe['summary']}');
+      print('DEBUG: Recipe description: ${recipe['description']}');
+      print('DEBUG: Recipe nutrition: $nutrition');
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meals')
+          .add({
+        'title': recipe['title'] ?? 'Recipe',
+        'date': mealPlanData['date'],
+        'mealType': mealPlanData['mealType'],
+        'meal_type': mealPlanData['mealType'],
+        'ingredients': ingredients,
+        'extendedIngredients': recipe['extendedIngredients'],
+        'instructions': recipe['instructions'] ?? '',
+        'nutrition': nutrition,
+        'image': recipe['image'],
+        'summary': recipe['summary'],
+        'description': recipe['description'],
+        'cuisine': recipe['cuisine'],
+        'substituted': false,
+        'hasAllergens': recipe['hasAllergens'] ?? false,
+        'detectedAllergens': recipe['detectedAllergens'] ?? [],
+        'recipeId': recipe['recipeId'] ?? recipe['id'],
+        'source': recipe['source'] ?? 'meal_planner',
+        'created_at': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('DEBUG: Original meal saved successfully');
+    } catch (e) {
+      print('DEBUG: Error saving original meal: $e');
+      rethrow;
+    }
+  }
+
+  /// Save substituted meal with all its data to Firestore
+  Future<void> _saveSubstitutedMeal(Map<String, dynamic> recipe, Map<String, dynamic> mealPlanData) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+
+      print('DEBUG: Saving substituted meal with complete data');
+      print('DEBUG: Recipe keys: ${recipe.keys.toList()}');
+      print('DEBUG: Recipe summary: ${recipe['summary']}');
+      print('DEBUG: Recipe description: ${recipe['description']}');
+      print('DEBUG: Recipe nutrition: ${recipe['nutrition']}');
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meals')
+          .add({
+        'title': recipe['title'] ?? 'Recipe',
+        'date': mealPlanData['date'],
+        'mealType': mealPlanData['mealType'],
+        'meal_type': mealPlanData['mealType'],
+        'ingredients': recipe['ingredients'] ?? [],
+        'extendedIngredients': recipe['extendedIngredients'],
+        'instructions': recipe['instructions'] ?? '',
+        'nutrition': recipe['nutrition'] ?? {},
+        'originalNutrition': recipe['originalNutrition'],
+        'image': recipe['image'],
+        'summary': recipe['summary'],
+        'description': recipe['description'],
+        'cuisine': recipe['cuisine'],
+        'substituted': true,
+        'substitutions': recipe['substitutions'],
+        'hasAllergens': recipe['hasAllergens'] ?? false,
+        'detectedAllergens': recipe['detectedAllergens'] ?? [],
+        'originalAllergens': recipe['originalAllergens'] ?? [],
+        'recipeId': recipe['recipeId'] ?? recipe['id'],
+        'source': recipe['source'] ?? 'meal_planner',
+        'created_at': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('DEBUG: Substituted meal saved successfully');
+    } catch (e) {
+      print('DEBUG: Error saving substituted meal: $e');
+      rethrow;
+    }
+  }
+
+  /// Update the meal in Firestore with the latest nutrition data
+  Future<void> _updateMealInFirestore(Map<String, dynamic> recipe) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      
+      final mealId = recipe['id'];
+      if (mealId == null) return;
+      
+      // Update the meal document in Firestore
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meals')
+          .doc(mealId)
+          .update({
+        'nutrition': recipe['nutrition'],
+        'originalNutrition': recipe['originalNutrition'],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('DEBUG: Successfully updated meal $mealId in Firestore');
+    } catch (e) {
+      print('DEBUG: Error updating meal in Firestore: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isValidated = widget.recipe['nutritionValidated'] == true;
@@ -527,12 +754,16 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           ? Center(child: Text('Error: $_error'))
           : _safelyBuildRecipeDetails(),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addToMealPlan,
+        onPressed: () {
+          print('DEBUG: ===== FLOATING ACTION BUTTON PRESSED =====');
+          _addToMealPlan();
+        },
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Add to Meal Plan'),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
@@ -634,11 +865,24 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                 ),
                 const SizedBox(height: 8),
 
-                // Recipe Summary
-                if (details['summary'] != null)
-                  Text(
-                    _stripHtmlTags(details['summary']),
-                    style: Theme.of(context).textTheme.bodyMedium,
+                // Recipe Summary/Description
+                if (details['summary'] != null || details['description'] != null)
+                  Builder(
+                    builder: (context) {
+                      final summaryText = _stripHtmlTags(details['summary'] ?? details['description'] ?? '');
+                      print('DEBUG: Displaying summary/description: $summaryText');
+                      return Text(
+                        summaryText,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      );
+                    },
+                  )
+                else
+                  Builder(
+                    builder: (context) {
+                      print('DEBUG: No summary or description found - summary: ${details['summary']}, description: ${details['description']}');
+                      return const SizedBox.shrink();
+                    },
                   ),
 
                 const SizedBox(height: 24),
@@ -905,11 +1149,113 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     print('DEBUG: ingredients content: ${details['ingredients']}');
     
     if (details['extendedIngredients'] != null) {
-      // API recipe format
+      // API recipe format - convert to simple format like local recipes
       final extendedIngredients = details['extendedIngredients'];
       if (extendedIngredients is List) {
-        ingredients = extendedIngredients;
-        print('DEBUG: Using extendedIngredients, count: ${ingredients.length}');
+        print('DEBUG: Processing extendedIngredients with ${extendedIngredients.length} items');
+        ingredients = extendedIngredients.map((ingredient) {
+          print('DEBUG: Processing API ingredient: $ingredient (type: ${ingredient.runtimeType})');
+          
+          if (ingredient is Map) {
+            // Convert API format to simple format like local recipes
+            String name = '';
+            String original = '';
+            
+            // Handle name field - it might be a string or a Map
+            if (ingredient['name'] is Map) {
+              // If name is a Map, it might contain the entire ingredient object
+              final nameMap = ingredient['name'] as Map;
+              print('DEBUG: name is a Map with keys: ${nameMap.keys.toList()}');
+              
+              // Check if this Map has a 'name' field (nested ingredient)
+              if (nameMap.containsKey('name') && nameMap['name'] is String) {
+                name = nameMap['name'].toString();
+                print('DEBUG: Extracted nested name: $name');
+              } else if (nameMap.containsKey('name') && nameMap['name'] is Map) {
+                // If name field is also a Map, extract the string from it
+                final nestedNameMap = nameMap['name'] as Map;
+                name = nestedNameMap['name']?.toString() ?? '';
+                print('DEBUG: Extracted deeply nested name: $name');
+              } else {
+                // If no nested name, use the Map as string (fallback)
+                name = nameMap.toString();
+                print('DEBUG: Using Map as string: $name');
+              }
+            } else {
+              // Name is a string - ensure we only get the string value
+              name = ingredient['name']?.toString() ?? '';
+              print('DEBUG: Using name as string: $name');
+            }
+            
+            // CRITICAL FIX: If name is still a Map (toString() of Map), extract the actual name
+            if (name.startsWith('{') && name.contains('name:')) {
+              print('DEBUG: name is still a Map string, extracting actual name');
+              // Extract the name from the Map string using regex
+              final nameMatch = RegExp(r'name:\s*([^,}]+)').firstMatch(name);
+              if (nameMatch != null) {
+                name = nameMatch.group(1)?.trim() ?? name;
+                print('DEBUG: Extracted name from Map string: $name');
+              }
+            }
+            
+            // ULTIMATE FIX: If name is still a Map object (not string), extract directly
+            if (ingredient['name'] is Map) {
+              final nameMap = ingredient['name'] as Map;
+              // Try to get the actual name from the Map
+              if (nameMap.containsKey('name') && nameMap['name'] is String) {
+                name = nameMap['name'].toString();
+                print('DEBUG: ULTIMATE FIX - Extracted name from Map: $name');
+              } else {
+                // If no 'name' field, try to get the first string value
+                for (var key in nameMap.keys) {
+                  if (nameMap[key] is String && nameMap[key].toString().isNotEmpty) {
+                    name = nameMap[key].toString();
+                    print('DEBUG: ULTIMATE FIX - Using first string value: $name');
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // FINAL SAFETY CHECK: Ensure name is always a string, not an object
+            if (name is Map) {
+              print('DEBUG: ERROR - name is still a Map object, converting to string');
+              name = name.toString();
+            }
+            
+            // Handle original field - it might be a string or a Map
+            if (ingredient['original'] is Map) {
+              // If original is a Map, extract the actual original
+              final originalMap = ingredient['original'] as Map;
+              original = originalMap['original']?.toString() ?? '';
+              print('DEBUG: Extracted original from Map: $original');
+            } else {
+              original = ingredient['original']?.toString() ?? '';
+              print('DEBUG: Using original as string: $original');
+            }
+            
+            print('DEBUG: Final name value: $name (type: ${name.runtimeType})');
+            print('DEBUG: Final original value: $original (type: ${original.runtimeType})');
+            
+            return {
+              'amount': _safeDouble(ingredient['amount']) ?? 1.0,
+              'unit': ingredient['unit']?.toString() ?? '',
+              'name': name,
+              'original': original,
+              'substituted': ingredient['substituted'] ?? false,
+            };
+          } else {
+            // Fallback for non-object ingredients
+            return {
+              'amount': 1.0,
+              'unit': '',
+              'name': ingredient.toString(),
+              'original': ingredient.toString(),
+              'substituted': false,
+            };
+          }
+        }).toList();
+        print('DEBUG: Converted API ingredients: $ingredients');
       }
     } else if (details['ingredients'] != null) {
       // Local recipe format - convert to API-like format
@@ -968,8 +1314,31 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
               // Handle both object format (API recipes) and string format (manual meals)
               String ingredientText;
               if (ingredient is Map<String, dynamic>) {
-                // API recipe format with amount, unit, name
-                ingredientText = '${_formatAmount(ingredient['amount'])} ${ingredient['unit'] ?? ''} ${ingredient['name'] ?? ''}';
+                // API recipe format - check if this is a substituted ingredient first
+                if (ingredient['substituted'] == true && ingredient['name'] != null && ingredient['name'].toString().isNotEmpty) {
+                  // For substituted ingredients, use the 'name' field which contains substitution details
+                  ingredientText = ingredient['name'].toString();
+                } else if (ingredient['original'] != null && ingredient['original'].toString().isNotEmpty) {
+                  // Use the 'original' field which contains clean text like "1 tablespoon chopped chives"
+                  ingredientText = ingredient['original'].toString();
+                } else if (ingredient['name'] != null && ingredient['name'].toString().isNotEmpty) {
+                  // Fallback to 'name' field and format with amount/unit
+                  final amount = _formatAmount(ingredient['amount']);
+                  final unit = ingredient['unit']?.toString() ?? '';
+                  final name = ingredient['name'].toString();
+                  
+                  // Clean up the formatting
+                  if (amount.isNotEmpty && unit.isNotEmpty) {
+                    ingredientText = '$amount $unit $name';
+                  } else if (amount.isNotEmpty) {
+                    ingredientText = '$amount $name';
+                  } else {
+                    ingredientText = name;
+                  }
+                } else {
+                  // Last resort - convert the whole object to string
+                  ingredientText = ingredient.toString();
+                }
               } else {
                 // Manual meal format - just a string
                 ingredientText = ingredient.toString();
@@ -1141,11 +1510,40 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           );
         },
       );
+    } else if (imagePath.startsWith('/') || imagePath.startsWith('file://') || imagePath.contains('/storage/') || imagePath.contains('/data/')) {
+      // Local file image
+      return Image.file(
+        File(imagePath),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            height: 250,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green[50]!, Colors.green[100]!],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.restaurant_menu,
+                size: 48,
+                color: Colors.green,
+              ),
+            ),
+          );
+        },
+      );
     } else {
-      // Network image
+      // Network image with proper sizing to avoid memory issues
       return Image.network(
         imagePath,
+        height: 250,
+        width: double.infinity,
         fit: BoxFit.cover,
+        cacheWidth: 500, // Limit cache size to reduce memory usage
+        cacheHeight: 500,
         errorBuilder: (context, error, stackTrace) {
           return Container(
             height: 250,

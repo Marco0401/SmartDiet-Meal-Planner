@@ -170,26 +170,64 @@ class NutritionService {
     double totalFiber = 0;
 
     for (final ingredient in ingredients) {
-      final nutrition = await _getIngredientNutrition(ingredient);
-      totalCalories += nutrition['calories'] ?? 0;
-      totalProtein += nutrition['protein'] ?? 0;
-      totalCarbs += nutrition['carbs'] ?? 0;
-      totalFat += nutrition['fat'] ?? 0;
-      totalFiber += nutrition['fiber'] ?? 0;
+      if (ingredient.isEmpty) continue;
+      
+      try {
+        final nutrition = await _getIngredientNutrition(ingredient);
+        totalCalories += nutrition['calories'] ?? 0;
+        totalProtein += nutrition['protein'] ?? 0;
+        totalCarbs += nutrition['carbs'] ?? 0;
+        totalFat += nutrition['fat'] ?? 0;
+        totalFiber += nutrition['fiber'] ?? 0;
+      } catch (e) {
+        print('DEBUG: Error processing ingredient "$ingredient": $e');
+        // Continue with next ingredient
+      }
     }
 
+    // Scale down nutrition to reasonable meal portions
+    // Most nutrition databases are per 100g, so scale down for typical meal portions
+    final scaleFactor = 0.3; // Scale down to 30% of calculated values for realistic meal portions
+    
     return {
-      'calories': totalCalories,
-      'protein': totalProtein,
-      'carbs': totalCarbs,
-      'fat': totalFat,
-      'fiber': totalFiber,
+      'calories': (totalCalories * scaleFactor).clamp(200.0, 1000.0),
+      'protein': (totalProtein * scaleFactor).clamp(10.0, 80.0),
+      'carbs': (totalCarbs * scaleFactor).clamp(20.0, 120.0),
+      'fat': (totalFat * scaleFactor).clamp(5.0, 60.0),
+      'fiber': (totalFiber * scaleFactor).clamp(2.0, 30.0),
     };
+  }
+
+  /// Convert dynamic map to Map<String, double> safely handling int/double types
+  static Map<String, double> _convertToDoubleMap(dynamic data) {
+    if (data == null) return {};
+    
+    final Map<String, double> result = {};
+    final Map<String, dynamic> source = Map<String, dynamic>.from(data);
+    
+    for (final entry in source.entries) {
+      final value = entry.value;
+      if (value is num) {
+        result[entry.key] = value.toDouble();
+      } else if (value is String) {
+        // Try to parse string numbers
+        final parsed = double.tryParse(value);
+        if (parsed != null) {
+          result[entry.key] = parsed;
+        }
+      }
+    }
+    
+    return result;
   }
 
   /// Get nutrition data for a specific ingredient
   static Future<Map<String, double>> _getIngredientNutrition(String ingredient) async {
     final lowerIngredient = ingredient.toLowerCase().trim();
+    
+    // Extract ingredient name by removing amounts and units
+    final cleanIngredient = _extractIngredientName(lowerIngredient);
+    print('DEBUG: Processing ingredient: "$ingredient" -> clean: "$cleanIngredient"');
     
     try {
       // Fetch from Firestore first
@@ -202,15 +240,17 @@ class NutritionService {
         final data = doc.data();
         final ingredients = Map<String, dynamic>.from(data?['ingredients'] ?? {});
         
-        // Try exact match first
-        if (ingredients.containsKey(lowerIngredient)) {
-          return Map<String, double>.from(ingredients[lowerIngredient]);
+        // Try exact match first with clean ingredient
+        if (ingredients.containsKey(cleanIngredient)) {
+          print('DEBUG: Found exact match in Firestore: $cleanIngredient');
+          return _convertToDoubleMap(ingredients[cleanIngredient]);
         }
         
         // Try partial matches
         for (final entry in ingredients.entries) {
-          if (lowerIngredient.contains(entry.key) || entry.key.contains(lowerIngredient)) {
-            return Map<String, double>.from(entry.value);
+          if (cleanIngredient.contains(entry.key) || entry.key.contains(cleanIngredient)) {
+            print('DEBUG: Found partial match in Firestore: ${entry.key}');
+            return _convertToDoubleMap(entry.value);
           }
         }
       }
@@ -220,17 +260,20 @@ class NutritionService {
     }
     
     // Fallback to hardcoded database
-    if (_nutritionDatabase.containsKey(lowerIngredient)) {
-      return _nutritionDatabase[lowerIngredient]!;
+    if (_nutritionDatabase.containsKey(cleanIngredient)) {
+      print('DEBUG: Found exact match in hardcoded DB: $cleanIngredient');
+      return _nutritionDatabase[cleanIngredient]!;
     }
     
     // Try partial matches in hardcoded database
     for (final entry in _nutritionDatabase.entries) {
-      if (lowerIngredient.contains(entry.key) || entry.key.contains(lowerIngredient)) {
+      if (cleanIngredient.contains(entry.key) || entry.key.contains(cleanIngredient)) {
+        print('DEBUG: Found partial match in hardcoded DB: ${entry.key}');
         return entry.value;
       }
     }
     
+    print('DEBUG: No match found for ingredient: $cleanIngredient, using default values');
     // Default nutrition for unknown ingredients
     return {
       'calories': 50,
@@ -239,6 +282,30 @@ class NutritionService {
       'fat': 1,
       'fiber': 1,
     };
+  }
+
+  /// Extract ingredient name by removing amounts and units
+  static String _extractIngredientName(String ingredient) {
+    // Remove common measurement units and amounts
+    String clean = ingredient
+        .replaceAll(RegExp(r'^\d+\.?\d*\s*(g|kg|ml|l\b|oz|lb|cup|cups|tbsp|tsp|tablespoon|teaspoon|pound|ounce|gram|kilogram|liter|milliliter)\s*'), '')
+        .replaceAll(RegExp(r'^\d+\.?\d*\s*'), '') // Remove leading numbers
+        .replaceAll(RegExp(r'\s+\d+\.?\d*\s*(g|kg|ml|l\b|oz|lb|cup|cups|tbsp|tsp|tablespoon|teaspoon|pound|ounce|gram|kilogram|liter|milliliter)\s*'), ' ') // Remove numbers with units in middle
+        .replaceAll(RegExp(r'\s+\d+\.?\d*\s*'), ' ') // Remove numbers in middle
+        .trim();
+    
+    // Remove common descriptors and preparation methods
+    clean = clean
+        .replaceAll(RegExp(r'\b(fresh|dried|frozen|canned|chopped|diced|sliced|grated|minced|ground|whole|half|quarter|large|medium|small|big|tiny|peeled|crushed|finely|coarsely|roughly|thinly|thickly|julienned|cubed|strips|bunch|handful|pinch|dash|sprinkle)\b'), '')
+        .replaceAll(RegExp(r'\s+'), ' ') // Replace multiple spaces with single space
+        .trim();
+    
+    // Ensure we don't return empty string
+    if (clean.isEmpty) {
+      return ingredient.toLowerCase().trim();
+    }
+    
+    return clean;
   }
 
   /// Save meal with calculated nutrition to Firestore
@@ -250,12 +317,17 @@ class NutritionService {
     String? instructions,
     Map<String, double>? customNutrition,
     String? image,
+    String? summary,
+    String? description,
+    String? cuisine,
+    String? recipeId,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User not authenticated');
 
-    // Calculate nutrition if not provided
-    final nutrition = customNutrition ?? await calculateRecipeNutrition(ingredients);
+    // Always recalculate nutrition to ensure consistency with new scaling system
+    final nutrition = await calculateRecipeNutrition(ingredients);
+    print('DEBUG: Saving meal "$title" with scaled nutrition: $nutrition');
 
     await FirebaseFirestore.instance
         .collection('users')
@@ -264,11 +336,16 @@ class NutritionService {
         .add({
       'title': title,
       'date': date,
+      'mealType': mealType,
       'meal_type': mealType,
       'ingredients': ingredients,
       'instructions': instructions ?? '',
       'nutrition': nutrition,
       'image': image,
+      'summary': summary,
+      'description': description,
+      'cuisine': cuisine,
+      'recipeId': recipeId,
       'created_at': FieldValue.serverTimestamp(),
       'source': 'manual_entry',
     });
@@ -444,5 +521,29 @@ class NutritionService {
     if (value is int) return value.toDouble();
     if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
+  }
+
+  /// Recalculate nutrition for existing meals with old high values
+  static Future<void> recalculateExistingMealNutrition(String mealId, List<String> ingredients) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('User not authenticated');
+
+    try {
+      // Calculate new nutrition with scaling
+      final newNutrition = await calculateRecipeNutrition(ingredients);
+      print('DEBUG: Recalculating nutrition for meal $mealId: $newNutrition');
+
+      // Update the meal in Firestore
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meals')
+          .doc(mealId)
+          .update({
+        'nutrition': newNutrition,
+      });
+    } catch (e) {
+      print('DEBUG: Error recalculating nutrition for meal $mealId: $e');
+    }
   }
 }

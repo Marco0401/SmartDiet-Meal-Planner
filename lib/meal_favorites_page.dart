@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io';
 import 'recipe_detail_page.dart';
 
 class MealFavoritesPage extends StatefulWidget {
@@ -603,6 +604,17 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
           return _buildPlaceholderImage();
         },
       );
+    } else if (imagePath.startsWith('/') || imagePath.startsWith('file://') || imagePath.contains('/storage/') || imagePath.contains('/data/')) {
+      // Local file image
+      return Image.file(
+        File(imagePath),
+        height: 160,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildPlaceholderImage();
+        },
+      );
     } else {
       // Network image
       return Image.network(
@@ -689,6 +701,13 @@ class FavoriteService {
         );
         return;
       }
+
+      // Debug: Print the data being saved to Firestore
+      print('DEBUG: Data being saved to Firestore:');
+      print('  recipe: ${recipe.runtimeType}');
+      recipe.forEach((key, value) {
+        print('    $key: ${value.runtimeType} = $value');
+      });
 
       await FirebaseFirestore.instance
           .collection('users')

@@ -251,37 +251,12 @@ class NotificationService {
     }
   }
 
-  /// Generate meal reminder notifications
+  /// Generate meal reminder notifications (DEPRECATED - now using specific meal reminders)
   static Future<void> generateMealReminders() async {
-    // Always generate in-app notifications, regardless of user preferences
-    // User preferences only control push notifications
-
-    final now = DateTime.now();
-    final currentHour = now.hour;
-
-    // Check if it's meal time (7-9 AM, 12-2 PM, 6-8 PM)
-    bool isMealTime = (currentHour >= 7 && currentHour <= 9) || // Breakfast
-                      (currentHour >= 12 && currentHour <= 14) || // Lunch
-                      (currentHour >= 18 && currentHour <= 20); // Dinner
-
-    if (isMealTime) {
-      String mealType = '';
-      if (currentHour >= 7 && currentHour <= 9) {
-        mealType = 'Breakfast';
-      } else if (currentHour >= 12 && currentHour <= 14) {
-        mealType = 'Lunch';
-      } else if (currentHour >= 18 && currentHour <= 20) {
-        mealType = 'Dinner';
-      }
-
-        await createNotification(
-          title: '$mealType Reminder',
-          message: 'Time for $mealType! Don\'t forget to log your meal.',
-          type: 'Meal reminders',
-          icon: Icons.restaurant,
-          color: Colors.orange,
-        );
-    }
+    // This method is now deprecated in favor of specific meal reminders
+    // Specific meal reminders are handled by _scheduleMealTimeReminders()
+    // which creates notifications for individual meals with their names
+    return;
   }
 
   /// Generate nutrition tips
@@ -401,9 +376,6 @@ class NotificationService {
 
   /// Schedule periodic notifications based on user preferences
   static Future<void> schedulePeriodicNotifications() async {
-    // Generate meal reminders
-    await generateMealReminders();
-    
     // Generate nutrition tips (once per day)
     final now = DateTime.now();
     if (now.hour == 10) { // 10 AM daily
@@ -452,9 +424,11 @@ class NotificationService {
           
           // Only schedule if the reminder time hasn't passed today
           if (reminderDateTime.isAfter(now)) {
+            final mealTitle = mealData['title'] ?? 'Your meal';
+            
             await createNotification(
               title: 'Meal Reminder',
-              message: '${mealData['title']} is scheduled in 15 minutes!',
+              message: '$mealTitle is scheduled in 15 minutes!',
               type: 'Meal reminders',
               icon: Icons.restaurant,
               color: Colors.orange,

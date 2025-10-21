@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/allergen_service.dart';
+import '../../services/substitution_nutrition_service.dart';
+import '../widgets/edit_nutrition_dialog.dart';
 
 class SubstitutionsManagementPage extends StatefulWidget {
   const SubstitutionsManagementPage({super.key});
@@ -224,10 +226,7 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                                           mainAxisSize: MainAxisSize.min,
                                           mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
-                                            Text(
-                                              substitution['icon'] ?? '⚠️',
-                                              style: const TextStyle(fontSize: 14),
-                                            ),
+                                            _getIconWidget(substitution['icon']),
                                             const SizedBox(width: 4),
                                             Flexible(
                                               child: Text(
@@ -275,6 +274,38 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                                                 ),
                                               ),
                                             ],
+                                            if (substitution['source'] == 'firestore') ...[
+                                              const SizedBox(height: 4),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.blue.shade100,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  'Firestore Data',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: Colors.blue.shade700,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (substitution['nutrition'] != null && substitution['nutrition'].isNotEmpty) ...[
+                                                const SizedBox(height: 4),
+                                                Row(
+                                                  children: [
+                                                    _buildNutritionChip('Cal', substitution['nutrition']['calories']?.toString() ?? '0'),
+                                                    const SizedBox(width: 4),
+                                                    _buildNutritionChip('P', substitution['nutrition']['protein']?.toString() ?? '0'),
+                                                    const SizedBox(width: 4),
+                                                    _buildNutritionChip('C', substitution['nutrition']['carbs']?.toString() ?? '0'),
+                                                    const SizedBox(width: 4),
+                                                    _buildNutritionChip('F', substitution['nutrition']['fat']?.toString() ?? '0'),
+                                                  ],
+                                                ),
+                                              ],
+                                            ],
                                           ],
                                         ),
                                       ),
@@ -303,16 +334,23 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                                     
                                     // Actions
                                     SizedBox(
-                                      width: 100,
+                                      width: 140,
                                       child: Row(
                                         children: [
                                           IconButton(
                                             onPressed: () => _editSubstitution(index),
                                             icon: const Icon(Icons.edit, size: 18),
+                                            tooltip: 'Edit Substitution',
+                                          ),
+                                          IconButton(
+                                            onPressed: () => _editNutrition(substitution),
+                                            icon: const Icon(Icons.science, size: 18, color: Colors.blue),
+                                            tooltip: 'Edit Nutrition',
                                           ),
                                           IconButton(
                                             onPressed: () => _deleteSubstitution(index),
                                             icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                                            tooltip: 'Delete Substitution',
                                           ),
                                         ],
                                       ),
@@ -337,34 +375,104 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
 
   Future<Map<String, dynamic>> _getSubstitutionData() async {
     try {
-      // Get available substitutions from AllergenService
+      // Initialize default substitution nutrition data first
+      await SubstitutionNutritionService.initializeDefaultSubstitutionData();
+      
+      // Get available substitutions from Firestore (system_data/ingredient_substitutions)
       final availableSubstitutions = <Map<String, dynamic>>[];
       
-      // Extract substitutions from AllergenService
-      final allergenTypes = AllergenService.getAllergenTypes();
-      
-      for (final allergenType in allergenTypes) {
-        final substitutions = await AllergenService.getSubstitutions(allergenType);
-        final displayName = AllergenService.getDisplayName(allergenType);
-        final icon = AllergenService.getAllergenIcon(allergenType);
+      try {
+        print('DEBUG: Attempting to load substitutions from system_data/substitutions');
         
-        for (final substitution in substitutions) {
-          availableSubstitutions.add({
-            'allergen': displayName,
-            'allergenType': allergenType,
-            'substitution': substitution,
-            'icon': icon,
-            'key': '${allergenType}_${substitution}',
-            'source': 'system',
-          });
+        // Try to get the document
+        final substitutionDoc = await FirebaseFirestore.instance
+            .collection('system_data')
+            .doc('substitutions')
+            .get();
+        
+        print('DEBUG: Document exists: ${substitutionDoc.exists}');
+        
+        // Also load nutrition data
+        final nutritionDoc = await FirebaseFirestore.instance
+            .collection('system_data')
+            .doc('substitution_nutrition')
+            .get();
+        
+        Map<String, dynamic> nutritionData = {};
+        if (nutritionDoc.exists) {
+          nutritionData = Map<String, dynamic>.from(nutritionDoc.data() ?? {});
+          print('DEBUG: Loaded nutrition data with ${nutritionData.length} entries');
+        } else {
+          print('DEBUG: No nutrition document found');
         }
+        
+        if (substitutionDoc.exists) {
+          final data = substitutionDoc.data() as Map<String, dynamic>;
+          print('DEBUG: Loaded substitution data from Firestore: ${data.keys.toList()}');
+          
+          // Get substitutions from the 'data' field
+          final substitutionsData = data['data'] as Map<String, dynamic>? ?? {};
+          print('DEBUG: Substitutions data keys: ${substitutionsData.keys.toList()}');
+          
+          // Process each allergen category
+          final allergenCategories = ['dairy', 'eggs', 'fish', 'peanuts', 'shellfish', 'soy', 'tree_nuts', 'wheat'];
+          
+          for (final category in allergenCategories) {
+            final substitutions = substitutionsData[category];
+            if (substitutions == null) continue;
+            
+            // Handle both old format (List<String>) and new format (List<Map>)
+            if (substitutions is List) {
+              for (final substitution in substitutions) {
+                if (substitution is String) {
+                  // Old format - just substitution string
+                  final substitutionKey = '${category}_$substitution';
+                  final nutritionInfo = nutritionData[substitutionKey];
+                  
+                  availableSubstitutions.add({
+                    'allergen': _getAllergenDisplayName(category),
+                    'allergenType': category,
+                    'substitution': substitution,
+                    'icon': _getAllergenIconName(category),
+                    'key': substitutionKey,
+                    'source': 'firestore',
+                    'nutrition': nutritionInfo?['nutrition'] ?? {},
+                    'id': substitutionKey,
+                  });
+                } else if (substitution is Map<String, dynamic>) {
+                  // New format - substitution with embedded nutrition
+                  final substitutionText = substitution['substitution'] as String? ?? '';
+                  final substitutionKey = '${category}_$substitutionText';
+                  
+                  availableSubstitutions.add({
+                    'allergen': _getAllergenDisplayName(category),
+                    'allergenType': category,
+                    'substitution': substitutionText,
+                    'icon': _getAllergenIconName(category),
+                    'key': substitutionKey,
+                    'source': 'firestore',
+                    'nutrition': substitution['nutrition'] as Map<String, dynamic>? ?? {},
+                    'id': substitutionKey,
+                  });
+                }
+              }
+            }
+          }
+          print('DEBUG: Total Firestore substitutions loaded: ${availableSubstitutions.length}');
+        } else {
+          print('DEBUG: No substitution document found in Firestore');
+        }
+      } catch (e) {
+        print('Error loading Firestore substitutions: $e');
       }
       
-      // Get admin-created substitutions from Firestore
+      // Also get admin-created substitutions from the old collection for backward compatibility
       try {
         final adminSubstitutionsSnapshot = await FirebaseFirestore.instance
             .collection('admin_substitutions')
             .get();
+        
+        print('DEBUG: Found ${adminSubstitutionsSnapshot.docs.length} admin substitutions');
         
         for (final doc in adminSubstitutionsSnapshot.docs) {
           final data = doc.data();
@@ -383,6 +491,9 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
       } catch (e) {
         print('Error fetching admin substitutions: $e');
       }
+      
+      print('DEBUG: Total substitutions loaded: ${availableSubstitutions.length}');
+      print('DEBUG: Substitution sources: ${availableSubstitutions.map((s) => s['source']).toList()}');
       
       // Get usage statistics from Firestore meal plans
       final usageStats = await _getSubstitutionUsageStats();
@@ -858,9 +969,9 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
       final substitution = filteredSubstitutions[index];
       
       
-      // Check if it's an admin-created substitution
-      if (substitution['source'] == 'admin' && substitution['id'] != null) {
-        // Show edit dialog for admin substitution
+      // Allow editing for both admin-created and Firestore substitutions
+      if (substitution['source'] == 'admin' || substitution['source'] == 'firestore') {
+        // Show edit dialog for substitution
         showDialog(
           context: context,
           builder: (context) => EditSubstitutionDialog(
@@ -872,11 +983,11 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
           ),
         );
       } else {
-        // System substitution - cannot be edited
+        // Unknown source - cannot be edited
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('System substitution "${substitution['substitution']}" cannot be edited. Only admin-created substitutions can be modified.'),
+              content: Text('Substitution "${substitution['substitution']}" cannot be edited. Unknown source type.'),
               backgroundColor: Colors.orange,
               duration: const Duration(seconds: 3),
             ),
@@ -920,6 +1031,96 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
     );
   }
 
+  Future<void> _updateFirestoreSubstitution(Map<String, dynamic> oldSubstitution, Map<String, dynamic> newSubstitutionData) async {
+    try {
+      // Get current substitutions from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final substitutionsData = data['data'] as Map<String, dynamic>? ?? {};
+        
+        // Get the allergen type and old substitution text
+        final allergenType = oldSubstitution['allergenType'] as String;
+        final oldSubstitutionText = oldSubstitution['substitution'] as String;
+        final newSubstitutionText = newSubstitutionData['substitution'] as String;
+        
+        // Update the substitution in the list
+        if (substitutionsData.containsKey(allergenType)) {
+          final substitutions = List<String>.from(substitutionsData[allergenType] ?? []);
+          final index = substitutions.indexOf(oldSubstitutionText);
+          if (index != -1) {
+            substitutions[index] = newSubstitutionText;
+            substitutionsData[allergenType] = substitutions;
+            
+            // Update Firestore
+            await FirebaseFirestore.instance
+                .collection('system_data')
+                .doc('substitutions')
+                .update({
+                  'data': substitutionsData,
+                  'updatedAt': DateTime.now().toIso8601String(),
+                });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error updating Firestore substitution: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _removeFirestoreSubstitution(Map<String, dynamic> substitution) async {
+    try {
+      // Get current substitutions from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final substitutionsData = data['data'] as Map<String, dynamic>? ?? {};
+        
+        // Get the allergen type and substitution text
+        final allergenType = substitution['allergenType'] as String;
+        final substitutionText = substitution['substitution'] as String;
+        
+        // Remove the substitution from the list
+        if (substitutionsData.containsKey(allergenType)) {
+          final substitutions = List<dynamic>.from(substitutionsData[allergenType] ?? []);
+          
+          // Remove the substitution (handle both old and new formats)
+          substitutions.removeWhere((sub) {
+            if (sub is String) {
+              return sub == substitutionText;
+            } else if (sub is Map<String, dynamic>) {
+              return sub['substitution'] == substitutionText;
+            }
+            return false;
+          });
+          
+          substitutionsData[allergenType] = substitutions;
+          
+          // Update Firestore
+          await FirebaseFirestore.instance
+              .collection('system_data')
+              .doc('substitutions')
+              .update({
+                'data': substitutionsData,
+                'updatedAt': DateTime.now().toIso8601String(),
+              });
+        }
+      }
+    } catch (e) {
+      print('Error removing Firestore substitution: $e');
+      rethrow;
+    }
+  }
+
   Future<void> _performDeleteSubstitution(int index) async {
     try {
       // Get the substitution data
@@ -930,9 +1131,9 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
       
       final substitution = availableSubstitutions[index];
       
-      // Check if it's an admin-created substitution
+      // Handle deletion based on source
       if (substitution['source'] == 'admin' && substitution['id'] != null) {
-        // Delete from Firestore
+        // Delete admin-created substitution from Firestore
         await FirebaseFirestore.instance
             .collection('admin_substitutions')
             .doc(substitution['id'])
@@ -941,25 +1142,37 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Substitution "${substitution['substitution']}" deleted successfully'),
+              content: Text('Admin substitution "${substitution['substitution']}" deleted successfully'),
               backgroundColor: Colors.green,
             ),
           );
         }
+      } else if (substitution['source'] == 'firestore') {
+        // Remove Firestore substitution from system data
+        await _removeFirestoreSubstitution(substitution);
         
-        // Refresh the list
-        setState(() {});
-      } else {
-        // System substitution - cannot be deleted
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('System substitutions cannot be deleted'),
+              content: Text('Firestore substitution "${substitution['substitution']}" deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        // Unknown source - cannot be deleted
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Unknown substitution type cannot be deleted'),
               backgroundColor: Colors.orange,
             ),
           );
         }
       }
+      
+      // Refresh the list
+      setState(() {});
     } catch (e) {
       print('Error deleting substitution: $e');
       if (mounted) {
@@ -970,6 +1183,199 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
           ),
         );
       }
+    }
+  }
+
+  void _editNutrition(Map<String, dynamic> substitution) {
+    showDialog(
+      context: context,
+      builder: (context) => EditNutritionDialog(
+        substitution: substitution,
+        onSave: (updatedSubstitution) async {
+          await _saveSubstitutionNutrition(updatedSubstitution);
+          setState(() {}); // Refresh the page
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveSubstitutionNutrition(Map<String, dynamic> substitution) async {
+    try {
+      // Get current substitutions from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final substitutionsData = data['data'] as Map<String, dynamic>? ?? {};
+        
+        // Get the allergen type and substitution text
+        final allergenType = substitution['allergenType'] as String;
+        final substitutionText = substitution['substitution'] as String;
+        
+        // Update the substitution with nutrition data
+        if (substitutionsData.containsKey(allergenType)) {
+          final substitutions = List<dynamic>.from(substitutionsData[allergenType] ?? []);
+          
+          // Find and update the substitution with nutrition data
+          for (int i = 0; i < substitutions.length; i++) {
+            final sub = substitutions[i];
+            if (sub is String && sub == substitutionText) {
+              // Old format - convert to new format with nutrition
+              substitutions[i] = {
+                'substitution': substitutionText,
+                'nutrition': substitution['nutrition'] ?? {},
+              };
+              break;
+            } else if (sub is Map<String, dynamic> && 
+                       sub['substitution'] == substitutionText) {
+              // New format - update nutrition
+              substitutions[i] = {
+                'substitution': substitutionText,
+                'nutrition': substitution['nutrition'] ?? sub['nutrition'] ?? {},
+              };
+              break;
+            }
+          }
+          
+          substitutionsData[allergenType] = substitutions;
+          
+          // Update Firestore
+          await FirebaseFirestore.instance
+              .collection('system_data')
+              .doc('substitutions')
+              .update({
+                'data': substitutionsData,
+                'updatedAt': DateTime.now().toIso8601String(),
+              });
+        }
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Substitution nutrition updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving substitution nutrition: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildNutritionChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.green.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(
+          fontSize: 10,
+          color: Colors.green.shade700,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _getIconWidget(dynamic iconData) {
+    if (iconData is IconData) {
+      return Icon(iconData, size: 14);
+    } else if (iconData is String) {
+      switch (iconData) {
+        case 'science':
+          return const Icon(Icons.science, size: 14);
+        case 'warning':
+          return const Icon(Icons.warning, size: 14);
+        case 'food':
+          return const Icon(Icons.fastfood, size: 14);
+        case 'milk':
+          return const Icon(Icons.local_drink, size: 14);
+        case 'egg':
+          return const Icon(Icons.egg, size: 14);
+        case 'nuts':
+          return const Icon(Icons.cookie, size: 14);
+        case 'wheat':
+          return const Icon(Icons.grain, size: 14);
+        case 'soy':
+          return const Icon(Icons.eco, size: 14);
+        case 'dairy':
+          return const Icon(Icons.local_drink, size: 14);
+        case 'eggs':
+          return const Icon(Icons.egg, size: 14);
+        case 'fish':
+          return const Icon(Icons.set_meal, size: 14);
+        case 'peanuts':
+          return const Icon(Icons.cookie, size: 14);
+        case 'shellfish':
+          return const Icon(Icons.set_meal, size: 14);
+        case 'tree_nuts':
+          return const Icon(Icons.cookie, size: 14);
+        default:
+          return const Icon(Icons.warning, size: 14);
+      }
+    } else {
+      return const Icon(Icons.warning, size: 14);
+    }
+  }
+
+  String _getAllergenDisplayName(String category) {
+    switch (category) {
+      case 'dairy':
+        return 'Dairy';
+      case 'eggs':
+        return 'Eggs';
+      case 'fish':
+        return 'Fish';
+      case 'peanuts':
+        return 'Peanuts';
+      case 'shellfish':
+        return 'Shellfish';
+      case 'soy':
+        return 'Soy';
+      case 'tree_nuts':
+        return 'Tree Nuts';
+      case 'wheat':
+        return 'Wheat';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  String _getAllergenIconName(String category) {
+    switch (category) {
+      case 'dairy':
+        return 'dairy';
+      case 'eggs':
+        return 'eggs';
+      case 'fish':
+        return 'fish';
+      case 'peanuts':
+        return 'nuts';
+      case 'shellfish':
+        return 'fish';
+      case 'soy':
+        return 'soy';
+      case 'tree_nuts':
+        return 'nuts';
+      case 'wheat':
+        return 'wheat';
+      default:
+        return 'warning';
     }
   }
 }
@@ -1121,11 +1527,17 @@ class _EditSubstitutionDialogState extends State<EditSubstitutionDialog> {
       final oldSubstitution = widget.substitution['substitution'];
       final newSubstitution = _substitutionController.text.trim();
       
-      // Update the substitution in admin_substitutions collection
-      await FirebaseFirestore.instance
-          .collection('admin_substitutions')
-          .doc(widget.substitution['id'])
-          .update(substitutionData);
+      // Update the substitution based on source
+      if (widget.substitution['source'] == 'admin') {
+        // Update admin-created substitution
+        await FirebaseFirestore.instance
+            .collection('admin_substitutions')
+            .doc(widget.substitution['id'])
+            .update(substitutionData);
+      } else if (widget.substitution['source'] == 'firestore') {
+        // Update Firestore substitution
+        await _updateFirestoreSubstitutionInDialog(widget.substitution, substitutionData);
+      }
 
       // Update existing meals that use this substitution
       if (oldSubstitution != newSubstitution) {
@@ -1197,6 +1609,66 @@ class _EditSubstitutionDialogState extends State<EditSubstitutionDialog> {
           _isUpdating = false;
         });
       }
+    }
+  }
+
+  Future<void> _updateFirestoreSubstitutionInDialog(Map<String, dynamic> oldSubstitution, Map<String, dynamic> newSubstitutionData) async {
+    try {
+      // Get current substitutions from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final substitutionsData = data['data'] as Map<String, dynamic>? ?? {};
+        
+        // Get the allergen type and old substitution text
+        final allergenType = oldSubstitution['allergenType'] as String;
+        final oldSubstitutionText = oldSubstitution['substitution'] as String;
+        final newSubstitutionText = newSubstitutionData['substitution'] as String;
+        
+        // Update the substitution in the list
+        if (substitutionsData.containsKey(allergenType)) {
+          final substitutions = List<dynamic>.from(substitutionsData[allergenType] ?? []);
+          
+          // Find and update the substitution
+          for (int i = 0; i < substitutions.length; i++) {
+            final substitution = substitutions[i];
+            if (substitution is String && substitution == oldSubstitutionText) {
+              // Old format - replace with new format
+              substitutions[i] = {
+                'substitution': newSubstitutionText,
+                'nutrition': newSubstitutionData['nutrition'] ?? {},
+              };
+              break;
+            } else if (substitution is Map<String, dynamic> && 
+                       substitution['substitution'] == oldSubstitutionText) {
+              // New format - update existing
+              substitutions[i] = {
+                'substitution': newSubstitutionText,
+                'nutrition': newSubstitutionData['nutrition'] ?? substitution['nutrition'] ?? {},
+              };
+              break;
+            }
+          }
+          
+          substitutionsData[allergenType] = substitutions;
+          
+          // Update Firestore
+          await FirebaseFirestore.instance
+              .collection('system_data')
+              .doc('substitutions')
+              .update({
+                'data': substitutionsData,
+                'updatedAt': DateTime.now().toIso8601String(),
+              });
+        }
+      }
+    } catch (e) {
+      print('Error updating Firestore substitution: $e');
+      rethrow;
     }
   }
 
@@ -1472,6 +1944,16 @@ class _AddSubstitutionDialogState extends State<AddSubstitutionDialog> {
   String? _selectedAllergenType;
   bool _isAdding = false;
 
+  // Nutrition input controllers
+  final _caloriesController = TextEditingController();
+  final _proteinController = TextEditingController();
+  final _carbsController = TextEditingController();
+  final _fatController = TextEditingController();
+  final _fiberController = TextEditingController();
+  final _sugarController = TextEditingController();
+  final _sodiumController = TextEditingController();
+  final _cholesterolController = TextEditingController();
+
   final List<Map<String, dynamic>> _allergenTypes = [
     {'type': 'dairy', 'displayName': 'Dairy', 'icon': '🥛'},
     {'type': 'eggs', 'displayName': 'Eggs', 'icon': '🥚'},
@@ -1486,12 +1968,22 @@ class _AddSubstitutionDialogState extends State<AddSubstitutionDialog> {
   @override
   void dispose() {
     _substitutionController.dispose();
+    _caloriesController.dispose();
+    _proteinController.dispose();
+    _carbsController.dispose();
+    _fatController.dispose();
+    _fiberController.dispose();
+    _sugarController.dispose();
+    _sodiumController.dispose();
+    _cholesterolController.dispose();
     super.dispose();
   }
 
   Future<void> _addSubstitution() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedAllergenType == null) return;
+
+    final allergenType = _selectedAllergenType!; // Non-null assertion after null check
 
     setState(() {
       _isAdding = true;
@@ -1500,31 +1992,66 @@ class _AddSubstitutionDialogState extends State<AddSubstitutionDialog> {
     try {
       // Get the allergen type details
       final allergenData = _allergenTypes.firstWhere(
-        (allergen) => allergen['type'] == _selectedAllergenType,
+        (allergen) => allergen['type'] == allergenType,
       );
 
-      // Create the substitution data
-      final substitutionData = {
-        'allergen': allergenData['displayName'],
-        'allergenType': _selectedAllergenType,
-        'substitution': _substitutionController.text.trim(),
-        'icon': allergenData['icon'],
-        'key': '${_selectedAllergenType}_${_substitutionController.text.trim()}',
-        'createdAt': DateTime.now().toIso8601String(),
-        'createdBy': 'admin',
+      // Parse nutrition values
+      final nutrition = {
+        'calories': double.tryParse(_caloriesController.text) ?? 0.0,
+        'protein': double.tryParse(_proteinController.text) ?? 0.0,
+        'carbs': double.tryParse(_carbsController.text) ?? 0.0,
+        'fat': double.tryParse(_fatController.text) ?? 0.0,
+        'fiber': double.tryParse(_fiberController.text) ?? 0.0,
+        'sugar': double.tryParse(_sugarController.text) ?? 0.0,
+        'sodium': double.tryParse(_sodiumController.text) ?? 0.0,
+        'cholesterol': double.tryParse(_cholesterolController.text) ?? 0.0,
       };
 
-      // Save to Firestore
+      // Create the substitution data with nutrition
+      final substitutionData = {
+        'substitution': _substitutionController.text.trim(),
+        'nutrition': nutrition,
+      };
+
+      // Get current substitutions from system_data/substitutions
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('substitutions')
+          .get();
+
+      Map<String, dynamic> substitutionsData = {};
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        substitutionsData = data['data'] as Map<String, dynamic>? ?? {};
+      }
+
+      // Add the new substitution to the appropriate allergen category
+      if (!substitutionsData.containsKey(allergenType)) {
+        substitutionsData[allergenType] = [];
+      }
+      
+      final substitutions = List<dynamic>.from(substitutionsData[allergenType] ?? []);
+      substitutions.add(substitutionData);
+      substitutionsData[allergenType] = substitutions;
+
+      // Update the system_data/substitutions document
       await FirebaseFirestore.instance
-          .collection('admin_substitutions')
-          .add(substitutionData);
+          .collection('system_data')
+          .doc('substitutions')
+          .set({
+        'data': substitutionsData,
+        'type': 'system_substitutions',
+        'version': '2.0',
+        'updatedAt': DateTime.now().toIso8601String(),
+        'migratedAt': doc.exists ? (doc.data() as Map<String, dynamic>)['migratedAt'] : DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
 
       // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Substitution added successfully: ${allergenData['displayName']} → ${_substitutionController.text.trim()}',
+              'Substitution added successfully to system_data/substitutions: ${allergenData['displayName']} → ${_substitutionController.text.trim()}',
             ),
             backgroundColor: Colors.green,
           ),
@@ -1774,6 +2301,126 @@ class _AddSubstitutionDialogState extends State<AddSubstitutionDialog> {
                   const SizedBox(height: 20),
                 ],
                 
+                // Nutrition Information Section
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.science, color: Colors.orange, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Nutrition Information (per 100g)',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _caloriesController,
+                              label: 'Calories',
+                              icon: Icons.local_fire_department,
+                              color: Colors.red,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _proteinController,
+                              label: 'Protein (g)',
+                              icon: Icons.fitness_center,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _carbsController,
+                              label: 'Carbs (g)',
+                              icon: Icons.grain,
+                              color: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _fatController,
+                              label: 'Fat (g)',
+                              icon: Icons.opacity,
+                              color: Colors.purple,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _fiberController,
+                              label: 'Fiber (g)',
+                              icon: Icons.eco,
+                              color: Colors.brown,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _sugarController,
+                              label: 'Sugar (g)',
+                              icon: Icons.cake,
+                              color: Colors.pink,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _sodiumController,
+                              label: 'Sodium (mg)',
+                              icon: Icons.water_drop,
+                              color: Colors.cyan,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildNutritionInput(
+                              controller: _cholesterolController,
+                              label: 'Cholesterol (mg)',
+                              icon: Icons.heart_broken,
+                              color: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
                 // Buttons
                 Row(
                   children: [
@@ -1819,6 +2466,40 @@ class _AddSubstitutionDialogState extends State<AddSubstitutionDialog> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildNutritionInput({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: color, size: 18),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+      validator: (value) {
+        if (value != null && value.isNotEmpty) {
+          final parsed = double.tryParse(value);
+          if (parsed == null) {
+            return 'Invalid number';
+          }
+          if (parsed < 0) {
+            return 'Must be positive';
+          }
+        }
+        return null;
+      },
     );
   }
 }

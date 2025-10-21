@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import 'services/nutrition_service.dart';
 import 'meal_favorites_page.dart';
 
@@ -38,6 +40,8 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
   String _selectedMealType = 'Breakfast';
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = false;
+  File? _selectedImage;
+  final ImagePicker _imagePicker = ImagePicker();
 
   final List<String> _mealTypes = [
     'Breakfast',
@@ -63,18 +67,6 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     }
   }
 
-  void _prefillFormData(Map<String, dynamic> data) {
-    _foodNameController.text = data['foodName']?.toString() ?? '';
-    _caloriesController.text = data['calories']?.toString() ?? '';
-    _proteinController.text = data['protein']?.toString() ?? '';
-    _carbsController.text = data['carbs']?.toString() ?? '';
-    _fatController.text = data['fat']?.toString() ?? '';
-    _fiberController.text = data['fiber']?.toString() ?? '';
-    _sugarController.text = data['sugar']?.toString() ?? '';
-    _sodiumController.text = data['sodium']?.toString() ?? '';
-    _servingSizeController.text = data['servingSize']?.toString() ?? '1';
-  }
-
   @override
   void dispose() {
     _foodNameController.dispose();
@@ -89,6 +81,18 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     _ingredientsController.dispose();
     _instructionsController.dispose();
     super.dispose();
+  }
+
+  void _prefillFormData(Map<String, dynamic> data) {
+    _foodNameController.text = data['foodName']?.toString() ?? '';
+    _caloriesController.text = data['calories']?.toString() ?? '';
+    _proteinController.text = data['protein']?.toString() ?? '';
+    _carbsController.text = data['carbs']?.toString() ?? '';
+    _fatController.text = data['fat']?.toString() ?? '';
+    _fiberController.text = data['fiber']?.toString() ?? '';
+    _sugarController.text = data['sugar']?.toString() ?? '';
+    _sodiumController.text = data['sodium']?.toString() ?? '';
+    _servingSizeController.text = data['servingSize']?.toString() ?? '1';
   }
 
   void _calculateNutritionFromIngredients() async {
@@ -157,18 +161,20 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         ingredients: ingredientsList,
         instructions: _instructionsController.text.trim(),
         customNutrition: nutritionData,
+        image: _selectedImage?.path,
       );
 
       // Also save to favorites (Manage Recipes) as a custom recipe
-      final customRecipe = {
+      // Create a clean recipe object with only serializable data
+      final customRecipe = <String, dynamic>{
         'id': 'manual_${DateTime.now().millisecondsSinceEpoch}',
         'title': _foodNameController.text.trim(),
-        'image': null,
+        'image': _selectedImage?.path ?? null, // Store only the image path (no File object)
         'source': 'manual_entry',
         'cuisine': 'Custom',
-        'ingredients': ingredientsList,
+        'ingredients': List<String>.from(ingredientsList), // Ensure it's a clean list of strings
         'instructions': _instructionsController.text.trim(),
-        'nutrition': {
+        'nutrition': <String, double>{
           'calories': (double.tryParse(_caloriesController.text) ?? 0) * servingSize,
           'protein': (double.tryParse(_proteinController.text) ?? 0) * servingSize,
           'carbs': (double.tryParse(_carbsController.text) ?? 0) * servingSize,
@@ -181,6 +187,12 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         'readyInMinutes': 0, // Manual entry, no prep time
         'mealType': _selectedMealType.toLowerCase(),
       };
+
+      // Debug: Print the recipe data before saving
+      print('DEBUG: Recipe data before saving to favorites:');
+      customRecipe.forEach((key, value) {
+        print('  $key: ${value.runtimeType} = $value');
+      });
 
       // Save to favorites collection
       await FavoriteService.addToFavorites(
@@ -224,6 +236,62 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     if (picked != null && picked != _selectedDate) {
       setState(() => _selectedDate = picked);
     }
+  }
+
+  Future<void> _pickImageFromGallery() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (image != null) {
+        setState(() {
+          _selectedImage = File(image.path);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error picking image: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _takePicture() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (image != null) {
+        setState(() {
+          _selectedImage = File(image.path);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error taking picture: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _removeImage() {
+    setState(() {
+      _selectedImage = null;
+    });
   }
 
   @override
@@ -338,6 +406,147 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
                             return null;
                           },
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Image Upload Section
+              Card(
+                elevation: 8,
+                shadowColor: Colors.green.withOpacity(0.3),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.white,
+                        Colors.green[50]!,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.green[200]!,
+                      width: 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Meal Photo (Optional)',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[800],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (_selectedImage == null) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _takePicture,
+                                  icon: const Icon(Icons.camera_alt),
+                                  label: const Text('Take Photo'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green[600],
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _pickImageFromGallery,
+                                  icon: const Icon(Icons.photo_library),
+                                  label: const Text('Choose from Gallery'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue[600],
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          Container(
+                            width: double.infinity,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.green[300]!, width: 2),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.file(
+                                _selectedImage!,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _takePicture,
+                                  icon: const Icon(Icons.camera_alt),
+                                  label: const Text('Retake Photo'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green[600],
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _pickImageFromGallery,
+                                  icon: const Icon(Icons.photo_library),
+                                  label: const Text('Change Photo'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue[600],
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _removeImage,
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              label: const Text(
+                                'Remove Photo',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
