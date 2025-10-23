@@ -4,7 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
-import 'dart:io';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:convert';
 
 
 class IngredientScannerPage extends StatefulWidget {
@@ -15,12 +18,16 @@ class IngredientScannerPage extends StatefulWidget {
 }
 
 class _IngredientScannerPageState extends State<IngredientScannerPage> {
-  bool _isAnalyzing = false;
   Map<String, dynamic>? _scannedProduct;
   List<String> _detectedAllergens = [];
   String? _errorMessage;
-  bool _isProcessingOCR = false;
   final ImagePicker _imagePicker = ImagePicker();
+  
+  // Barcode scanning variables
+  bool _isScanningBarcode = false;
+  MobileScannerController? _scannerController;
+  String? _scannedBarcode;
+  Map<String, dynamic>? _barcodeProductData;
 
   @override
   void initState() {
@@ -29,7 +36,237 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
 
   @override
   void dispose() {
+    _scannerController?.dispose();
     super.dispose();
+  }
+
+  // API Methods for Food Data
+  Future<Map<String, dynamic>?> _fetchProductFromOpenFoodFacts(String barcode) async {
+    try {
+      print('DEBUG: Fetching product from OpenFoodFacts for barcode: $barcode');
+      final response = await http.get(
+        Uri.parse('https://world.openfoodfacts.org/api/v0/product/$barcode.json'),
+        headers: {'User-Agent': 'SmartDiet/1.0'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 1 && data['product'] != null) {
+          print('DEBUG: Found product in OpenFoodFacts: ${data['product']['product_name']}');
+          return data['product'];
+        }
+      }
+      print('DEBUG: Product not found in OpenFoodFacts');
+      return null;
+    } catch (e) {
+      print('DEBUG: Error fetching from OpenFoodFacts: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchProductFromUSDA(String searchTerm) async {
+    try {
+      print('DEBUG: Searching USDA FoodData Central for: $searchTerm');
+      
+      // Get API key from environment variables
+      final apiKey = dotenv.env['USDA_API_KEY'] ?? 'DEMO_KEY';
+      print('DEBUG: Using USDA API key: ${apiKey.substring(0, 8)}...');
+      
+      final response = await http.get(
+        Uri.parse('https://api.nal.usda.gov/fdc/v1/foods/search?query=${Uri.encodeComponent(searchTerm)}&api_key=$apiKey&pageSize=1'),
+        headers: {'User-Agent': 'SmartDiet/1.0'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['foods'] != null && data['foods'].isNotEmpty) {
+          print('DEBUG: Found product in USDA: ${data['foods'][0]['description']}');
+          return data['foods'][0];
+        }
+      } else {
+        print('DEBUG: USDA API error: ${response.statusCode} - ${response.body}');
+      }
+      print('DEBUG: Product not found in USDA');
+      return null;
+    } catch (e) {
+      print('DEBUG: Error fetching from USDA: $e');
+      return null;
+    }
+  }
+
+  // Barcode scanning methods
+  void _startBarcodeScanning() {
+    setState(() {
+      _isScanningBarcode = true;
+      _scannerController = MobileScannerController();
+    });
+  }
+
+  void _stopBarcodeScanning() {
+    setState(() {
+      _isScanningBarcode = false;
+      _scannerController?.dispose();
+      _scannerController = null;
+    });
+  }
+
+  Future<void> _onBarcodeDetected(BarcodeCapture capture) async {
+    final List<Barcode> barcodes = capture.barcodes;
+    if (barcodes.isNotEmpty) {
+      final barcode = barcodes.first;
+      if (barcode.rawValue != null) {
+        setState(() {
+          _scannedBarcode = barcode.rawValue!;
+        });
+        
+        await _processScannedBarcode(barcode.rawValue!);
+        _stopBarcodeScanning();
+      }
+    }
+  }
+
+  Future<void> _processScannedBarcode(String barcode) async {
+    setState(() {
+      _errorMessage = null;
+    });
+
+    try {
+      // Try OpenFoodFacts first
+      Map<String, dynamic>? productData = await _fetchProductFromOpenFoodFacts(barcode);
+      
+      if (productData != null) {
+        await _analyzeBarcodeProduct(productData);
+      } else {
+        // If not found in OpenFoodFacts, try USDA with generic search
+        productData = await _fetchProductFromUSDA('barcode $barcode');
+        if (productData != null) {
+          await _analyzeUSDAData(productData);
+        } else {
+          if (mounted) {
+            setState(() {
+              _errorMessage = 'Product not found in food databases. Please try manual entry.';
+            });
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Error processing barcode: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _analyzeBarcodeProduct(Map<String, dynamic> product) async {
+    final ingredientsText = product['ingredients_text'] ?? '';
+    final ingredients = _parseIngredients(ingredientsText);
+    
+    // Check for allergens
+    final detectedAllergens = _checkForAllergens(ingredients);
+    final allergenDetails = _checkForAllergensWithDetails(ingredients);
+    final ingredientAllergenMap = allergenDetails['ingredientMap'] as Map<String, List<String>>;
+    
+    if (mounted) {
+      setState(() {
+        _barcodeProductData = {
+          'name': product['product_name'] ?? 'Unknown Product',
+          'brand': product['brands'] ?? '',
+          'barcode': _scannedBarcode,
+          'ingredients': ingredients,
+          'ingredients_text': ingredientsText,
+          'nutrition': _extractNutritionFromOpenFoodFacts(product),
+          'image': product['image_url'] ?? product['image_front_url'],
+          'ingredientAllergenMap': ingredientAllergenMap,
+          'source': 'OpenFoodFacts',
+        };
+        _detectedAllergens = detectedAllergens;
+      });
+    }
+  }
+
+  Future<void> _analyzeUSDAData(Map<String, dynamic> usdaData) async {
+    if (mounted) {
+      setState(() {
+        _barcodeProductData = {
+          'name': usdaData['description'] ?? 'Unknown Product',
+          'brand': '',
+          'barcode': _scannedBarcode,
+          'ingredients': [],
+          'ingredients_text': '',
+          'nutrition': _extractNutritionFromUSDA(usdaData),
+          'image': null,
+          'ingredientAllergenMap': <String, List<String>>{},
+          'source': 'USDA',
+        };
+        _detectedAllergens = [];
+      });
+    }
+  }
+
+  Map<String, dynamic> _extractNutritionFromOpenFoodFacts(Map<String, dynamic> product) {
+    final nutriments = product['nutriments'] ?? {};
+    return {
+      'calories': _parseDouble(nutriments['energy-kcal_100g']) ?? 0.0,
+      'protein': _parseDouble(nutriments['proteins_100g']) ?? 0.0,
+      'carbs': _parseDouble(nutriments['carbohydrates_100g']) ?? 0.0,
+      'fat': _parseDouble(nutriments['fat_100g']) ?? 0.0,
+      'fiber': _parseDouble(nutriments['fiber_100g']) ?? 0.0,
+      'sugar': _parseDouble(nutriments['sugars_100g']) ?? 0.0,
+      'sodium': _parseDouble(nutriments['sodium_100g']) ?? 0.0,
+    };
+  }
+
+  Map<String, dynamic> _extractNutritionFromUSDA(Map<String, dynamic> usdaData) {
+    final nutrients = usdaData['foodNutrients'] ?? [];
+    Map<String, double> nutrition = {};
+    
+    for (var nutrient in nutrients) {
+      final nutrientId = nutrient['nutrient']?['id'];
+      final amount = _parseDouble(nutrient['amount']) ?? 0.0;
+      
+      switch (nutrientId) {
+        case 1008: // Energy (kcal)
+          nutrition['calories'] = amount;
+          break;
+        case 1003: // Protein
+          nutrition['protein'] = amount;
+          break;
+        case 1005: // Carbohydrates
+          nutrition['carbs'] = amount;
+          break;
+        case 1004: // Fat
+          nutrition['fat'] = amount;
+          break;
+        case 1079: // Fiber
+          nutrition['fiber'] = amount;
+          break;
+        case 2000: // Sugar
+          nutrition['sugar'] = amount;
+          break;
+        case 1093: // Sodium
+          nutrition['sodium'] = amount;
+          break;
+      }
+    }
+    
+    return {
+      'calories': nutrition['calories'] ?? 0.0,
+      'protein': nutrition['protein'] ?? 0.0,
+      'carbs': nutrition['carbs'] ?? 0.0,
+      'fat': nutrition['fat'] ?? 0.0,
+      'fiber': nutrition['fiber'] ?? 0.0,
+      'sugar': nutrition['sugar'] ?? 0.0,
+      'sodium': nutrition['sodium'] ?? 0.0,
+    };
+  }
+
+  double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
 
@@ -58,7 +295,6 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
         'ingredientAllergenMap': ingredientAllergenMap,
       };
       _detectedAllergens = detectedAllergens;
-      _isAnalyzing = false;
     });
   }
 
@@ -109,22 +345,6 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
     return _checkForAllergensWithDetails(ingredients)['allergens'] as List<String>;
   }
 
-  List<String> _getAllergenSynonyms(String allergen) {
-    // Comprehensive allergen synonyms and variations
-    final allergenSynonyms = {
-      'milk': ['dairy', 'lactose', 'casein', 'whey', 'cream', 'butter', 'cheese', 'yogurt', 'kefir'],
-      'eggs': ['egg', 'albumin', 'lecithin', 'mayonnaise', 'custard', 'meringue'],
-      'nuts': ['almond', 'walnut', 'pecan', 'cashew', 'pistachio', 'hazelnut', 'macadamia', 'pine nut', 'brazil nut'],
-      'peanuts': ['peanut', 'groundnut', 'arachis', 'goober'],
-      'soy': ['soy', 'soybean', 'soya', 'tofu', 'tempeh', 'miso', 'edamame', 'soy sauce'],
-      'wheat': ['wheat', 'gluten', 'flour', 'bread', 'pasta', 'semolina', 'bulgur', 'couscous'],
-      'fish': ['fish', 'salmon', 'tuna', 'cod', 'anchovy', 'sardine', 'mackerel', 'herring'],
-      'shellfish': ['shrimp', 'crab', 'lobster', 'scallop', 'mussel', 'clam', 'oyster', 'prawn'],
-      'sesame': ['sesame', 'tahini', 'halva', 'benne'],
-    };
-    
-    return allergenSynonyms[allergen] ?? [];
-  }
 
   List<String> _detectCommonAllergens(String ingredient) {
     final detectedAllergens = <String>[];
@@ -178,13 +398,11 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
         await _processIngredientPhoto(image.path);
       } else {
         setState(() {
-          _isProcessingOCR = false;
         });
       }
     } catch (e) {
       setState(() {
         _errorMessage = 'Camera not available. Please try again or use gallery instead.';
-        _isProcessingOCR = false;
       });
     }
   }
@@ -202,20 +420,17 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
         await _processIngredientPhoto(image.path);
       } else {
         setState(() {
-          _isProcessingOCR = false;
         });
       }
     } catch (e) {
       setState(() {
         _errorMessage = 'Gallery not available. Please try again or use camera instead.';
-        _isProcessingOCR = false;
       });
     }
   }
 
   Future<void> _processIngredientPhoto(String imagePath) async {
     setState(() {
-      _isProcessingOCR = true;
       _errorMessage = null;
     });
 
@@ -253,7 +468,6 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
     } catch (e) {
       setState(() {
         _errorMessage = 'Error processing photo: ${e.toString()}';
-        _isProcessingOCR = false;
       });
     }
   }
@@ -283,13 +497,11 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
 
         await _analyzeIngredients(product);
         setState(() {
-          _isProcessingOCR = false;
           _errorMessage = null;
         });
       } else {
         setState(() {
           _errorMessage = 'No text found in the image. Please try again with a clearer photo of the ingredient section.';
-          _isProcessingOCR = false;
         });
       }
 
@@ -297,7 +509,6 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
     } catch (e) {
       setState(() {
         _errorMessage = 'Error extracting text: $e';
-        _isProcessingOCR = false;
       });
     }
   }
@@ -376,8 +587,73 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         elevation: 0,
+        leading: _isScanningBarcode 
+          ? IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: _stopBarcodeScanning,
+            )
+          : null,
       ),
-      body: _buildResultsSection(),
+      body: _isScanningBarcode ? _buildBarcodeScanner() : _buildResultsSection(),
+    );
+  }
+
+  Widget _buildBarcodeScanner() {
+    if (_scannerController == null) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return Stack(
+      children: [
+        MobileScanner(
+          controller: _scannerController!,
+          onDetect: _onBarcodeDetected,
+        ),
+        // Overlay with scanning instructions
+        Positioned(
+          top: 20,
+          left: 20,
+          right: 20,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'Point your camera at the barcode on the product packaging',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+        // Scanning frame overlay
+        Positioned(
+          top: 100,
+          left: 50,
+          right: 50,
+          child: Container(
+            height: 200,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.green, width: 2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.qr_code_scanner,
+                color: Colors.green,
+                size: 50,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -387,7 +663,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
       return _buildErrorState();
     }
     
-    if (_scannedProduct == null) {
+    if (_scannedProduct == null && _barcodeProductData == null) {
       return _buildEmptyState();
     }
     
@@ -407,7 +683,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Take a photo of ingredients to analyze for allergens',
+            'Scan ingredients or barcode to analyze for allergens',
             style: TextStyle(
               fontSize: 18,
               color: Colors.grey[600],
@@ -417,7 +693,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Point your camera at the ingredient list on the packaging',
+            'Choose your preferred scanning method below',
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey[500],
@@ -430,12 +706,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _isProcessingOCR = true;
-                });
-                _captureIngredientPhoto();
-              },
+              onPressed: _captureIngredientPhoto,
               icon: const Icon(Icons.camera_alt_rounded, size: 24),
               label: const Text(
                 'Take Photo of Ingredients',
@@ -458,12 +729,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _isProcessingOCR = true;
-                });
-                _pickIngredientPhoto();
-              },
+              onPressed: _pickIngredientPhoto,
               icon: const Icon(Icons.photo_library_rounded, size: 24),
               label: const Text(
                 'Choose Photo from Gallery',
@@ -477,6 +743,29 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
                 ),
                 elevation: 4,
                 shadowColor: Colors.blue.withOpacity(0.3),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Barcode Scanner Button
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: _isScanningBarcode ? null : _startBarcodeScanning,
+              icon: const Icon(Icons.qr_code_scanner_rounded, size: 24),
+              label: Text(
+                _isScanningBarcode ? 'Scanning...' : 'Scan Barcode',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[600],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 4,
+                shadowColor: Colors.orange.withOpacity(0.3),
               ),
             ),
           ),
@@ -519,12 +808,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _isProcessingOCR = true;
-                  });
-                  _captureIngredientPhoto();
-                },
+                onPressed: _captureIngredientPhoto,
                 icon: const Icon(Icons.camera_alt),
                 label: const Text('Take Photo'),
                 style: ElevatedButton.styleFrom(
@@ -611,10 +895,49 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
   }
 
   Widget _buildProductResults() {
-    final product = _scannedProduct!;
+    final product = _scannedProduct ?? _barcodeProductData!;
     final hasAllergens = _detectedAllergens.isNotEmpty;
-    final ingredients = product['ingredients'] as List<String>? ?? [];
-    final ingredientAllergenMap = product['ingredientAllergenMap'] as Map<String, List<String>>? ?? {};
+    
+    print('DEBUG: Building product results for: ${product['name']}');
+    print('DEBUG: Product ingredients type: ${product['ingredients'].runtimeType}');
+    print('DEBUG: Product ingredients value: ${product['ingredients']}');
+    
+    // Safely cast ingredients to List<String>
+    List<String> ingredients = [];
+    if (product['ingredients'] != null) {
+      if (product['ingredients'] is List<String>) {
+        ingredients = product['ingredients'] as List<String>;
+        print('DEBUG: Ingredients cast as List<String>');
+      } else if (product['ingredients'] is List<dynamic>) {
+        ingredients = (product['ingredients'] as List<dynamic>)
+            .map((e) => e.toString())
+            .toList();
+        print('DEBUG: Ingredients cast from List<dynamic> to List<String>');
+      }
+    }
+    
+    // Safely cast ingredientAllergenMap
+    Map<String, List<String>> ingredientAllergenMap = {};
+    if (product['ingredientAllergenMap'] != null) {
+      try {
+        final rawMap = product['ingredientAllergenMap'] as Map<String, dynamic>;
+        for (final entry in rawMap.entries) {
+          if (entry.value is List<String>) {
+            ingredientAllergenMap[entry.key] = entry.value as List<String>;
+          } else if (entry.value is List<dynamic>) {
+            ingredientAllergenMap[entry.key] = (entry.value as List<dynamic>)
+                .map((e) => e.toString())
+                .toList();
+          }
+        }
+        print('DEBUG: Successfully parsed ingredientAllergenMap');
+      } catch (e) {
+        print('DEBUG: Error parsing ingredientAllergenMap: $e');
+      }
+    }
+    
+    print('DEBUG: Final ingredients count: ${ingredients.length}');
+    print('DEBUG: Final allergen map keys: ${ingredientAllergenMap.keys.toList()}');
     
     // Calculate safety score
     final totalIngredients = ingredients.length;
@@ -650,6 +973,11 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
             ),
             
             const SizedBox(height: 20),
+            
+            // Add to Meal Plan Button
+            _buildAddToMealPlanButton(),
+            
+            const SizedBox(height: 16),
             
             // Action Buttons
             _buildActionButtons(),
@@ -712,7 +1040,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      product['product_name'] ?? 'Unknown Product',
+                      product['name'] ?? product['product_name'] ?? 'Unknown Product',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
@@ -1122,12 +1450,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
               ],
             ),
             child: ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _isProcessingOCR = true;
-                });
-                _pickIngredientPhoto();
-              },
+              onPressed: _pickIngredientPhoto,
               icon: const Icon(Icons.photo_library_rounded, color: Colors.white),
               label: const Text(
                 'Choose Photo',
@@ -1167,12 +1490,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
               ],
             ),
             child: ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _isProcessingOCR = true;
-                });
-                _captureIngredientPhoto();
-              },
+              onPressed: _captureIngredientPhoto,
               icon: const Icon(Icons.camera_alt_rounded, color: Colors.white),
               label: const Text(
                 'Take Photo',
@@ -1193,6 +1511,99 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
           ),
         ),
       ],
+    );
+  }
+
+  // Meal Plan Integration
+  Future<void> _addToMealPlan() async {
+    final product = _scannedProduct ?? _barcodeProductData!;
+    final user = FirebaseAuth.instance.currentUser;
+    
+    print('DEBUG: Adding to meal plan - Product: ${product['name']}');
+    
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to add items to meal plan')),
+      );
+      return;
+    }
+
+    try {
+      // Create a meal entry from the scanned product
+      final mealData = {
+        'title': product['name'] ?? 'Scanned Product',
+        'brand': product['brand'] ?? '',
+        'barcode': product['barcode'] ?? '',
+        'ingredients': product['ingredients'] ?? [],
+        'ingredients_text': product['ingredients_text'] ?? '',
+        'nutrition': product['nutrition'] ?? {},
+        'image': product['image'],
+        'source': product['source'] ?? 'scanner',
+        'hasAllergens': _detectedAllergens.isNotEmpty,
+        'detectedAllergens': _detectedAllergens,
+        'ingredientAllergenMap': product['ingredientAllergenMap'] ?? {},
+        'addedAt': DateTime.now().toIso8601String(),
+        'scanned': true,
+        'mealTime': 'snack', // Default meal time
+        'mealType': 'snack', // Default meal type
+        'date': DateTime.now().toIso8601String().split('T')[0], // Today's date
+      };
+
+      print('DEBUG: Meal data created: $mealData');
+
+      // Save to Firestore in the main meals collection
+      final docRef = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meals')
+          .add(mealData);
+
+      print('DEBUG: Meal saved with ID: ${docRef.id}');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${product['name']} added to meal plan!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Navigate back to meal planner
+      Navigator.pop(context, true);
+    } catch (e) {
+      print('DEBUG: Error adding to meal plan: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error adding to meal plan: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildAddToMealPlanButton() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      child: SizedBox(
+        width: double.infinity,
+        height: 56,
+        child: ElevatedButton.icon(
+          onPressed: _addToMealPlan,
+          icon: const Icon(Icons.add_circle_outline, size: 24),
+          label: const Text(
+            'Add to Meal Plan',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green[600],
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            elevation: 4,
+            shadowColor: Colors.green.withOpacity(0.3),
+          ),
+        ),
+      ),
     );
   }
 

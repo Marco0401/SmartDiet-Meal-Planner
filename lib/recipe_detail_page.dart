@@ -99,9 +99,14 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'meal_planner' ||
           source == 'local' ||
           source == 'expert_plan' ||
+          source == 'scanner' ||
+          source == 'openfoodfacts' ||
+          source == 'OpenFoodFacts' ||
+          source == 'usda' ||
+          source == 'USDA' ||
           substituted == true) {
-        // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, or meal from planner - use the data directly
-        print('DEBUG: Local/manual/substituted/expert_plan/meal_planner recipe, using data directly');
+        // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, meal from planner, or scanned product - use the data directly
+        print('DEBUG: Local/manual/substituted/expert_plan/meal_planner/scanned recipe, using data directly');
         print('DEBUG: Using meal data directly - summary: ${widget.recipe['summary']}, description: ${widget.recipe['description']}');
         
         // If this is a substituted recipe, recalculate nutrition only if not already recalculated
