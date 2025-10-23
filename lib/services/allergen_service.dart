@@ -170,6 +170,8 @@ class AllergenService {
   /// Get substitution suggestions for a specific allergen
   static Future<List<String>> getSubstitutions(String allergenType) async {
     try {
+      print('DEBUG: Getting substitutions for allergen: "$allergenType"');
+      
       // First try to get from Firestore
       final doc = await _firestore
           .collection('system_data')
@@ -179,7 +181,21 @@ class AllergenService {
       if (doc.exists) {
         final data = doc.data();
         final substitutions = data?['data'] as Map<String, dynamic>? ?? {};
-        final allergenSubstitutions = substitutions[allergenType] as List<dynamic>? ?? [];
+        
+        print('DEBUG: Available substitution categories: ${substitutions.keys.toList()}');
+        
+        // Try both original case and lowercase
+        String searchKey = allergenType;
+        List<dynamic> allergenSubstitutions = substitutions[searchKey] as List<dynamic>? ?? [];
+        
+        if (allergenSubstitutions.isEmpty) {
+          // Try lowercase version
+          searchKey = allergenType.toLowerCase();
+          allergenSubstitutions = substitutions[searchKey] as List<dynamic>? ?? [];
+          print('DEBUG: Trying lowercase key "$searchKey", found ${allergenSubstitutions.length} substitutions');
+        } else {
+          print('DEBUG: Found ${allergenSubstitutions.length} substitutions with original key "$searchKey"');
+        }
         
         // Handle both old format (List<String>) and new format (List<Map>)
         final substitutionStrings = <String>[];
@@ -196,14 +212,19 @@ class AllergenService {
           }
         }
         
+        print('DEBUG: Returning ${substitutionStrings.length} substitution strings: $substitutionStrings');
         return substitutionStrings;
+      } else {
+        print('DEBUG: No substitutions document found in Firestore');
       }
     } catch (e) {
       print('Error getting substitutions from Firestore: $e');
     }
     
     // Fallback to hardcoded data
-    return _substitutions[allergenType] ?? [];
+    final fallbackSubstitutions = _substitutions[allergenType] ?? [];
+    print('DEBUG: Using fallback substitutions: $fallbackSubstitutions');
+    return fallbackSubstitutions;
   }
 
   /// Get all substitution suggestions (for admin interface)

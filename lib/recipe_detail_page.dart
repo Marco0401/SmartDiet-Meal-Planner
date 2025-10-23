@@ -12,7 +12,7 @@ import 'services/substitution_nutrition_service.dart';
 import 'meal_favorites_page.dart';
 import 'meal_plan_dialog.dart';
 import 'widgets/allergen_warning_dialog.dart';
-import 'widgets/ingredient_substitution_dialog.dart';
+import 'widgets/substitution_dialog_helper.dart';
 
 class RecipeDetailPage extends StatefulWidget {
   final Map<String, dynamic> recipe;
@@ -104,24 +104,48 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         print('DEBUG: Local/manual/substituted/expert_plan/meal_planner recipe, using data directly');
         print('DEBUG: Using meal data directly - summary: ${widget.recipe['summary']}, description: ${widget.recipe['description']}');
         
-        // If this is a substituted recipe, recalculate nutrition
+        // If this is a substituted recipe, recalculate nutrition only if not already recalculated
         if (substituted == true) {
-          print('DEBUG: Recipe is substituted, recalculating nutrition...');
-          try {
-            // Store original nutrition if not already stored
-            if (widget.recipe['originalNutrition'] == null) {
-              widget.recipe['originalNutrition'] = Map<String, dynamic>.from(widget.recipe['nutrition'] ?? {});
+          // Check if nutrition has already been recalculated by comparing with original
+          final currentCalories = (widget.recipe['nutrition']?['calories'] as num?)?.toDouble() ?? 0;
+          final originalCalories = (widget.recipe['originalNutrition']?['calories'] as num?)?.toDouble() ?? 0;
+          
+          print('DEBUG: Substituted recipe check - current: $currentCalories, original: $originalCalories');
+          print('DEBUG: originalNutrition is null: ${widget.recipe['originalNutrition'] == null}');
+          print('DEBUG: currentCalories == 0.0: ${currentCalories == 0.0}');
+          print('DEBUG: Will recalculate: ${widget.recipe['originalNutrition'] == null || currentCalories == 0.0}');
+          
+          // Always recalculate if originalNutrition is null (indicating no original data stored) OR current nutrition is 0 (indicating no nutrition data)
+          if (widget.recipe['originalNutrition'] == null || currentCalories == 0.0) {
+            print('DEBUG: Recipe is substituted, recalculating nutrition...');
+            print('DEBUG: About to call SubstitutionNutritionService.recalculateNutritionWithSubstitutions');
+            try {
+              // Store original nutrition if not already stored
+              if (widget.recipe['originalNutrition'] == null) {
+                // For substituted recipes, we need to calculate the original nutrition
+                // by temporarily reverting substitutions and calculating with original ingredients
+                print('DEBUG: Calculating original nutrition by reverting substitutions...');
+                
+                // Store current nutrition as original (this is the nutrition with substitutions)
+                // The SubstitutionNutritionService will recalculate based on the substituted ingredients
+                widget.recipe['originalNutrition'] = Map<String, dynamic>.from(widget.recipe['nutrition'] ?? {});
+                print('DEBUG: Set originalNutrition to current nutrition for recalculation');
+              }
+              
+              print('DEBUG: Calling SubstitutionNutritionService.recalculateNutritionWithSubstitutions...');
+              final adjustedNutrition = await SubstitutionNutritionService.recalculateNutritionWithSubstitutions(widget.recipe);
+              print('DEBUG: Got result from SubstitutionNutritionService: $adjustedNutrition');
+              widget.recipe['nutrition'] = adjustedNutrition;
+              print('DEBUG: Nutrition recalculated for substituted recipe');
+              
+              // Update the meal in Firestore to persist the changes
+              await _updateMealInFirestore(widget.recipe);
+              print('DEBUG: Updated meal in Firestore with recalculated nutrition');
+            } catch (e) {
+              print('DEBUG: Error recalculating nutrition for substituted recipe: $e');
             }
-            
-            final adjustedNutrition = await SubstitutionNutritionService.recalculateNutritionWithSubstitutions(widget.recipe);
-            widget.recipe['nutrition'] = adjustedNutrition;
-            print('DEBUG: Nutrition recalculated for substituted recipe');
-            
-            // Update the meal in Firestore to persist the changes
-            await _updateMealInFirestore(widget.recipe);
-            print('DEBUG: Updated meal in Firestore with recalculated nutrition');
-          } catch (e) {
-            print('DEBUG: Error recalculating nutrition for substituted recipe: $e');
+          } else {
+            print('DEBUG: Nutrition already recalculated for substituted recipe (current: $currentCalories, original: $originalCalories)');
           }
         }
         
@@ -380,13 +404,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         } else if (warningResult == 'substitute') {
           // User chose to substitute, show substitution dialog
           print('DEBUG: User chose to substitute, showing substitution dialog');
-          final substitutionResult = await showDialog<Map<String, dynamic>>(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => IngredientSubstitutionDialog(
-              recipe: recipe,
-              detectedAllergens: detectedAllergens,
-            ),
+          final substitutionResult = await SubstitutionDialogHelper.showSubstitutionDialog(
+            context,
+            recipe,
+            detectedAllergens,
           );
           
           if (substitutionResult != null) {

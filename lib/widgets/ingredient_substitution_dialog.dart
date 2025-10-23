@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/allergen_service.dart';
-import '../services/nutrition_service.dart';
 import '../services/substitution_nutrition_service.dart';
 import 'multi_substitution_dialog.dart';
 

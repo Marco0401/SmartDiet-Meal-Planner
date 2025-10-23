@@ -716,10 +716,10 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                                 ],
                               ),
                               
-                // Notifications Section
-                _buildSectionCard(
+                              // Notifications Section
+                              _buildSectionCard(
                   title: '🔔 Push Notifications',
-                  icon: Icons.notifications,
+                                    icon: Icons.notifications,
                   children: [
                     Container(
                       padding: const EdgeInsets.all(12),

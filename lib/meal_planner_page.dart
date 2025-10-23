@@ -8,11 +8,10 @@ import 'services/filipino_recipe_service.dart';
 import 'services/allergen_detection_service.dart';
 import 'services/notification_service.dart';
 import 'widgets/allergen_warning_dialog.dart';
-import 'widgets/ingredient_substitution_dialog.dart';
+import 'widgets/substitution_dialog_helper.dart';
 import 'widgets/time_picker_dialog.dart' as time_picker;
 import 'recipe_detail_page.dart';
 import 'manual_meal_entry_page.dart';
-import 'barcode_scanner_page.dart';
 import 'nutrition_analytics_page.dart';
 import 'expert_meal_plans_page.dart';
 import 'models/user_profile.dart';
@@ -296,36 +295,10 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
               normalizedMealType = 'Lunch';
           }
           
-          // Apply smart categorization to fix incorrect meal types
-          final title = mealData['title']?.toString() ?? '';
-          final originalMealType = normalizedMealType;
-          print('DEBUG: Checking categorization for "$title" (current mealType: $normalizedMealType)');
-          
-          // Check if it should be a snack/dessert
-          if (_isSnackRecipe(mealData)) {
-            print('DEBUG: Re-categorizing "$title" from $normalizedMealType to Snack');
-            normalizedMealType = 'Snack';
-          }
-          // Check if it should be breakfast (but not if it's already a snack)
-          else if (_isBreakfastRecipe(mealData) && normalizedMealType != 'Snack') {
-            print('DEBUG: Re-categorizing "$title" from $normalizedMealType to Breakfast');
-            normalizedMealType = 'Breakfast';
-          }
-          // Check if it should be lunch (but not if it's already a snack)
-          else if (_isLunchRecipe(mealData) && normalizedMealType != 'Snack') {
-            print('DEBUG: Re-categorizing "$title" from $normalizedMealType to Lunch');
-            normalizedMealType = 'Lunch';
-          }
-          // Check if it should be dinner (but not if it's already a snack)
-          else if (_isDinnerRecipe(mealData) && normalizedMealType != 'Snack') {
-            print('DEBUG: Re-categorizing "$title" from $normalizedMealType to Dinner');
-            normalizedMealType = 'Dinner';
-          }
-
-          // Handle meal time - use stored time or default based on CORRECTED meal type
+          // Handle meal time - use stored time or default based on meal type
           TimeOfDay mealTime;
-          if (mealData['mealTime'] != null && originalMealType == normalizedMealType) {
-            // Only use stored time if meal type wasn't changed
+          if (mealData['mealTime'] != null) {
+            // Use stored time if available
             final timeData = mealData['mealTime'];
             if (timeData is Map && timeData['hour'] != null && timeData['minute'] != null) {
               mealTime = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
@@ -419,14 +392,12 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             }
           }
 
-          // Apply balanced distribution to loaded meals
-          final balancedMeals = _applyBalancedDistribution(meals);
+          print('DEBUG: Loaded ${meals.length} meals for $dateKey');
           
-          print('DEBUG: Loaded ${meals.length} meals for $dateKey, balanced to ${balancedMeals.length} meals');
-          for (final meal in balancedMeals) {
+          for (final meal in meals) {
             print('DEBUG: Meal: ${meal['title']} (${meal['mealType']}) - ${meal['nutrition']?['calories']} cal');
           }
-          _weeklyMeals[dateKey] = balancedMeals;
+          _weeklyMeals[dateKey] = meals;
         }
       }
     } catch (e) {
@@ -440,76 +411,6 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     }
   }
 
-  /// Apply balanced distribution to loaded meals to ensure all meal types are represented
-  List<Map<String, dynamic>> _applyBalancedDistribution(List<Map<String, dynamic>> meals) {
-    if (meals.isEmpty) return meals;
-    
-    // Group meals by type
-    final mealsByType = <String, List<Map<String, dynamic>>>{
-      'Breakfast': [],
-      'Lunch': [],
-      'Dinner': [],
-      'Snack': [],
-    };
-    
-    for (final meal in meals) {
-      final mealType = meal['mealType']?.toString() ?? 'Lunch';
-      if (mealsByType.containsKey(mealType)) {
-        mealsByType[mealType]!.add(meal);
-      }
-    }
-    
-    final balancedMeals = <Map<String, dynamic>>[];
-    final random = Random();
-    
-    // Ensure we have at least one of each main meal type
-    final mainMealTypes = ['Breakfast', 'Lunch', 'Dinner'];
-    final usedMeals = <String>{};
-    
-    for (final mealType in mainMealTypes) {
-      final availableMeals = mealsByType[mealType]!
-          .where((meal) => !usedMeals.contains(meal['id']))
-          .toList();
-      
-      if (availableMeals.isNotEmpty) {
-        // Use a meal from the correct category
-        final selectedMeal = availableMeals[random.nextInt(availableMeals.length)];
-        usedMeals.add(selectedMeal['id']);
-        balancedMeals.add(selectedMeal);
-        print('DEBUG: Balanced distribution - Added $mealType: ${selectedMeal['title']}');
-      } else {
-        // Fallback: Use any unused meal for this meal type
-        final fallbackMeals = meals
-            .where((meal) => !usedMeals.contains(meal['id']))
-            .toList();
-        
-        if (fallbackMeals.isNotEmpty) {
-          final fallbackMeal = fallbackMeals[random.nextInt(fallbackMeals.length)];
-          usedMeals.add(fallbackMeal['id']);
-          // Override the meal type to ensure proper categorization
-          final correctedMeal = Map<String, dynamic>.from(fallbackMeal);
-          correctedMeal['mealType'] = mealType;
-          correctedMeal['mealTime'] = getDefaultTimeForMealType(mealType);
-          balancedMeals.add(correctedMeal);
-          print('DEBUG: Balanced distribution - Added fallback $mealType: ${fallbackMeal['title']}');
-        }
-      }
-    }
-    
-    // Add snacks if available and not already used
-    final availableSnacks = mealsByType['Snack']!
-        .where((meal) => !usedMeals.contains(meal['id']))
-        .toList();
-    
-    if (availableSnacks.isNotEmpty) {
-      final snack = availableSnacks[random.nextInt(availableSnacks.length)];
-      usedMeals.add(snack['id']);
-      balancedMeals.add(snack);
-      print('DEBUG: Balanced distribution - Added Snack: ${snack['title']}');
-    }
-    
-    return balancedMeals;
-  }
 
   Future<void> _cleanupDuplicateMeals() async {
     try {
@@ -1340,23 +1241,6 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 16),
-          FloatingActionButton.extended(
-        onPressed: () => _showQuickAddMeal(),
-            heroTag: "quick_add",
-        icon: const Icon(Icons.add),
-            label: const Text(
-              "Quick Add",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            backgroundColor: const Color(0xFF2E7D32),
-            elevation: 8,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
         ],
       ),
     );
@@ -1727,20 +1611,6 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           ),
         );
       },
-    );
-  }
-
-  void _showQuickAddMeal() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => QuickAddMealSheet(
-        onMealAdded: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Meal added successfully!'))
-          );
-        },
-      ),
     );
   }
 
@@ -3077,13 +2947,10 @@ class _AddMealDialogState extends State<AddMealDialog> {
                 Navigator.of(context).pop();
                 
                 // Show ingredient substitution dialog
-                final substitutionResult = await showDialog<Map<String, dynamic>>(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (context) => IngredientSubstitutionDialog(
-                    recipe: fullRecipe,
-                    detectedAllergens: detectedAllergens,
-                  ),
+                final substitutionResult = await SubstitutionDialogHelper.showSubstitutionDialog(
+                  context,
+                  fullRecipe,
+                  detectedAllergens,
                 );
                 
                 if (substitutionResult != null) {
@@ -3098,8 +2965,8 @@ class _AddMealDialogState extends State<AddMealDialog> {
                   });
                   
                   // Create the meal object for substituted meal
-                  final substitutedMeal = {
-                    ...substitutionResult,
+                  final substitutedMeal = <String, dynamic>{
+                    ...substitutionResult!,
                     'mealType': widget.mealType,
                     'addedAt': DateTime.now().toIso8601String(),
                     'id': null, // Will be set by Firestore
@@ -3362,78 +3229,4 @@ class _AddMealDialogState extends State<AddMealDialog> {
   }
 }
 
-class QuickAddMealSheet extends StatelessWidget {
-  final VoidCallback? onMealAdded;
-  
-  const QuickAddMealSheet({super.key, this.onMealAdded});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Quick Add Meal',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.green[800],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ManualMealEntryPage(),
-                      ),
-                    );
-                    if (result == true && onMealAdded != null) {
-                      onMealAdded!();
-                    }
-                  },
-                  icon: const Icon(Icons.edit),
-                  label: const Text('Manual Entry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const BarcodeScannerPage(),
-                      ),
-                    );
-                    if (result == true && onMealAdded != null) {
-                      onMealAdded!();
-                    }
-                  },
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Scan Barcode'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
 

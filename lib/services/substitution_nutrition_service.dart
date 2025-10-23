@@ -64,6 +64,34 @@ class SubstitutionNutritionService {
                   return convertedNutrition;
                 }
               }
+                     // Try more flexible matching for substitutions with parentheses
+                     else {
+                       // Extract key words from both strings for comparison
+                       final substitutionWords = substitutionText.toLowerCase().split(RegExp(r'[^a-z]')).where((w) => w.isNotEmpty).toSet();
+                       final searchWords = substitution.toLowerCase().split(RegExp(r'[^a-z]')).where((w) => w.isNotEmpty).toSet();
+                       
+                       // Check if there's significant overlap in key words
+                       final commonWords = substitutionWords.intersection(searchWords);
+                       
+                       // For better matching, prioritize exact ingredient name matches
+                       final hasExactIngredientMatch = commonWords.any((word) => 
+                         word == 'banana' || word == 'applesauce' || word == 'tofu' || 
+                         word == 'flax' || word == 'chia' || word == 'commercial');
+                       
+                       if (hasExactIngredientMatch || (commonWords.length >= 2 && commonWords.any((word) => word.length > 3))) {
+                         print('DEBUG: Flexible match found: "$substitutionText" matches "$substitution" (common words: $commonWords)');
+                         final nutrition = sub['nutrition'] as Map<String, dynamic>?;
+                         if (nutrition != null) {
+                           print('DEBUG: Found nutrition data: $nutrition');
+                           // Convert all values to double, handling both int and double types
+                           final convertedNutrition = <String, double>{};
+                           for (final entry in nutrition.entries) {
+                             convertedNutrition[entry.key] = (entry.value as num).toDouble();
+                           }
+                           return convertedNutrition;
+                         }
+                       }
+                     }
             }
           }
         }
@@ -84,6 +112,19 @@ class SubstitutionNutritionService {
     try {
       print('DEBUG: Starting nutrition recalculation for recipe: ${recipe['title']}');
       
+      // First check if this is actually a substituted recipe
+      if (recipe['substituted'] != true) {
+        print('DEBUG: Non-substituted recipe, returning current nutrition');
+        // Safely convert nutrition values to double
+        final currentNutrition = <String, double>{};
+        if (recipe['nutrition'] != null) {
+          for (final entry in (recipe['nutrition'] as Map).entries) {
+            currentNutrition[entry.key] = (entry.value as num).toDouble();
+          }
+        }
+        return currentNutrition;
+      }
+      
       // For substituted recipes, check if nutrition has already been recalculated
       if (recipe['substituted'] == true) {
         // Check if originalNutrition exists and is different from current nutrition
@@ -93,59 +134,125 @@ class SubstitutionNutritionService {
           
           print('DEBUG: Original: $originalCalories cal, Current: $currentCalories cal');
           
+          // If current nutrition is 0.0, it hasn't been calculated yet - we need to recalculate
           // If current nutrition is already significantly different from original, it's been recalculated
-          if ((currentCalories - originalCalories).abs() > 100.0) {
+          if (currentCalories > 0.0 && (currentCalories - originalCalories).abs() > 100.0) {
             print('DEBUG: Nutrition already recalculated, returning current values');
-            return Map<String, double>.from(recipe['nutrition']);
+            // Safely convert nutrition values to double
+            final currentNutrition = <String, double>{};
+            for (final entry in (recipe['nutrition'] as Map).entries) {
+              currentNutrition[entry.key] = (entry.value as num).toDouble();
+            }
+            return currentNutrition;
           }
         }
         
-        // Use the existing NutritionService to recalculate the recipe
-        print('DEBUG: Using NutritionService to recalculate recipe nutrition');
+        // Recalculate nutrition for the entire recipe with substituted ingredients
+        print('DEBUG: Recalculating nutrition for entire recipe with substitutions');
+        
+        // Get ingredients from either 'extendedIngredients' or 'ingredients' field
+        List<dynamic> ingredients = [];
+        if (recipe['extendedIngredients'] != null) {
+          ingredients = recipe['extendedIngredients'] as List<dynamic>;
+          print('DEBUG: Using extendedIngredients field with ${ingredients.length} items');
+        } else if (recipe['ingredients'] != null) {
+          ingredients = recipe['ingredients'] as List<dynamic>;
+          print('DEBUG: Using ingredients field with ${ingredients.length} items');
+        }
         
         // Convert ingredients to the format expected by NutritionService
-        final ingredients = <String>[];
-        final regularIngredients = recipe['ingredients'] as List<dynamic>? ?? [];
+        final nutritionIngredients = <String>[];
         
-        for (final ingredient in regularIngredients) {
+        for (final ingredient in ingredients) {
+          String ingredientName;
+          bool isSubstitution = false;
+          
+          print('DEBUG: Raw ingredient data: $ingredient');
+          
           if (ingredient is String) {
-            // Check if this is a substitution
-            if (ingredient.contains('(') && ingredient.contains('per') && ingredient.contains('egg')) {
-              // Extract the substitution name (before parentheses)
-              final substitutionName = ingredient.split('(')[0].trim().toLowerCase();
-              print('DEBUG: Found substitution: $substitutionName');
-              
-              // Add substitution ingredient as string
-              ingredients.add(substitutionName);
-            } else {
-              // Regular ingredient - add as is
-              ingredients.add(ingredient.toLowerCase());
+            ingredientName = ingredient;
+            // Check if this is a substitution (contains parentheses and "per")
+            isSubstitution = ingredient.contains('(') && ingredient.contains('per');
+            print('DEBUG: String ingredient "$ingredientName" - substitution: $isSubstitution');
+          } else if (ingredient is Map<String, dynamic>) {
+            // Handle extendedIngredients format
+            ingredientName = ingredient['name']?.toString() ?? '';
+            final substitutedFlag = ingredient['substituted'];
+            print('DEBUG: Map ingredient "$ingredientName" - substituted flag: $substitutedFlag (type: ${substitutedFlag.runtimeType})');
+            
+            // Check if it's marked as substituted OR if the name contains substitution patterns
+            isSubstitution = substitutedFlag == true || 
+                            (ingredientName.contains('(') && ingredientName.contains('per')) ||
+                            ingredientName.contains('for ') ||
+                            ingredientName.contains('substitute') ||
+                            ingredientName.contains('Banana') ||
+                            ingredientName.contains('Applesauce') ||
+                            ingredientName.contains('Tofu');
+            
+            print('DEBUG: Map ingredient "$ingredientName" - final substitution: $isSubstitution');
+          } else {
+            print('DEBUG: Skipping invalid ingredient type: ${ingredient.runtimeType}');
+            continue; // Skip invalid ingredients
+          }
+          
+          if (isSubstitution) {
+            print('DEBUG: Processing substitution: "$ingredientName"');
+            
+            // For substituted ingredients, use the substitution name for nutrition calculation
+            nutritionIngredients.add(ingredientName.toLowerCase());
+          } else {
+            // For regular ingredients, use the clean name
+            String cleanName = ingredientName;
+            if (ingredient is Map<String, dynamic>) {
+              cleanName = ingredient['nameClean']?.toString() ?? ingredientName;
             }
+            nutritionIngredients.add(cleanName.toLowerCase());
           }
         }
         
-        print('DEBUG: Parsed ingredients for recalculation: $ingredients');
+        print('DEBUG: Final ingredients for nutrition calculation: $nutritionIngredients');
         
-        // Use NutritionService to calculate nutrition
-        final calculatedNutrition = await NutritionService.calculateRecipeNutrition(ingredients);
+        // Calculate nutrition for the entire recipe
+        final adjustedNutrition = await NutritionService.calculateRecipeNutrition(nutritionIngredients);
+        print('DEBUG: Calculated nutrition for substituted recipe: $adjustedNutrition');
+        
+        // Ensure no negative values
+        adjustedNutrition['calories'] = adjustedNutrition['calories']!.clamp(0.0, double.infinity);
+        adjustedNutrition['protein'] = adjustedNutrition['protein']!.clamp(0.0, double.infinity);
+        adjustedNutrition['carbs'] = adjustedNutrition['carbs']!.clamp(0.0, double.infinity);
+        adjustedNutrition['fat'] = adjustedNutrition['fat']!.clamp(0.0, double.infinity);
+        adjustedNutrition['fiber'] = adjustedNutrition['fiber']!.clamp(0.0, double.infinity);
         
         print('DEBUG: Final adjusted nutrition:');
-        print('  - Calories: ${calculatedNutrition['calories']}');
-        print('  - Protein: ${calculatedNutrition['protein']}');
-        print('  - Carbs: ${calculatedNutrition['carbs']}');
-        print('  - Fat: ${calculatedNutrition['fat']}');
-        print('  - Fiber: ${calculatedNutrition['fiber']}');
+        print('  - Calories: ${adjustedNutrition['calories']}');
+        print('  - Protein: ${adjustedNutrition['protein']}');
+        print('  - Carbs: ${adjustedNutrition['carbs']}');
+        print('  - Fat: ${adjustedNutrition['fat']}');
+        print('  - Fiber: ${adjustedNutrition['fiber']}');
         
-        return Map<String, double>.from(calculatedNutrition);
+        return adjustedNutrition;
       }
       
       // For non-substituted recipes, return current nutrition
       print('DEBUG: Non-substituted recipe, returning current nutrition');
-      return Map<String, double>.from(recipe['nutrition'] ?? {});
+      // Safely convert nutrition values to double
+      final currentNutrition = <String, double>{};
+      if (recipe['nutrition'] != null) {
+        for (final entry in (recipe['nutrition'] as Map).entries) {
+          currentNutrition[entry.key] = (entry.value as num).toDouble();
+        }
+      }
+      return currentNutrition;
     } catch (e) {
       print('Error recalculating nutrition with substitutions: $e');
       // Return original nutrition as fallback
-      return Map<String, double>.from(recipe['nutrition'] ?? {});
+      final fallbackNutrition = <String, double>{};
+      if (recipe['nutrition'] != null) {
+        for (final entry in (recipe['nutrition'] as Map).entries) {
+          fallbackNutrition[entry.key] = (entry.value as num).toDouble();
+        }
+      }
+      return fallbackNutrition;
     }
   }
   
