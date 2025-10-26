@@ -74,7 +74,7 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
           .doc(user.uid)
           .collection('meal_plans')
           .add({
-        'name': 'AI Meal Plan - ${_selectedDays} days',
+        'name': 'AI Meal Plan - $_selectedDays days',
         'type': 'AI',
         'goal': _selectedGoal ?? 'General health',
         'days': _selectedDays,
@@ -721,10 +721,10 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: mealPlan!.length,
+      itemCount: mealPlan.length,
       itemBuilder: (context, index) {
         final dayKey = mealPlan!.keys.elementAt(index);
-        final dayData = mealPlan![dayKey] as Map<String, dynamic>;
+        final dayData = mealPlan[dayKey] as Map<String, dynamic>;
         final dayNumber = index + 1;
 
         return Card(
@@ -811,7 +811,7 @@ class _AIMealPlannerPageState extends State<AIMealPlannerPage>
             final mealType = entry.key;
             final mealData = entry.value as Map<String, dynamic>? ?? {};
             return _buildMealTile(mealType, mealData);
-          }).toList()
+          })
         else
           const Padding(
             padding: EdgeInsets.all(16),

@@ -127,12 +127,29 @@ class NotificationService {
 
       // Sort by creation date and limit
       allNotifications.sort((a, b) {
-        final aTime = a['createdAt'] as Timestamp?;
-        final bTime = b['createdAt'] as Timestamp?;
-        if (aTime == null && bTime == null) return 0;
-        if (aTime == null) return 1;
-        if (bTime == null) return -1;
-        return bTime.compareTo(aTime);
+        final aTime = a['createdAt'];
+        final bTime = b['createdAt'];
+        
+        // Handle both Timestamp and String types
+        DateTime? aDateTime;
+        DateTime? bDateTime;
+        
+        if (aTime is Timestamp) {
+          aDateTime = aTime.toDate();
+        } else if (aTime is String) {
+          aDateTime = DateTime.tryParse(aTime);
+        }
+        
+        if (bTime is Timestamp) {
+          bDateTime = bTime.toDate();
+        } else if (bTime is String) {
+          bDateTime = DateTime.tryParse(bTime);
+        }
+        
+        if (aDateTime == null && bDateTime == null) return 0;
+        if (aDateTime == null) return 1;
+        if (bDateTime == null) return -1;
+        return bDateTime.compareTo(aDateTime);
       });
 
       return allNotifications.take(limit).toList();
@@ -350,7 +367,7 @@ class NotificationService {
     
     await createNotification(
       title: 'Goal Achievement!',
-      message: 'You\'ve reached ${percentage}% of your $goal goal! Keep it up!',
+      message: 'You\'ve reached $percentage% of your $goal goal! Keep it up!',
       type: 'Tips',
       icon: Icons.emoji_events,
       color: Colors.amber,

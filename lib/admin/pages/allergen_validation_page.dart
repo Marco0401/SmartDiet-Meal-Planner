@@ -177,7 +177,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
             ...filteredAllergens.map((entry) => _buildAllergenCard(
               entry.key,
               entry.value,
-            )).toList(),
+            )),
           ],
         );
       },
@@ -234,7 +234,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
             ...filteredSubstitutions.map((entry) => _buildSubstitutionCard(
               entry.key,
               entry.value,
-            )).toList(),
+            )),
           ],
         );
       },
@@ -593,7 +593,7 @@ class _AllergenValidationPageState extends State<AllergenValidationPage> with Ti
                       ],
                     ),
                   );
-                }).toList(),
+                }),
                 if (substitutionMap.length > 5)
                   Text(
                     '... and ${substitutionMap.length - 5} more',

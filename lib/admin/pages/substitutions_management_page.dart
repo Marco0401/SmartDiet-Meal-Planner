@@ -656,12 +656,12 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                   // Try to find matching admin substitution
                   final matchingAdminSubstitution = await _findMatchingAdminSubstitution(ingredient, substitution, allergenType);
                   if (matchingAdminSubstitution != null) {
-                    final key = '${allergenType}_${matchingAdminSubstitution}';
+                    final key = '${allergenType}_$matchingAdminSubstitution';
                     usageStats[key] = (usageStats[key] ?? 0) + 1;
                     print('DEBUG: Recorded usage for: $key');
                   } else {
                     // If no exact match, create a generic key
-                    final key = '${allergenType}_${substitution}';
+                    final key = '${allergenType}_$substitution';
                     usageStats[key] = (usageStats[key] ?? 0) + 1;
                     print('DEBUG: Recorded usage for generic: $key');
                   }
@@ -688,12 +688,12 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
                 // Try to find matching admin substitution
                 final matchingAdminSubstitution = await _findMatchingAdminSubstitution(ingredient, substitution, allergenType);
                 if (matchingAdminSubstitution != null) {
-                  final key = '${allergenType}_${matchingAdminSubstitution}';
+                  final key = '${allergenType}_$matchingAdminSubstitution';
                   usageStats[key] = (usageStats[key] ?? 0) + 1;
                   print('DEBUG: Recorded usage for: $key');
                 } else {
                   // If no exact match, create a generic key
-                  final key = '${allergenType}_${substitution}';
+                  final key = '${allergenType}_$substitution';
                   usageStats[key] = (usageStats[key] ?? 0) + 1;
                   print('DEBUG: Recorded usage for generic: $key');
                 }
@@ -816,7 +816,8 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
     } 
     // Eggs
     else if (lowerIngredient.contains('egg') || lowerIngredient.contains('mayonnaise') ||
-             lowerIngredient.contains('albumen') || lowerIngredient.contains('lecithin')) {
+             lowerIngredient.contains('albumen') || lowerIngredient.contains('lecithin') ||
+             lowerIngredient.contains('egg beaters')) {
       print('DEBUG: Mapped to Eggs');
       return 'eggs';
     } 
@@ -1567,7 +1568,7 @@ class _EditSubstitutionDialogState extends State<EditSubstitutionDialog> {
             SnackBar(
               content: Text(
                 'Substitution updated successfully!\n'
-                'Updated ${updatedMealsCount} existing meals.\n'
+                'Updated $updatedMealsCount existing meals.\n'
                 '${allergenData['displayName']} → $newSubstitution',
               ),
               backgroundColor: Colors.green,

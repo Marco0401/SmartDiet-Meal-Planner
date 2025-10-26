@@ -10,6 +10,7 @@ import 'services/notification_service.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
 import 'widgets/time_picker_dialog.dart' as time_picker;
+import 'widgets/edit_meal_dialog.dart';
 import 'recipe_detail_page.dart';
 import 'manual_meal_entry_page.dart';
 import 'nutrition_analytics_page.dart';
@@ -130,7 +131,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
-              .collection('meals')
+              .collection('meal_plans')
               .doc(meal['id'])
               .update({
             'mealTime': {
@@ -249,11 +250,11 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             }
           }
 
-          // Also load individual meal documents for this date
+          // Load from meal_plans collection (new structure)
           final individualMealsQuery = await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
-              .collection('meals')
+              .collection('meal_plans')
               .where('date', isEqualTo: dateKey)
               .get();
 
@@ -269,133 +270,77 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             print('DEBUG: Firestore summary: ${mealData['summary']} (type: ${mealData['summary'].runtimeType})');
             print('DEBUG: Firestore description: ${mealData['description']} (type: ${mealData['description'].runtimeType})');
             
-            if (mealData is Map<String, dynamic>) {
-              // Convert individual meal document to meal planner format
-              // Ensure ingredients are properly formatted for RecipeDetailPage
-              final ingredients = mealData['ingredients'] ?? [];
-              final extendedIngredients = mealData['extendedIngredients'];
-              
-          // Normalize meal type to proper case (Breakfast, Lunch, Dinner, Snack)
-          String normalizedMealType = mealData['mealType'] ?? mealData['meal_type'] ?? 'lunch';
-          normalizedMealType = normalizedMealType.toLowerCase();
-          switch (normalizedMealType) {
-            case 'breakfast':
-              normalizedMealType = 'Breakfast';
-              break;
-            case 'lunch':
-              normalizedMealType = 'Lunch';
-              break;
-            case 'dinner':
-              normalizedMealType = 'Dinner';
-              break;
-            case 'snack':
-              normalizedMealType = 'Snack';
-              break;
-            default:
-              normalizedMealType = 'Lunch';
-          }
-          
-          // Handle meal time - use stored time or default based on meal type
-          TimeOfDay mealTime;
-          if (mealData['mealTime'] != null) {
-            // Use stored time if available
-            final timeData = mealData['mealTime'];
-            if (timeData is Map && timeData['hour'] != null && timeData['minute'] != null) {
-              mealTime = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
-            } else {
-              mealTime = getDefaultTimeForMealType(normalizedMealType);
-            }
+            // Convert individual meal document to meal planner format
+            // Ensure ingredients are properly formatted for RecipeDetailPage
+            final ingredients = mealData['ingredients'] ?? [];
+            final extendedIngredients = mealData['extendedIngredients'];
+            
+        // Normalize meal type to proper case (Breakfast, Lunch, Dinner, Snack)
+        String normalizedMealType = mealData['mealType'] ?? mealData['meal_type'] ?? 'lunch';
+        normalizedMealType = normalizedMealType.toLowerCase();
+        switch (normalizedMealType) {
+          case 'breakfast':
+            normalizedMealType = 'Breakfast';
+            break;
+          case 'lunch':
+            normalizedMealType = 'Lunch';
+            break;
+          case 'dinner':
+            normalizedMealType = 'Dinner';
+            break;
+          case 'snack':
+            normalizedMealType = 'Snack';
+            break;
+          default:
+            normalizedMealType = 'Lunch';
+        }
+        
+        // Handle meal time - use stored time or default based on meal type
+        TimeOfDay mealTime;
+        if (mealData['mealTime'] != null) {
+          // Use stored time if available
+          final timeData = mealData['mealTime'];
+          if (timeData is Map && timeData['hour'] != null && timeData['minute'] != null) {
+            mealTime = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
           } else {
-            // Use default time for corrected meal type
             mealTime = getDefaultTimeForMealType(normalizedMealType);
           }
+        } else {
+          // Use default time for corrected meal type
+          mealTime = getDefaultTimeForMealType(normalizedMealType);
+        }
 
-          final convertedMeal = {
-            'id': mealDoc.id,
-            'title': mealData['title'] ?? 'Unknown Meal',
-            'mealType': normalizedMealType,
-            'mealTime': mealTime,
-            'nutrition': mealData['nutrition'] ?? {},
-            'ingredients': ingredients, // Keep as-is for compatibility
-            'summary': mealData['summary'], // Include summary field
-            'extendedIngredients': extendedIngredients, // Preserve original API ingredient structure
-            'instructions': mealData['instructions'] ?? '',
-            'image': mealData['image'],
-            'cuisine': mealData['cuisine'],
-            'description': mealData['description'],
-            'hasAllergens': mealData['hasAllergens'] ?? false,
-            'detectedAllergens': mealData['detectedAllergens'],
-            'substituted': mealData['substituted'] ?? false,
-            'originalAllergens': mealData['originalAllergens'],
-            'substitutions': mealData['substitutions'],
-            'recipeId': mealData['recipeId'], // Preserve original recipe ID
-            'source': mealData['source'] ?? 'meal_planner',
-          };
-              meals.add(convertedMeal);
-            } else if (mealData is Map) {
-              // Convert Map<dynamic, dynamic> to Map<String, dynamic>
-              final convertedData = Map<String, dynamic>.from(mealData);
-              
-              // Normalize meal type to proper case (Breakfast, Lunch, Dinner, Snack)
-              String normalizedMealType = convertedData['mealType'] ?? convertedData['meal_type'] ?? 'lunch';
-              normalizedMealType = normalizedMealType.toLowerCase();
-              switch (normalizedMealType) {
-                case 'breakfast':
-                  normalizedMealType = 'Breakfast';
-                  break;
-                case 'lunch':
-                  normalizedMealType = 'Lunch';
-                  break;
-                case 'dinner':
-                  normalizedMealType = 'Dinner';
-                  break;
-                case 'snack':
-                  normalizedMealType = 'Snack';
-                  break;
-                default:
-                  normalizedMealType = 'Lunch';
-              }
-              
-              // Handle meal time - use stored time or default based on meal type
-              TimeOfDay mealTime;
-              if (convertedData['mealTime'] != null) {
-                // Convert stored time back to TimeOfDay
-                final timeData = convertedData['mealTime'];
-                if (timeData is Map && timeData['hour'] != null && timeData['minute'] != null) {
-                  mealTime = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
-                } else {
-                  mealTime = getDefaultTimeForMealType(normalizedMealType);
-                }
-              } else {
-                mealTime = getDefaultTimeForMealType(normalizedMealType);
-              }
-
-              final convertedMeal = {
-                'id': mealDoc.id,
-                'title': convertedData['title'] ?? 'Unknown Meal',
-                'mealType': normalizedMealType,
-                'mealTime': mealTime,
-                'nutrition': convertedData['nutrition'] ?? {},
-                'ingredients': convertedData['ingredients'] ?? [],
-                'instructions': convertedData['instructions'] ?? '',
-                'image': convertedData['image'],
-                'cuisine': convertedData['cuisine'],
-                'description': convertedData['description'],
-                'hasAllergens': convertedData['hasAllergens'] ?? false,
-                'detectedAllergens': convertedData['detectedAllergens'],
-                'substituted': convertedData['substituted'] ?? false,
-                'originalAllergens': convertedData['originalAllergens'],
-                'substitutions': convertedData['substitutions'],
-                'source': convertedData['source'] ?? 'meal_planner',
-              };
-              meals.add(convertedMeal);
-            }
-          }
+        final convertedMeal = {
+          'id': mealDoc.id,
+          'date': dateKey, // Add date field from Firestore for Edit button
+          'title': mealData['title'] ?? 'Unknown Meal',
+          'mealType': normalizedMealType,
+          'mealTime': mealTime,
+          'nutrition': mealData['nutrition'] ?? {},
+          'ingredients': ingredients, // Keep as-is for compatibility
+          'summary': mealData['summary'], // Include summary field
+          'extendedIngredients': extendedIngredients, // Preserve original API ingredient structure
+          'instructions': mealData['instructions'] ?? '',
+          'image': mealData['image'],
+          'cuisine': mealData['cuisine'],
+          'description': mealData['description'],
+          'hasAllergens': mealData['hasAllergens'] ?? false,
+          'detectedAllergens': mealData['detectedAllergens'],
+          'substituted': mealData['substituted'] ?? false,
+          'originalAllergens': mealData['originalAllergens'],
+          'substitutions': mealData['substitutions'],
+          'recipeId': mealData['recipeId'], // Preserve original recipe ID
+          'source': mealData['source'] ?? 'meal_planner',
+        };
+            meals.add(convertedMeal);
+                    }
 
           print('DEBUG: Loaded ${meals.length} meals for $dateKey');
           
           for (final meal in meals) {
             print('DEBUG: Meal: ${meal['title']} (${meal['mealType']}) - ${meal['nutrition']?['calories']} cal');
+            print('DEBUG: Meal nutrition data: ${meal['nutrition']}');
+            print('DEBUG: Meal nutrition type: ${meal['nutrition']?.runtimeType}');
           }
           _weeklyMeals[dateKey] = meals;
         }
@@ -426,7 +371,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         final mealsQuery = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .collection('meals')
+            .collection('meal_plans')
             .where('date', isGreaterThanOrEqualTo: _formatDate(startOfWeek))
             .where('date', isLessThan: _formatDate(endOfWeek))
             .get();
@@ -728,7 +673,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       final calories = nutritionCopy['calories'];
       if (calories != null && calories is num) {
         nutritionCopy['fiber'] = (calories * 0.02).round();
-        print('DEBUG: Added estimated fiber: ${nutritionCopy['fiber']}g for ${calories} calories');
+        print('DEBUG: Added estimated fiber: ${nutritionCopy['fiber']}g for $calories calories');
       }
     }
     
@@ -740,43 +685,61 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         print('DEBUG: Saving ${_weeklyMeals[dateKey]?.length ?? 0} meals for $dateKey');
+        
+        // Get Firestore references
+        final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+        final mealPlansRef = userRef.collection('meal_plans');
+        
         // Only save meals that don't already have an ID (new meals)
         for (final meal in _weeklyMeals[dateKey] ?? []) {
           if (meal['id'] == null) {
-            print('DEBUG: Saving new meal: ${meal['title']} (${meal['mealType']}) - ${meal['nutrition']?['calories']} cal');
-                final docRef = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('meals')
-                    .add({
-                      'title': meal['title'] ?? 'Planned Meal',
+            print('DEBUG: Saving new meal to meal_plans: ${meal['title']} (${meal['mealType']}) - ${meal['nutrition']?['calories']} cal');
+            
+            // Convert mealTime to Map if it's a TimeOfDay object
+            Map<String, int> mealTimeData;
+            if (meal['mealTime'] != null) {
+              if (meal['mealTime'] is TimeOfDay) {
+                final timeOfDay = meal['mealTime'] as TimeOfDay;
+                mealTimeData = {
+                  'hour': timeOfDay.hour,
+                  'minute': timeOfDay.minute,
+                };
+              } else {
+                mealTimeData = meal['mealTime'] as Map<String, int>;
+              }
+            } else {
+              final defaultTime = getDefaultTimeForMealType(meal['mealType'] ?? 'lunch');
+              mealTimeData = {
+                'hour': defaultTime.hour,
+                'minute': defaultTime.minute,
+              };
+            }
+            
+            final docRef = await mealPlansRef.add({
+              'title': meal['title'] ?? 'Planned Meal',
               'date': dateKey,
-                      'meal_type': meal['mealType'] ?? 'lunch',
-                      'mealType': meal['mealType'] ?? 'lunch', // Keep both for compatibility
-                      'mealTime': meal['mealTime'] != null ? {
-                        'hour': meal['mealTime'].hour,
-                        'minute': meal['mealTime'].minute,
-                      } : {
-                        'hour': getDefaultTimeForMealType(meal['mealType'] ?? 'lunch').hour,
-                        'minute': getDefaultTimeForMealType(meal['mealType'] ?? 'lunch').minute,
-                      },
-                      'nutrition': _ensureNutritionWithFiber(meal['nutrition'] ?? {}),
-                      'ingredients': meal['ingredients'] ?? [],
-                      'extendedIngredients': meal['extendedIngredients'], // Preserve original API ingredient structure
-                      'instructions': meal['instructions'] ?? '',
-                      'image': meal['image'], // Include image
-                      'cuisine': meal['cuisine'], // Include cuisine
-                      'description': meal['description'], // Include description
-                      'summary': meal['summary'], // Include summary
-                      'hasAllergens': meal['hasAllergens'] ?? false, // Include allergen info
-                      'detectedAllergens': meal['detectedAllergens'], // Include detected allergens
-                      'substituted': meal['substituted'] ?? false, // Include substitution info
-                      'originalAllergens': meal['originalAllergens'], // Include original allergens if substituted
-                      'substitutions': meal['substitutions'], // Include substitutions if applied
-                      'recipeId': meal['recipeId'], // Preserve original recipe ID for fetching details
-                      'created_at': FieldValue.serverTimestamp(),
-                      'source': 'meal_planner',
-                    });
+              'meal_type': meal['mealType'] ?? 'lunch',
+              'mealType': meal['mealType'] ?? 'lunch', // Keep both for compatibility
+              'mealTime': mealTimeData,
+              'nutrition': _ensureNutritionWithFiber(meal['nutrition'] ?? {}),
+              'ingredients': meal['ingredients'] ?? [],
+              'extendedIngredients': meal['extendedIngredients'], // Preserve original API ingredient structure
+              'instructions': meal['instructions'] ?? '',
+              'image': meal['image'], // Include image
+              'cuisine': meal['cuisine'], // Include cuisine
+              'description': meal['description'], // Include description
+              'summary': meal['summary'], // Include summary
+              'hasAllergens': meal['hasAllergens'] ?? false, // Include allergen info
+              'detectedAllergens': meal['detectedAllergens'], // Include detected allergens
+              'substituted': meal['substituted'] ?? false, // Include substitution info
+              'originalAllergens': meal['originalAllergens'], // Include original allergens if substituted
+              'substitutions': meal['substitutions'], // Include substitutions if applied
+              'recipeId': meal['recipeId'], // Preserve original recipe ID for fetching details
+              'created_at': FieldValue.serverTimestamp(),
+              'updated_at': FieldValue.serverTimestamp(),
+              'userId': user.uid,
+              'source': 'meal_planner',
+            });
             
             // Update the local meal with the document ID
             meal['id'] = docRef.id;
@@ -807,10 +770,10 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
-              .collection('meals')
+              .collection('meal_plans')
               .doc(mealId)
               .delete();
-          print('DEBUG: Successfully deleted individual meal document: ${mealToRemove['title']}');
+          print('DEBUG: Successfully deleted meal from meal_plans: ${mealToRemove['title']}');
         }
         
         // Check if there's an old format document that might contain this meal
@@ -905,7 +868,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     };
   }
 
-  Set<DateTime> _selectedWeeks = {};
+  final Set<DateTime> _selectedWeeks = {};
 
   Future<void> _copyPlanToOtherWeeks() async {
     final startOfWeek = _selectedDate.subtract(
@@ -1170,21 +1133,6 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                 ),
                 child: IconButton(
                   icon: const Icon(
-                    Icons.auto_awesome,
-                    color: Colors.white,
-                  ),
-                  onPressed: () => _showAIPlanningDialog(),
-                  tooltip: 'Let AI Plan for You',
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: IconButton(
-                  icon: const Icon(
                     Icons.restaurant_menu,
                     color: Colors.white,
                   ),
@@ -1215,15 +1163,20 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(child: Text('Error: $_error'))
-          : Column(
-              children: [
-                // Week Navigation
-                _buildWeekNavigation(startOfWeek),
+          : RefreshIndicator(
+              onRefresh: () async {
+                await _loadWeeklyMeals();
+              },
+              child: Column(
+                children: [
+                  // Week Navigation
+                  _buildWeekNavigation(startOfWeek),
 
 
-                // Weekly Calendar
-                Expanded(child: _buildWeeklyCalendar(startOfWeek)),
-              ],
+                  // Weekly Calendar
+                  Expanded(child: _buildWeeklyCalendar(startOfWeek)),
+                ],
+              ),
             ),
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
@@ -1524,14 +1477,36 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                                   ),
                                 ],
                               ),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  size: 20,
-                                ),
-                                onPressed: () =>
-                                    _removeMeal(dateKey, meals.indexOf(meal)),
-                                color: Colors.red[400],
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined),
+                                    onPressed: () async {
+                                      final result = await showDialog(
+                                        context: context,
+                                        builder: (context) => EditMealDialog(
+                                          meal: meal,
+                                          mealId: meal['id']?.toString() ?? '',
+                                          dateKey: dateKey,
+                                        ),
+                                      );
+                                      if (result == true) {
+                                        setState(() {
+                                          // Refresh the meal data
+                                          _loadWeeklyMeals();
+                                        });
+                                      }
+                                    },
+                                    color: Colors.blue[400],
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline),
+                                    onPressed: () =>
+                                        _removeMeal(dateKey, meals.indexOf(meal)),
+                                    color: Colors.red[400],
+                                  ),
+                                ],
                               ),
                               onTap: () async {
                                 if (meal['id'] != null) {
@@ -1558,11 +1533,9 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                                       try {
                                         print('DEBUG: Fetching full recipe details for non-substituted meal: $recipeId');
                                         final fullDetails = await RecipeService.fetchRecipeDetails(recipeId);
-                                        if (fullDetails != null) {
-                                          recipeToShow = fullDetails;
-                                          print('DEBUG: Successfully fetched full recipe details');
-                                        }
-                                      } catch (e) {
+                                        recipeToShow = fullDetails;
+                                        print('DEBUG: Successfully fetched full recipe details');
+                                                                            } catch (e) {
                                         print('DEBUG: Error fetching full recipe details: $e');
                                         // Continue with meal data if fetch fails
                                       }
@@ -2017,819 +1990,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       ),
     );
   }
-
-  // AI Meal Planning Feature
-  void _showAIPlanningDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.auto_awesome, color: Colors.orange[700]),
-            const SizedBox(width: 8),
-            const Text('AI Meal Planning'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Let AI create a personalized weekly meal plan for you!',
-              style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue[200]!),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'AI will consider:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('• Your allergies and dietary preferences'),
-                  const Text('• Your body goals and activity level'),
-                  const Text('• Balanced nutrition and variety'),
-                  const Text('• Filipino and international cuisines'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange[200]!),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber_outlined, color: Colors.orange[700], size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'This will replace your current week\'s meal plan.',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w500,
-                        color: Colors.orange[700],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              _generateAIMealPlan();
-            },
-            icon: const Icon(Icons.auto_awesome),
-            label: const Text('Generate Plan'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _generateAIMealPlan() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-      });
-    }
-
-    try {
-      // Show progress dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              Text(
-                'AI is creating your personalized meal plan...',
-                style: TextStyle(color: Colors.grey[700]),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception('User not logged in');
-
-      // Load user profile
-      final userProfile = await _loadUserProfile(user.uid);
-      
-      // Generate AI meal plan
-      final mealPlan = await _createPersonalizedMealPlan(userProfile);
-      
-      // Save the meal plan to Firestore
-      await _saveMealPlanToFirestore(user.uid, mealPlan);
-      
-      // Reload meals
-      await _loadWeeklyMeals();
-      
-      // Close progress dialog
-      if (mounted) Navigator.pop(context);
-      
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Text('AI meal plan generated successfully! 🎉'),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-    } catch (e) {
-      // Close progress dialog
-      if (mounted) Navigator.pop(context);
-      
-      print('Error generating AI meal plan: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error generating meal plan: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<UserProfile?> _loadUserProfile(String uid) async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      
-      if (doc.exists) {
-        return UserProfile.fromMap(doc.data()!);
-      }
-      return null;
-    } catch (e) {
-      print('Error loading user profile: $e');
-      return null;
-    }
-  }
-
-  Future<Map<String, List<Map<String, dynamic>>>> _createPersonalizedMealPlan(UserProfile? userProfile) async {
-    // Get available recipes
-    final allRecipes = await _getAllAvailableRecipes();
-    print('DEBUG: Total recipes fetched: ${allRecipes.length}');
-    
-    // Filter recipes based on user preferences
-    final filteredRecipes = _filterRecipesByPreferences(allRecipes, userProfile);
-    print('DEBUG: Recipes after filtering: ${filteredRecipes.length}');
-    print('DEBUG: User allergies: ${userProfile?.allergies ?? []}');
-    print('DEBUG: User dietary preferences: ${userProfile?.dietaryPreferences ?? []}');
-    
-    // Calculate daily nutrition targets
-    final nutritionTargets = _calculateNutritionTargets(userProfile);
-    
-    // Generate balanced meal plan
-    final mealPlan = <String, List<Map<String, dynamic>>>{};
-    final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-    
-    for (int day = 0; day < 7; day++) {
-      final date = startOfWeek.add(Duration(days: day));
-      final dateKey = _formatDate(date);
-      
-      // Generate meals for this day
-      final dayMeals = _generateDayMeals(filteredRecipes, nutritionTargets, day);
-      mealPlan[dateKey] = dayMeals;
-      print('DEBUG: Generated ${dayMeals.length} meals for $dateKey');
-    }
-    
-    return mealPlan;
-  }
-
-  /// Check if a recipe is appropriate for breakfast
-  bool _isBreakfastRecipe(Map<String, dynamic> recipe) {
-    final title = recipe['title']?.toString().toLowerCase() ?? '';
-    final category = recipe['category']?.toString().toLowerCase() ?? '';
-    final dishTypes = recipe['dishTypes'] as List<dynamic>? ?? [];
-    
-    // Breakfast keywords
-    final breakfastKeywords = [
-      'breakfast', 'morning', 'pancake', 'waffle', 'cereal', 'oatmeal', 'porridge',
-      'scrambled', 'omelet', 'toast', 'bagel', 'muffin', 'croissant', 'arroz caldo',
-      'tocino', 'longganisa', 'tapa', 'silog'
-    ];
-    
-    // Check if it's explicitly a dessert/snack (should NOT be breakfast)
-    final dessertKeywords = [
-      'halo-halo', 'halo halo', 'turon', 'dessert', 'cake', 'pie', 'ice cream', 'candy',
-      'chocolate', 'sweet', 'sugar', 'treat', 'snack', 'merienda', 'flan', 'leche flan',
-      'ube', 'shaved ice', 'mixed beans', 'evaporated milk', 'banana', 'jackfruit',
-      'spring roll', 'brown sugar', 'wrapper', 'champorado'
-    ];
-    
-    // If it contains dessert keywords, it's NOT breakfast
-    if (dessertKeywords.any((keyword) => title.contains(keyword))) {
-      print('DEBUG: Excluding "$title" from breakfast - detected dessert keyword');
-      return false;
-    }
-    
-    // If it contains breakfast keywords, it IS breakfast
-    final isBreakfast = breakfastKeywords.any((keyword) => 
-      title.contains(keyword) || 
-      category.contains(keyword) ||
-      dishTypes.any((type) => type.toString().toLowerCase().contains(keyword))
-    );
-    
-    if (isBreakfast) {
-      print('DEBUG: Including "$title" as breakfast - detected breakfast keyword');
-    }
-    
-    return isBreakfast;
-  }
-  
-  /// Check if a recipe is appropriate for lunch
-  bool _isLunchRecipe(Map<String, dynamic> recipe) {
-    final title = recipe['title']?.toString().toLowerCase() ?? '';
-    final category = recipe['category']?.toString().toLowerCase() ?? '';
-    final dishTypes = recipe['dishTypes'] as List<dynamic>? ?? [];
-    
-    // Lunch keywords
-    final lunchKeywords = [
-      'lunch', 'sandwich', 'salad', 'soup', 'pasta', 'rice', 'noodles',
-      'adobo', 'sinigang', 'kare-kare', 'menudo', 'caldereta', 'pinakbet'
-    ];
-    
-    return lunchKeywords.any((keyword) => 
-      title.contains(keyword) || 
-      category.contains(keyword) ||
-      dishTypes.any((type) => type.toString().toLowerCase().contains(keyword))
-    );
-  }
-  
-  /// Check if a recipe is appropriate for dinner
-  bool _isDinnerRecipe(Map<String, dynamic> recipe) {
-    final title = recipe['title']?.toString().toLowerCase() ?? '';
-    final category = recipe['category']?.toString().toLowerCase() ?? '';
-    final dishTypes = recipe['dishTypes'] as List<dynamic>? ?? [];
-    
-    // Check if it's explicitly a dessert/snack (should NOT be dinner)
-    final dessertKeywords = [
-      'halo-halo', 'halo halo', 'turon', 'dessert', 'cake', 'pie', 'ice cream', 'candy',
-      'chocolate', 'sweet', 'sugar', 'treat', 'snack', 'merienda', 'flan', 'leche flan',
-      'ube', 'shaved ice', 'mixed beans', 'evaporated milk', 'banana', 'jackfruit',
-      'spring roll', 'brown sugar', 'wrapper'
-    ];
-    
-    // If it contains dessert keywords, it's NOT dinner
-    if (dessertKeywords.any((keyword) => title.contains(keyword))) {
-      print('DEBUG: Excluding "$title" from dinner - detected dessert keyword');
-      return false;
-    }
-    
-    // Dinner keywords
-    final dinnerKeywords = [
-      'dinner', 'main course', 'roast', 'grilled', 'baked', 'fried',
-      'lechon', 'barbecue', 'steak', 'fish', 'chicken', 'beef', 'pork'
-    ];
-    
-    final isDinner = dinnerKeywords.any((keyword) => 
-      title.contains(keyword) || 
-      category.contains(keyword) ||
-      dishTypes.any((type) => type.toString().toLowerCase().contains(keyword))
-    );
-    
-    if (isDinner) {
-      print('DEBUG: Including "$title" as dinner - detected dinner keyword');
-    }
-    
-    return isDinner;
-  }
-  
-  /// Check if a recipe is appropriate for snack
-  bool _isSnackRecipe(Map<String, dynamic> recipe) {
-    final title = recipe['title']?.toString().toLowerCase() ?? '';
-    final category = recipe['category']?.toString().toLowerCase() ?? '';
-    final dishTypes = recipe['dishTypes'] as List<dynamic>? ?? [];
-    
-    // Snack keywords - including specific Filipino desserts
-    final snackKeywords = [
-      'snack', 'halo-halo', 'halo halo', 'turon', 'dessert', 'cake', 'pie', 'ice cream',
-      'candy', 'chocolate', 'sweet', 'treat', 'merienda', 'finger food', 'appetizer',
-      'flan', 'leche flan', 'ube', 'shaved ice', 'mixed beans', 'evaporated milk',
-      'banana', 'jackfruit', 'spring roll', 'brown sugar', 'wrapper', 'merienda', 'champorado'
-    ];
-    
-    final isSnack = snackKeywords.any((keyword) => 
-      title.contains(keyword) || 
-      category.contains(keyword) ||
-      dishTypes.any((type) => type.toString().toLowerCase().contains(keyword))
-    );
-    
-    if (isSnack) {
-      print('DEBUG: Including "$title" as snack - detected snack keyword');
-    }
-    
-    return isSnack;
-  }
-
-  Future<List<Map<String, dynamic>>> _getAllAvailableRecipes() async {
-    List<Map<String, dynamic>> allRecipes = [];
-    
-    try {
-      // Get Filipino recipes (these already have full details)
-      final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes('');
-      allRecipes.addAll(filipinoRecipes.cast<Map<String, dynamic>>());
-      
-      // Get API recipes with full details - use fewer search terms for faster generation
-      final searchTerms = ['healthy meal', 'dinner', 'lunch', 'breakfast'];
-      final apiRecipes = <Map<String, dynamic>>[];
-      
-      for (final term in searchTerms) {
-        try {
-          final recipes = await RecipeService.fetchRecipes(term);
-          // Limit to 5 recipes per search term for faster processing
-          apiRecipes.addAll(recipes.take(5).cast<Map<String, dynamic>>());
-        } catch (e) {
-          print('Error fetching recipes for term "$term": $e');
-        }
-      }
-      
-      // Remove duplicates based on ID
-      final uniqueApiRecipes = <String, Map<String, dynamic>>{};
-      for (final recipe in apiRecipes) {
-        final id = recipe['id']?.toString();
-        if (id != null && !uniqueApiRecipes.containsKey(id)) {
-          uniqueApiRecipes[id] = recipe;
-        }
-      }
-      final uniqueRecipes = uniqueApiRecipes.values.toList();
-      
-      // Limit total API recipes to 20 for faster processing
-      final limitedRecipes = uniqueRecipes.take(20).toList();
-      
-      // Fetch full details for each API recipe
-      for (final recipe in limitedRecipes) {
-        try {
-          final recipeId = recipe['id'];
-          if (recipeId != null && !recipeId.toString().startsWith('curated_') && !recipeId.toString().startsWith('local_')) {
-            // Fetch full recipe details
-            final fullDetails = await RecipeService.fetchRecipeDetails(recipeId);
-            if (fullDetails != null) {
-              allRecipes.add(fullDetails);
-            } else {
-              // If full details fail, use basic recipe with estimated nutrition
-              allRecipes.add(recipe);
-            }
-          } else {
-            // For Filipino/local recipes, use as-is
-            allRecipes.add(recipe);
-          }
-        } catch (e) {
-          print('Error fetching details for recipe ${recipe['id']}: $e');
-          // Use basic recipe if details fetch fails
-          allRecipes.add(recipe);
-        }
-      }
-      
-      print('DEBUG: Total recipes available for AI planning: ${allRecipes.length}');
-      return allRecipes;
-    } catch (e) {
-      print('Error fetching recipes: $e');
-      // Fallback to just Filipino recipes
-      final fallbackRecipes = await FilipinoRecipeService.fetchFilipinoRecipes('');
-      return fallbackRecipes.cast<Map<String, dynamic>>();
-    }
-  }
-
-  List<Map<String, dynamic>> _filterRecipesByPreferences(
-    List<Map<String, dynamic>> recipes,
-    UserProfile? userProfile,
-  ) {
-    if (userProfile == null) return recipes;
-    
-    return recipes.where((recipe) {
-      // Filter by allergies
-      final allergens = userProfile.allergies;
-      if (allergens.isNotEmpty) {
-        final allIngredientNames = _extractAllIngredientNames(recipe);
-        final allIngredientText = allIngredientNames.join(' ').toLowerCase();
-        
-        for (final allergen in allergens) {
-          if (allIngredientText.contains(allergen.toLowerCase())) {
-            print('DEBUG: Filtering out recipe "${recipe['title']}" due to allergen: $allergen');
-            print('DEBUG: Recipe ingredients: $allIngredientNames');
-            return false; // Skip recipes with allergens
-          }
-        }
-      }
-      
-      // Filter by dietary preferences
-      final dietaryPrefs = userProfile.dietaryPreferences;
-      if (dietaryPrefs.contains('Vegetarian')) {
-        final allIngredientNames = _extractAllIngredientNames(recipe);
-        final allIngredientText = allIngredientNames.join(' ').toLowerCase();
-        
-        if (allIngredientText.contains('meat') || 
-            allIngredientText.contains('chicken') || 
-            allIngredientText.contains('pork') || 
-            allIngredientText.contains('beef') ||
-            allIngredientText.contains('fish')) {
-          print('DEBUG: Filtering out recipe "${recipe['title']}" due to vegetarian preference');
-          return false;
-        }
-      }
-      
-      if (dietaryPrefs.contains('Vegan')) {
-        final allIngredientNames = _extractAllIngredientNames(recipe);
-        final allIngredientText = allIngredientNames.join(' ').toLowerCase();
-        
-        if (allIngredientText.contains('meat') || 
-            allIngredientText.contains('chicken') || 
-            allIngredientText.contains('pork') || 
-            allIngredientText.contains('beef') ||
-            allIngredientText.contains('fish') ||
-            allIngredientText.contains('milk') ||
-            allIngredientText.contains('cheese') ||
-            allIngredientText.contains('egg')) {
-          print('DEBUG: Filtering out recipe "${recipe['title']}" due to vegan preference');
-          return false;
-        }
-      }
-      
-      return true;
-    }).toList();
-  }
-
-  Map<String, double> _calculateNutritionTargets(UserProfile? userProfile) {
-    if (userProfile == null) {
-      return {
-        'calories': 2000,
-        'protein': 150,
-        'carbs': 250,
-        'fat': 67,
-        'fiber': 25,
-      };
-    }
-    
-    print('DEBUG: Calculating nutrition targets for user: ${userProfile.fullName}');
-    print('DEBUG: User profile - Age: ${userProfile.age}, Weight: ${userProfile.weight}kg, Height: ${userProfile.height}cm');
-    print('DEBUG: Activity Level: ${userProfile.activityLevel}, Goal: ${userProfile.goal}');
-    
-    // Calculate BMR (Basal Metabolic Rate) using Mifflin-St Jeor Equation
-    double bmr;
-    if (userProfile.gender.toLowerCase() == 'male') {
-      bmr = (10 * userProfile.weight) + (6.25 * userProfile.height) - (5 * userProfile.age) + 5;
-    } else {
-      bmr = (10 * userProfile.weight) + (6.25 * userProfile.height) - (5 * userProfile.age) - 161;
-    }
-    
-    // Apply activity multiplier
-    double activityMultiplier = 1.2; // Sedentary default
-    switch (userProfile.activityLevel.toLowerCase()) {
-      case 'lightly active':
-        activityMultiplier = 1.375;
-        break;
-      case 'moderately active':
-        activityMultiplier = 1.55;
-        break;
-      case 'very active':
-        activityMultiplier = 1.725;
-        break;
-      case 'extremely active':
-        activityMultiplier = 1.9;
-        break;
-    }
-    
-    double calories = bmr * activityMultiplier;
-    
-    // Adjust for goals with more nuanced approach
-    switch (userProfile.goal.toLowerCase()) {
-      case 'lose weight':
-        calories *= 0.8; // 20% deficit for sustainable weight loss
-        break;
-      case 'maintain weight':
-        // Keep calories as calculated
-        break;
-      case 'gain weight':
-      case 'gain muscle':
-        calories *= 1.1; // 10% surplus for lean gains
-        break;
-    }
-    
-    // Personalized macro ratios based on goals and preferences
-    double proteinRatio = 0.25; // Default 25%
-    double fatRatio = 0.30;     // Default 30%
-    double carbRatio = 0.45;    // Default 45%
-    
-    // Adjust macros based on goals
-    switch (userProfile.goal.toLowerCase()) {
-      case 'lose weight':
-        proteinRatio = 0.30; // Higher protein for satiety and muscle preservation
-        fatRatio = 0.25;     // Moderate fat
-        carbRatio = 0.45;    // Lower carbs
-        break;
-      case 'gain muscle':
-        proteinRatio = 0.30; // Higher protein for muscle building
-        fatRatio = 0.25;     // Moderate fat
-        carbRatio = 0.45;    // Higher carbs for energy
-        break;
-      case 'maintain weight':
-        // Use balanced ratios
-        break;
-    }
-    
-    // Adjust macros based on dietary preferences
-    if (userProfile.dietaryPreferences.contains('Keto')) {
-      proteinRatio = 0.20;
-      fatRatio = 0.70;     // High fat for ketosis
-      carbRatio = 0.10;    // Very low carbs
-    } else if (userProfile.dietaryPreferences.contains('High Protein')) {
-      proteinRatio = 0.35; // Very high protein
-      fatRatio = 0.25;
-      carbRatio = 0.40;
-    } else if (userProfile.dietaryPreferences.contains('Low Carb')) {
-      proteinRatio = 0.30;
-      fatRatio = 0.40;
-      carbRatio = 0.30;
-    }
-    
-    // Calculate macros
-    double protein = (calories * proteinRatio) / 4; // 4 cal/g
-    double fat = (calories * fatRatio) / 9;        // 9 cal/g
-    double carbs = (calories * carbRatio) / 4;    // 4 cal/g
-    double fiber = calories / 80; // Roughly 1g per 80 calories
-    
-    final targets = {
-      'calories': calories.round().toDouble(),
-      'protein': protein.round().toDouble(),
-      'carbs': carbs.round().toDouble(),
-      'fat': fat.round().toDouble(),
-      'fiber': fiber.round().toDouble(),
-    };
-    
-    print('DEBUG: Calculated nutrition targets:');
-    print('DEBUG: - Calories: ${targets['calories']} cal');
-    print('DEBUG: - Protein: ${targets['protein']}g (${(proteinRatio * 100).round()}%)');
-    print('DEBUG: - Carbs: ${targets['carbs']}g (${(carbRatio * 100).round()}%)');
-    print('DEBUG: - Fat: ${targets['fat']}g (${(fatRatio * 100).round()}%)');
-    print('DEBUG: - Fiber: ${targets['fiber']}g');
-    
-    return targets;
-  }
-
-  List<Map<String, dynamic>> _generateDayMeals(
-    List<Map<String, dynamic>> recipes,
-    Map<String, double> nutritionTargets,
-    int dayIndex,
-  ) {
-    final dayMeals = <Map<String, dynamic>>[];
-    final random = Random(dayIndex + DateTime.now().millisecondsSinceEpoch);
-    
-    // Calculate target calories per meal type
-    final totalCalories = nutritionTargets['calories']!;
-    final breakfastCalories = totalCalories * 0.25; // 25% for breakfast
-    final lunchCalories = totalCalories * 0.35;     // 35% for lunch
-    final dinnerCalories = totalCalories * 0.30;    // 30% for dinner
-    final snackCalories = totalCalories * 0.10;     // 10% for snack
-    
-    // Separate recipes by meal type with better categorization
-    print('DEBUG: Starting meal categorization for ${recipes.length} recipes');
-    final breakfastRecipes = recipes.where((r) {
-      final title = r['title']?.toString() ?? '';
-      final mealType = r['mealType']?.toString().toLowerCase() ?? '';
-      final calories = r['nutrition']?['calories'] ?? 600;
-      
-      // Prioritize categorization methods over existing mealType
-      final isBreakfast = _isBreakfastRecipe(r) ||
-          (mealType == 'breakfast' && !_isDinnerRecipe(r) && !_isSnackRecipe(r)) ||
-          (calories >= breakfastCalories * 0.7 && calories <= breakfastCalories * 1.3 && !_isDinnerRecipe(r) && !_isSnackRecipe(r));
-      
-      if (isBreakfast) {
-        print('DEBUG: Categorizing "$title" as breakfast (mealType: $mealType, calories: $calories)');
-      }
-      return isBreakfast;
-    }).toList();
-    
-    final lunchRecipes = recipes.where((r) {
-      final title = r['title']?.toString() ?? '';
-      final mealType = r['mealType']?.toString().toLowerCase() ?? '';
-      final calories = r['nutrition']?['calories'] ?? 600;
-      
-      // Prioritize categorization methods over existing mealType
-      final isLunch = _isLunchRecipe(r) ||
-          (mealType == 'lunch' && !_isDinnerRecipe(r) && !_isSnackRecipe(r)) ||
-          (calories >= lunchCalories * 0.7 && calories <= lunchCalories * 1.3 && !_isDinnerRecipe(r) && !_isSnackRecipe(r));
-      
-      if (isLunch) {
-        print('DEBUG: Categorizing "$title" as lunch (mealType: $mealType, calories: $calories)');
-      }
-      return isLunch;
-    }).toList();
-    
-    final dinnerRecipes = recipes.where((r) {
-      final title = r['title']?.toString() ?? '';
-      final mealType = r['mealType']?.toString().toLowerCase() ?? '';
-      final calories = r['nutrition']?['calories'] ?? 600;
-      
-      // Prioritize categorization methods over existing mealType
-      final isDinner = _isDinnerRecipe(r) ||
-          (mealType == 'dinner' && !_isSnackRecipe(r)) ||
-          (calories >= dinnerCalories * 0.7 && calories <= dinnerCalories * 1.3 && !_isSnackRecipe(r));
-      
-      if (isDinner) {
-        print('DEBUG: Categorizing "$title" as dinner (mealType: $mealType, calories: $calories)');
-      }
-      return isDinner;
-    }).toList();
-    
-    final snackRecipes = recipes.where((r) {
-      final title = r['title']?.toString() ?? '';
-      final mealType = r['mealType']?.toString().toLowerCase() ?? '';
-      final calories = r['nutrition']?['calories'] ?? 600;
-      
-      // Prioritize categorization methods over existing mealType
-      final isSnack = _isSnackRecipe(r) ||
-          (mealType == 'snack') ||
-          (calories >= snackCalories * 0.5 && calories <= snackCalories * 1.5);
-      
-      if (isSnack) {
-        print('DEBUG: Categorizing "$title" as snack (mealType: $mealType, calories: $calories)');
-      }
-      return isSnack;
-    }).toList();
-    
-    // Ensure balanced distribution - prioritize filling all meal types
-    final mealTypes = ['Breakfast', 'Lunch', 'Dinner'];
-    final mealTypeRecipes = {
-      'Breakfast': breakfastRecipes,
-      'Lunch': lunchRecipes,
-      'Dinner': dinnerRecipes,
-      'Snack': snackRecipes,
-    };
-    
-    // Track which recipes have been used
-    final usedRecipes = <String>{};
-    
-    // First pass: Add one recipe for each main meal type (Breakfast, Lunch, Dinner)
-    for (final mealType in mealTypes) {
-      final availableRecipes = mealTypeRecipes[mealType]!
-          .where((recipe) => !usedRecipes.contains(recipe['id']))
-          .toList();
-      
-      if (availableRecipes.isNotEmpty) {
-        final selectedRecipe = availableRecipes[random.nextInt(availableRecipes.length)];
-        usedRecipes.add(selectedRecipe['id']);
-        dayMeals.add({
-          ...selectedRecipe,
-          'mealType': mealType,
-          'mealTime': getDefaultTimeForMealType(mealType),
-          'servings': 1,
-        });
-        print('DEBUG: Added $mealType: ${selectedRecipe['title']}');
-      } else {
-        // Fallback: Use any unused recipe for this meal type
-        final fallbackRecipes = recipes
-            .where((recipe) => !usedRecipes.contains(recipe['id']))
-            .toList();
-        
-        if (fallbackRecipes.isNotEmpty) {
-          final fallbackRecipe = fallbackRecipes[random.nextInt(fallbackRecipes.length)];
-          usedRecipes.add(fallbackRecipe['id']);
-          dayMeals.add({
-            ...fallbackRecipe,
-            'mealType': mealType,
-            'mealTime': getDefaultTimeForMealType(mealType),
-            'servings': 1,
-          });
-          print('DEBUG: Added fallback $mealType: ${fallbackRecipe['title']}');
-        }
-      }
-    }
-    
-    // Second pass: Add snack if needed and available
-    if (nutritionTargets['calories']! > 1800) {
-      final availableSnacks = snackRecipes
-          .where((recipe) => !usedRecipes.contains(recipe['id']))
-          .toList();
-      
-      if (availableSnacks.isNotEmpty) {
-        final snack = availableSnacks[random.nextInt(availableSnacks.length)];
-        usedRecipes.add(snack['id']);
-        dayMeals.add({
-          ...snack,
-          'mealType': 'Snack',
-          'mealTime': getDefaultTimeForMealType('Snack'),
-          'servings': 1,
-        });
-        print('DEBUG: Added Snack: ${snack['title']}');
-      }
-    }
-    
-    print('DEBUG: Generated meals for day $dayIndex:');
-    for (final meal in dayMeals) {
-      final calories = meal['nutrition']?['calories'] ?? 0;
-      print('DEBUG: - ${meal['mealType']}: ${meal['title']} (${calories} cal)');
-    }
-    
-    return dayMeals;
-  }
-
-  Future<void> _saveMealPlanToFirestore(String uid, Map<String, List<Map<String, dynamic>>> mealPlan) async {
-    final batch = FirebaseFirestore.instance.batch();
-    
-    for (final dateEntry in mealPlan.entries) {
-      final dateKey = dateEntry.key;
-      final meals = dateEntry.value;
-      
-      // Clear existing meals for this date
-      final existingMealsQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('meals')
-          .where('date', isEqualTo: dateKey)
-          .get();
-      
-      for (final doc in existingMealsQuery.docs) {
-        batch.delete(doc.reference);
-      }
-      
-      // Add new meals
-      for (final meal in meals) {
-        final mealRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .collection('meals')
-            .doc();
-        
-        final mealData = {
-          ...meal,
-          'date': dateKey,
-          'addedAt': FieldValue.serverTimestamp(),
-          'aiGenerated': true,
-          'nutrition': _ensureNutritionWithFiber(meal['nutrition'] ?? {}),
-          'mealTime': meal['mealTime'] != null ? {
-            'hour': meal['mealTime'].hour,
-            'minute': meal['mealTime'].minute,
-          } : {
-            'hour': getDefaultTimeForMealType(meal['mealType'] ?? 'lunch').hour,
-            'minute': getDefaultTimeForMealType(meal['mealType'] ?? 'lunch').minute,
-          },
-        };
-        
-        batch.set(mealRef, mealData);
-      }
-    }
-    
-    await batch.commit();
-    print('DEBUG: AI meal plan saved to Firestore');
-  }
-
 }
-
 class AddMealDialog extends StatefulWidget {
   final String dateKey;
   final String mealType;
@@ -2905,13 +2066,9 @@ class _AddMealDialogState extends State<AddMealDialog> {
         try {
           // Fetch full recipe details from API
           final details = await RecipeService.fetchRecipeDetails(recipeId);
-          if (details != null) {
-            fullRecipe = details;
-            print('DEBUG: Successfully fetched full recipe details');
-          } else {
-            print('DEBUG: Failed to fetch full recipe details, using basic data');
-          }
-        } catch (e) {
+          fullRecipe = details;
+          print('DEBUG: Successfully fetched full recipe details');
+                } catch (e) {
           print('DEBUG: Error fetching full recipe details: $e');
           // Continue with basic recipe data
         }
@@ -2966,7 +2123,7 @@ class _AddMealDialogState extends State<AddMealDialog> {
                   
                   // Create the meal object for substituted meal
                   final substitutedMeal = <String, dynamic>{
-                    ...substitutionResult!,
+                    ...substitutionResult,
                     'mealType': widget.mealType,
                     'addedAt': DateTime.now().toIso8601String(),
                     'id': null, // Will be set by Firestore

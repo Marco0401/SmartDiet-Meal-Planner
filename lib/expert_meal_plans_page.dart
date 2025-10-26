@@ -468,7 +468,7 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
               children: [
                 _buildDetailChip(Icons.schedule, '$days days'),
                 const SizedBox(width: 8),
-                _buildDetailChip(Icons.local_fire_department, '${targetCalories} cal/day'),
+                _buildDetailChip(Icons.local_fire_department, '$targetCalories cal/day'),
                 const SizedBox(width: 8),
                 _buildDetailChip(Icons.restaurant, '${meals.length} meals'),
               ],
@@ -677,12 +677,12 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
     final sampleMeals = <String>[];
     for (final day in meals.take(2)) {
       final dayMeals = day as Map<String, dynamic>;
-      ['breakfast', 'lunch', 'dinner'].forEach((mealType) {
+      for (var mealType in ['breakfast', 'lunch', 'dinner']) {
         final meal = dayMeals[mealType] as Map<String, dynamic>?;
         if (meal != null && meal['name']?.isNotEmpty == true) {
           sampleMeals.add(meal['name']);
         }
-      });
+      }
     }
     return sampleMeals.take(6).toList();
   }

@@ -10,7 +10,7 @@ class AllergenDetectionService {
     'peanuts': ['peanut', 'peanuts', 'groundnut', 'groundnuts', 'arachis', 'peanut oil', 'peanut butter'],
     'tree_nuts': ['almond', 'almonds', 'walnut', 'walnuts', 'cashew', 'cashews', 'pistachio', 'pistachios', 'hazelnut', 'hazelnuts', 'pecan', 'pecans', 'brazil nut', 'brazil nuts', 'macadamia', 'macadamias'],
     'milk': ['milk', 'dairy', 'cheese', 'butter', 'cream', 'yogurt', 'yoghurt', 'lactose', 'whey', 'casein', 'ghee', 'buttermilk'],
-    'eggs': ['egg', 'eggs', 'egg white', 'egg yolk', 'albumen', 'lecithin', 'mayonnaise', 'mayo'],
+    'eggs': ['egg', 'eggs', 'egg white', 'egg yolk', 'albumen', 'lecithin', 'mayonnaise', 'mayo', 'egg beaters'],
     'fish': ['fish', 'salmon', 'tuna', 'cod', 'halibut', 'sardine', 'anchovy', 'fish sauce', 'worcestershire', 'bangus', 'milkfish', 'bangus (milkfish)', 'tilapia', 'lapu-lapu', 'galunggong', 'tamban', 'tulingan'],
     'shellfish': ['shrimp', 'prawn', 'crab', 'lobster', 'scallop', 'mussel', 'oyster', 'clam', 'shellfish', 'crustacean'],
     'wheat_gluten': ['wheat', 'flour', 'bread', 'pasta', 'noodles', 'gluten', 'semolina', 'bulgur', 'couscous', 'seitan'],

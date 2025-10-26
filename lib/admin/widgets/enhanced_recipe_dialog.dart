@@ -69,9 +69,13 @@ class _EnhancedRecipeDialogState extends State<EnhancedRecipeDialog> {
     _titleController = TextEditingController(text: widget.recipe?['title'] ?? '');
     _descriptionController = TextEditingController(text: widget.recipe?['description'] ?? '');
     _instructionsController = TextEditingController(text: widget.recipe?['instructions'] ?? '');
-    _cookingTimeController = TextEditingController(text: widget.recipe?['cookingTime']?.toString() ?? '');
+    _cookingTimeController = TextEditingController(text: widget.recipe?['readyInMinutes']?.toString() ?? widget.recipe?['cookingTime']?.toString() ?? '');
     _servingsController = TextEditingController(text: widget.recipe?['servings']?.toString() ?? '1');
-    _imageUrlController = TextEditingController(text: widget.recipe?['image'] ?? '');
+    _imageUrlController = TextEditingController(text: () {
+      final imageUrl = widget.recipe?['image'] ?? '';
+      print('DEBUG: Loading image URL into controller: "$imageUrl" (length: ${imageUrl.toString().length})');
+      return imageUrl.toString();
+    }());
     
     final recipeMealType = widget.recipe?['mealType'] ?? 'breakfast';
     _selectedMealType = _mealTypes.contains(recipeMealType) ? recipeMealType : 'breakfast';
@@ -307,7 +311,7 @@ class _EnhancedRecipeDialogState extends State<EnhancedRecipeDialog> {
                       child: TextFormField(
                         controller: _cookingTimeController,
                         decoration: InputDecoration(
-                          labelText: 'Cooking Time (min)',
+                          labelText: 'Ready in Minutes',
                           prefixIcon: const Icon(Icons.timer, size: 18),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -821,15 +825,35 @@ class _EnhancedRecipeDialogState extends State<EnhancedRecipeDialog> {
         'ingredients': ingredients,
         'mealType': _selectedMealType,
         'cookingTime': int.tryParse(_cookingTimeController.text.trim()) ?? 0,
+        'readyInMinutes': int.tryParse(_cookingTimeController.text.trim()) ?? 0,
         'servings': int.tryParse(_servingsController.text.trim()) ?? 1,
-        'image': _imageUrlController.text.trim().isNotEmpty ? _imageUrlController.text.trim() : null,
+        'image': () {
+          final imageUrl = _imageUrlController.text.trim();
+          print('DEBUG: Saving image URL: "$imageUrl" (length: ${imageUrl.length})');
+          return imageUrl.isNotEmpty ? imageUrl : '';
+        }(),
         'cuisine': _selectedCuisine,
         'difficulty': _selectedDifficulty,
         'dietType': _selectedDietType,
         'nutrition': _calculatedNutrition,
         'updatedAt': DateTime.now().toIso8601String(),
       };
+      
+      // Ensure all string fields are not null
+      recipeData['title'] = recipeData['title']?.toString() ?? '';
+      recipeData['description'] = recipeData['description']?.toString() ?? '';
+      recipeData['instructions'] = recipeData['instructions']?.toString() ?? '';
+      recipeData['image'] = recipeData['image']?.toString() ?? '';
+      recipeData['cuisine'] = recipeData['cuisine']?.toString() ?? 'Filipino';
+      recipeData['difficulty'] = recipeData['difficulty']?.toString() ?? 'Easy';
+      recipeData['dietType'] = recipeData['dietType']?.toString() ?? 'Regular';
+      recipeData['mealType'] = recipeData['mealType']?.toString() ?? 'breakfast';
 
+      // Debug logging
+      print('DEBUG: Recipe data before save: $recipeData');
+      print('DEBUG: Recipe ID: ${recipeData['id']}');
+      print('DEBUG: Recipe title: ${recipeData['title']}');
+      
       widget.onSave(recipeData);
 
       if (mounted) {

@@ -18,7 +18,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Map<String, double> _nutritionGoals = {};
   List<Map<String, dynamic>> _todayMeals = [];
   bool _isLoading = true;
-  String _todayDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final String _todayDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
   @override
   void initState() {

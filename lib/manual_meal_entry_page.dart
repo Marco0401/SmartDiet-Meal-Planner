@@ -34,6 +34,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
   final _sugarController = TextEditingController();
   final _sodiumController = TextEditingController();
   final _servingSizeController = TextEditingController();
+  final _cookingTimeController = TextEditingController();
   final _ingredientsController = TextEditingController();
   final _instructionsController = TextEditingController();
 
@@ -60,6 +61,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
       _selectedMealType = widget.mealType!;
     }
     _servingSizeController.text = '1';
+    _cookingTimeController.text = '30'; // Default 30 minutes
     
     // Pre-fill data if provided (from barcode scanning)
     if (widget.prefilledData != null) {
@@ -78,6 +80,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     _sugarController.dispose();
     _sodiumController.dispose();
     _servingSizeController.dispose();
+    _cookingTimeController.dispose();
     _ingredientsController.dispose();
     _instructionsController.dispose();
     super.dispose();
@@ -93,6 +96,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     _sugarController.text = data['sugar']?.toString() ?? '';
     _sodiumController.text = data['sodium']?.toString() ?? '';
     _servingSizeController.text = data['servingSize']?.toString() ?? '1';
+    _cookingTimeController.text = data['cookingTime']?.toString() ?? data['readyInMinutes']?.toString() ?? '30';
   }
 
   void _calculateNutritionFromIngredients() async {
@@ -169,7 +173,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
       final customRecipe = <String, dynamic>{
         'id': 'manual_${DateTime.now().millisecondsSinceEpoch}',
         'title': _foodNameController.text.trim(),
-        'image': _selectedImage?.path ?? null, // Store only the image path (no File object)
+        'image': _selectedImage?.path, // Store only the image path (no File object)
         'source': 'manual_entry',
         'cuisine': 'Custom',
         'ingredients': List<String>.from(ingredientsList), // Ensure it's a clean list of strings
@@ -184,7 +188,8 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
           'sodium': (double.tryParse(_sodiumController.text) ?? 0) * servingSize,
         },
         'servings': servingSize,
-        'readyInMinutes': 0, // Manual entry, no prep time
+        'readyInMinutes': int.tryParse(_cookingTimeController.text.trim()) ?? 30,
+        'cookingTime': int.tryParse(_cookingTimeController.text.trim()) ?? 30,
         'mealType': _selectedMealType.toLowerCase(),
       };
 
@@ -381,6 +386,27 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
                               return 'Please enter a food name';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _cookingTimeController,
+                          decoration: const InputDecoration(
+                            labelText: 'Ready in Minutes',
+                            hintText: '30',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.timer),
+                            suffixText: 'min',
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: (value) {
+                            if (value != null && value.isNotEmpty) {
+                              final parsed = int.tryParse(value);
+                              if (parsed == null || parsed <= 0) {
+                                return 'Please enter a valid cooking time';
+                              }
                             }
                             return null;
                           },

@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'login_page.dart';
 import 'account_settings_page.dart';
+import 'shopping_list_generator_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/recipe_service.dart';
 import 'recipe_detail_page.dart';
@@ -76,10 +77,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   // Search state
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _ingredientFilterController =
-      TextEditingController();
   String _searchQuery = '';
-  String _ingredientFilter = '';
   List<dynamic> _recipes = [];
   bool _isLoading = false;
   String? _error;
@@ -87,7 +85,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _fetchRecipes('adobo'); // Default query for Filipino dishes
+    _fetchRecipes('chicken'); // Default query for Filipino dishes
   }
 
   void _fetchRecipes(String query) async {
@@ -149,12 +147,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _performSearch() {
     String query = _searchQuery.trim();
     if (query.isEmpty) {
-      query = 'adobo'; // Default query for Filipino dishes
-    }
-
-    // Add ingredient filter to query if provided
-    if (_ingredientFilter.trim().isNotEmpty) {
-      query += ' ${_ingredientFilter.trim()}';
+      query = 'chicken'; // Default query for Filipino dishes
     }
 
     _fetchRecipes(query);
@@ -163,7 +156,6 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _searchController.dispose();
-    _ingredientFilterController.dispose();
     super.dispose();
   }
 
@@ -399,59 +391,6 @@ class _MyHomePageState extends State<MyHomePage> {
                         },
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    // Ingredient Filter
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.white,
-                            Colors.blue[50]!,
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(25),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.blue.withOpacity(0.15),
-                            blurRadius: 15,
-                            offset: const Offset(0, 5),
-                            spreadRadius: 2,
-                          ),
-                          BoxShadow(
-                            color: Colors.white,
-                            blurRadius: 0,
-                            offset: const Offset(0, -1),
-                          ),
-                        ],
-                        border: Border.all(
-                          color: Colors.blue[200]!,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: TextField(
-                        controller: _ingredientFilterController,
-                        decoration: InputDecoration(
-                          hintText: 'Filter by ingredient (optional)... ',
-                          prefixIcon: const Icon(
-                            Icons.filter_list,
-                            color: Colors.green,
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 16,
-                            horizontal: 0,
-                          ),
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _ingredientFilter = value;
-                          });
-                          _performSearch();
-                        },
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -587,11 +526,22 @@ class _MyHomePageState extends State<MyHomePage> {
                                 );
                               },
                               borderRadius: BorderRadius.circular(18),
-                              child: Card(
-                              shape: RoundedRectangleBorder(
+                              child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Colors.white, Colors.green[50]!],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
                                 borderRadius: BorderRadius.circular(18),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.green.withOpacity(0.2),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
                               ),
-                              elevation: 3,
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
@@ -902,10 +852,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                   setState(() {
                                     _searchQuery = '';
                                     _searchController.clear();
-                                    _ingredientFilter = '';
-                                    _ingredientFilterController.clear();
                                   });
-                                  _fetchRecipes('adobo'); // Reset to default
+                                  _fetchRecipes('chicken'); // Reset to default
                                 },
                                 tooltip: 'Clear search',
                               ),
@@ -1221,9 +1169,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   // Reset to home page - clear search and show main content
                   setState(() {
                     _searchQuery = '';
-                    _ingredientFilter = '';
                     _searchController.clear();
-                    _ingredientFilterController.clear();
                     _isLoading = false;
                     _error = null;
                   });
@@ -1248,6 +1194,12 @@ class _MyHomePageState extends State<MyHomePage> {
                   );
                   break;
                 case 4:
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ShoppingListGeneratorPage()),
+                  );
+                  break;
+                case 5:
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
@@ -1281,6 +1233,10 @@ class _MyHomePageState extends State<MyHomePage> {
               BottomNavigationBarItem(
                 icon: Icon(Icons.trending_up, size: 24),
                 label: 'Progress',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.shopping_cart, size: 24),
+                label: 'Shopping',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.account_circle, size: 24),
@@ -1330,7 +1286,7 @@ class _MyHomePageState extends State<MyHomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Image container with responsive height
-              Container(
+              SizedBox(
                 height: cardHeight * 0.6, // 60% of card height
                 width: double.infinity,
                 child: _buildRecipeImage(recipe),
@@ -1421,8 +1377,8 @@ class _MyHomePageState extends State<MyHomePage> {
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
-            theme.colorScheme.surfaceVariant,
-            theme.colorScheme.surfaceVariant.withOpacity(0.7),
+            theme.colorScheme.surfaceContainerHighest,
+            theme.colorScheme.surfaceContainerHighest.withOpacity(0.7),
                                   ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,

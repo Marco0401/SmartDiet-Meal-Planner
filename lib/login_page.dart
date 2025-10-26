@@ -294,10 +294,11 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ],
                       ),
-                      child: Icon(
-                        Icons.restaurant_menu,
-                        size: 48,
-                        color: const Color(0xFF2E7D32),
+                        child: Image.asset(
+                        'assets/icon/app_icon.png',
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.contain,
                       ),
                     ),
                     const SizedBox(height: 16),

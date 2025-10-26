@@ -36,6 +36,44 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
     super.dispose();
   }
 
+  Future<List<dynamic>> _fetchAdminRecipesWithIds(String query) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('admin_recipes')
+          .get();
+      
+      final allRecipes = snapshot.docs.map((doc) => {
+        'id': doc.id,
+        ...doc.data(),
+        'source': 'Admin Created',
+      }).toList();
+      
+      // Filter recipes based on search query
+      final filteredRecipes = allRecipes.where((recipe) {
+        final title = (recipe['title'] ?? '').toString().toLowerCase();
+        final description = (recipe['description'] ?? '').toString().toLowerCase();
+        final ingredients = (recipe['ingredients'] as List<dynamic>? ?? [])
+            .map((ing) => ing.toString().toLowerCase())
+            .join(' ');
+        final cuisine = (recipe['cuisine'] ?? '').toString().toLowerCase();
+        
+        final searchTerms = query.toLowerCase().split(' ');
+        
+        return searchTerms.any((term) =>
+            title.contains(term) ||
+            description.contains(term) ||
+            ingredients.contains(term) ||
+            cuisine.contains(term));
+      }).toList();
+      
+      print('Admin Recipes: Successfully fetched ${filteredRecipes.length} recipes');
+      return filteredRecipes;
+    } catch (e) {
+      print('Error fetching admin recipes: $e');
+      return [];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -63,6 +101,111 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
           const RecipeRollbackPage(),
         ],
       ),
+    );
+  }
+
+  Widget _buildRecipeImage(dynamic imageUrl) {
+    // Handle null or empty image URLs
+    if (imageUrl == null || imageUrl.toString().trim().isEmpty) {
+      print('DEBUG: Recipe image is null or empty');
+      return Container(
+        width: double.infinity,
+        height: 200,
+        color: Colors.grey.shade200,
+        child: const Icon(Icons.restaurant, size: 50, color: Colors.grey),
+      );
+    }
+
+    final String imageUrlString = imageUrl.toString().trim();
+    print('DEBUG: Loading recipe image: $imageUrlString');
+    
+    // Check if it's a local asset path
+    if (imageUrlString.startsWith('assets/')) {
+      return Image.asset(
+        imageUrlString,
+        width: double.infinity,
+        height: 200,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print('DEBUG: Asset image loading error for path: $imageUrlString');
+          print('DEBUG: Error: $error');
+          return Container(
+            width: double.infinity,
+            height: 200,
+            color: Colors.grey.shade200,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                const SizedBox(height: 8),
+                Text(
+                  'Asset not found',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    // Check if it's a valid network URL
+    if (!imageUrlString.startsWith('http://') && !imageUrlString.startsWith('https://')) {
+      print('DEBUG: Invalid image URL format: $imageUrlString');
+      return Container(
+        width: double.infinity,
+        height: 200,
+        color: Colors.grey.shade200,
+        child: const Icon(Icons.restaurant, size: 50, color: Colors.grey),
+      );
+    }
+
+    return Image.network(
+      imageUrlString,
+      width: double.infinity,
+      height: 200,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          width: double.infinity,
+          height: 200,
+          color: Colors.grey.shade100,
+          child: Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        print('DEBUG: Image loading error for URL: $imageUrlString');
+        print('DEBUG: Error: $error');
+        return Container(
+          width: double.infinity,
+          height: 200,
+          color: Colors.grey.shade200,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+              const SizedBox(height: 8),
+              Text(
+                'Image failed to load',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -146,7 +289,7 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
           // Recipe Grid
           Expanded(
             child: FutureBuilder<List<dynamic>>(
-              future: RecipeService.fetchRecipes(_searchQuery),
+              future: _fetchAdminRecipesWithIds(_searchQuery),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -617,20 +760,7 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
                 if (recipe['image'] != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      recipe['image'],
-                      width: double.infinity,
-                      height: 200,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: double.infinity,
-                          height: 200,
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.restaurant, size: 50),
-                        );
-                      },
-                    ),
+                    child: _buildRecipeImage(recipe['image']),
                   ),
                 const SizedBox(height: 16),
                 Text(
@@ -685,7 +815,14 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
         title: 'Edit Recipe',
         onSave: (updatedRecipe) async {
           try {
-            if (recipe['source'] == 'curated' || recipe['source'] == 'Filipino') {
+            // Check if it's a Filipino recipe by ID pattern or source
+            final isFilipinoRecipe = recipe['id'].toString().startsWith('admin_filipino_') || 
+                                   recipe['id'].toString().startsWith('firestore_filipino_') ||
+                                   recipe['id'].toString().startsWith('local_filipino_') ||
+                                   recipe['source'] == 'curated' || 
+                                   recipe['source'] == 'Filipino';
+            
+            if (isFilipinoRecipe) {
               await FilipinoRecipeService.updateSingleCuratedFilipinoRecipe(updatedRecipe);
             } else {
               await RecipeService.updateSingleAdminRecipe(recipe['id'], updatedRecipe);
@@ -745,14 +882,23 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
         title: 'Add New Recipe',
         onSave: (newRecipe) async {
           try {
-            // Add to admin recipes collection
-            await FirebaseFirestore.instance
-                .collection('admin_recipes')
-                .add({
-              ...newRecipe,
-              'createdAt': DateTime.now().toIso8601String(),
-              'source': 'Admin Created',
-            });
+            // Check if it's a Filipino recipe
+            final cuisine = newRecipe['cuisine']?.toString().toLowerCase() ?? '';
+            final isFilipinoRecipe = cuisine == 'filipino';
+            
+            if (isFilipinoRecipe) {
+              // Add to Filipino recipes system
+              await FilipinoRecipeService.addSingleCuratedFilipinoRecipe(newRecipe);
+            } else {
+              // Add to admin recipes collection
+              await FirebaseFirestore.instance
+                  .collection('admin_recipes')
+                  .add({
+                ...newRecipe,
+                'createdAt': DateTime.now().toIso8601String(),
+                'source': 'Admin Created',
+              });
+            }
             setState(() {});
           } catch (e) {
             if (mounted) {
@@ -838,15 +984,7 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
                     if (image != null && image.toString().isNotEmpty)
                       ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                        child: Image.network(
-                          image.toString(),
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return _buildPlaceholderImage(typeIcon, primaryColor);
-                          },
-                        ),
+                        child: _buildDialogImage(image.toString(), typeIcon, primaryColor),
                       )
                     else
                       _buildPlaceholderImage(typeIcon, primaryColor),
@@ -996,6 +1134,65 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDialogImage(String imageUrl, IconData icon, Color color) {
+    // Handle empty or invalid image URLs
+    if (imageUrl.trim().isEmpty) {
+      print('DEBUG: Dialog image is empty');
+      return _buildPlaceholderImage(icon, color);
+    }
+
+    // Check if it's a local asset path
+    if (imageUrl.startsWith('assets/')) {
+      print('DEBUG: Loading dialog asset image: $imageUrl');
+      return Image.asset(
+        imageUrl,
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print('DEBUG: Dialog asset image loading error for path: $imageUrl');
+          print('DEBUG: Error: $error');
+          return _buildPlaceholderImage(icon, color);
+        },
+      );
+    }
+
+    // Check if it's a valid network URL
+    if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+      print('DEBUG: Dialog image URL is invalid: $imageUrl');
+      return _buildPlaceholderImage(icon, color);
+    }
+
+    print('DEBUG: Loading dialog network image: $imageUrl');
+
+    return Image.network(
+      imageUrl,
+      width: double.infinity,
+      height: double.infinity,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          width: double.infinity,
+          height: 200,
+          color: Colors.grey.shade100,
+          child: Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        print('DEBUG: Dialog image loading error for URL: $imageUrl');
+        print('DEBUG: Error: $error');
+        return _buildPlaceholderImage(icon, color);
+      },
     );
   }
 

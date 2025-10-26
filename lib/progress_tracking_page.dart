@@ -193,7 +193,7 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
       final mealsQuery = await FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
-          .collection('meals')
+          .collection('meal_plans')
           .where('date', isEqualTo: dateKey)
           .get();
 
@@ -207,9 +207,9 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
           final docData = doc.data();
           
           // Check if this is the old format (meals array) or new format (individual meal)
-          if (docData['meals'] != null) {
+          if (docData['meal_plans'] != null) {
             // Old format: meals stored as array
-            final meals = docData['meals'] as List<dynamic>? ?? [];
+            final meals = docData['meal_plans'] as List<dynamic>? ?? [];
             for (final meal in meals) {
               final mealData = meal is Map<String, dynamic> ? meal : Map<String, dynamic>.from(meal as Map);
               final nutritionData = mealData['nutrition'];
@@ -303,7 +303,7 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
       final mealsQuery = await FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
-          .collection('meals')
+          .collection('meal_plans')
           .where('date', isEqualTo: dateKey)
           .get();
 
@@ -313,9 +313,9 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
           final docData = doc.data();
           
           // Check if this is the old format (meals array) or new format (individual meal)
-          if (docData['meals'] != null) {
+          if (docData['meal_plans'] != null) {
             // Old format: meals stored as array
-            final meals = docData['meals'] as List<dynamic>? ?? [];
+            final meals = docData['meal_plans'] as List<dynamic>? ?? [];
             for (final meal in meals) {
               final mealData = meal is Map<String, dynamic> ? meal : Map<String, dynamic>.from(meal as Map);
               final nutritionData = mealData['nutrition'];
@@ -516,14 +516,14 @@ class _ProgressTrackingPageState extends State<ProgressTrackingPage> {
                                 Expanded(
                                   child: SegmentedButton<int>(
                                     style: ButtonStyle(
-                                      backgroundColor: MaterialStateProperty.resolveWith<Color>((states) {
-                                        if (states.contains(MaterialState.selected)) {
+                                      backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+                                        if (states.contains(WidgetState.selected)) {
                                           return Colors.green[600]!;
                                         }
                                         return Colors.green[100]!;
                                       }),
-                                      foregroundColor: MaterialStateProperty.resolveWith<Color>((states) {
-                                        if (states.contains(MaterialState.selected)) {
+                                      foregroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+                                        if (states.contains(WidgetState.selected)) {
                                           return Colors.white;
                                         }
                                         return Colors.green[700]!;

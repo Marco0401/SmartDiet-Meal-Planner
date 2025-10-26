@@ -664,12 +664,53 @@ class RecipeService {
   /// Update a single admin recipe and propagate changes to meal plans
   static Future<void> updateSingleAdminRecipe(String recipeId, Map<String, dynamic> updatedRecipe) async {
     try {
+      print('DEBUG: Updating admin recipe with ID: $recipeId');
+      print('DEBUG: Original recipe data: $updatedRecipe');
+      
+      // Clean the recipe data to ensure no null string values
+      final cleanedRecipe = <String, dynamic>{};
+      updatedRecipe.forEach((key, value) {
+        if (value is String) {
+          cleanedRecipe[key] = value.isEmpty ? '' : value;
+        } else if (value == null) {
+          // Handle null values based on field type
+          switch (key) {
+            case 'title':
+            case 'description':
+            case 'instructions':
+            case 'image':
+            case 'cuisine':
+            case 'difficulty':
+            case 'dietType':
+            case 'mealType':
+              cleanedRecipe[key] = '';
+              break;
+            case 'cookingTime':
+            case 'servings':
+              cleanedRecipe[key] = 0;
+              break;
+            case 'ingredients':
+              cleanedRecipe[key] = [];
+              break;
+            case 'nutrition':
+              cleanedRecipe[key] = {};
+              break;
+            default:
+              cleanedRecipe[key] = value;
+          }
+        } else {
+          cleanedRecipe[key] = value;
+        }
+      });
+      
+      print('DEBUG: Cleaned recipe data: $cleanedRecipe');
+      
       // Update the recipe in Firestore
       await FirebaseFirestore.instance
           .collection('admin_recipes')
           .doc(recipeId)
           .update({
-        ...updatedRecipe,
+        ...cleanedRecipe,
         'updatedAt': DateTime.now().toIso8601String(),
       });
       

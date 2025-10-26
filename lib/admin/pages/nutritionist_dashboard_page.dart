@@ -170,16 +170,6 @@ Widget build(BuildContext context) {
                 _navigateToAllergenValidation,
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildModernActionCard(
-                'Nutritional Guidelines',
-                'Edit and manage nutrition rules',
-                Icons.psychology,
-                const Color(0xFF9C27B0),
-                _navigateToGuidelinesEditor,
-              ),
-            ),
           ],
         ),
         const SizedBox(height: 16),

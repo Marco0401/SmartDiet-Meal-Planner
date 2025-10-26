@@ -13,6 +13,7 @@ import 'meal_favorites_page.dart';
 import 'meal_plan_dialog.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
+import 'widgets/edit_meal_dialog.dart';
 
 class RecipeDetailPage extends StatefulWidget {
   final Map<String, dynamic> recipe;
@@ -94,6 +95,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       print('DEBUG: Meal data description: ${widget.recipe['description']}');
       
       if (recipeId.toString().startsWith('local_') || 
+          recipeId.toString().startsWith('admin_filipino_') ||
+          recipeId.toString().startsWith('firestore_filipino_') ||
           source == 'manual_entry' ||
           source == 'manual entry' ||
           source == 'meal_planner' ||
@@ -104,6 +107,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'OpenFoodFacts' ||
           source == 'usda' ||
           source == 'USDA' ||
+          source == 'admin created' ||
+          source == 'admin' ||
           substituted == true) {
         // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, meal from planner, or scanned product - use the data directly
         print('DEBUG: Local/manual/substituted/expert_plan/meal_planner/scanned recipe, using data directly');
@@ -250,7 +255,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         ingredients = '';
       }
       
-      final text = (title + ' ' + ingredients).trim();
+      final text = ('$title $ingredients').trim();
       if (text.isEmpty) {
         setState(() {
           _mlStatus = 'ML: no text';
@@ -269,7 +274,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       final labels = result.labels;
       // Debug: print ML labels
       // ignore: avoid_print
-      print('ML allergens for "$title": ' + labels.toString());
+      print('ML allergens for "$title": $labels');
       if (mounted) {
         setState(() {
           _mlAllergens = labels;
@@ -282,12 +287,12 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
               .where((e) => _findMlMatches(e.key, text).isNotEmpty)
               .map((e) => '${e.key} ${e.value.toStringAsFixed(2)}')
               .toList();
-          _mlStatus = positives.isEmpty ? 'ML: no positives' : 'ML: ' + positives.join(', ');
+          _mlStatus = positives.isEmpty ? 'ML: no positives' : 'ML: ${positives.join(', ')}';
         });
       }
     } catch (e) {
       // ignore: avoid_print
-      print('ML error: ' + e.toString());
+      print('ML error: $e');
       if (mounted) {
         setState(() {
           _mlStatus = 'ML error';
@@ -329,6 +334,46 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       setState(() {
         _isFavorited = true;
       });
+    }
+  }
+
+  Future<void> _editMeal() async {
+    // Extract the meal ID and date from the recipe
+    final mealId = widget.recipe['id']?.toString() ?? '';
+    final dateKey = widget.recipe['date']?.toString() ?? '';
+    
+    if (mealId.isEmpty || dateKey.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot edit this meal. Missing required information.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Show the Edit Meal Dialog
+    final result = await showDialog(
+      context: context,
+      builder: (context) => EditMealDialog(
+        meal: widget.recipe,
+        mealId: mealId,
+        dateKey: dateKey,
+      ),
+    );
+
+    // If meal was successfully edited, refresh the page to show updated nutrition
+    if (result == true) {
+      // Reload the recipe details to show updated nutrition
+      await _loadRecipeDetails();
+      
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Meal updated successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
 
@@ -545,7 +590,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   
                   // Use original field if available, otherwise construct it
                   return ing['original']?.toString() ?? 
-                         '${amount} ${unit} ${name}'.trim();
+                         '$amount $unit $name'.trim();
                 } else {
                   // String format
                   return ing.toString();
@@ -778,7 +823,12 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(child: Text('Error: $_error'))
-          : _safelyBuildRecipeDetails(),
+          : RefreshIndicator(
+              onRefresh: () async {
+                await _loadRecipeDetails();
+              },
+              child: _safelyBuildRecipeDetails(),
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           print('DEBUG: ===== FLOATING ACTION BUTTON PRESSED =====');
@@ -920,6 +970,12 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
                 // Nutrition Information
                 _safelyBuildSection('Nutrition', () => _buildNutritionSection(_ensureNutritionData(details))),
+
+                const SizedBox(height: 16),
+
+                // Edit Meal Button (only for planned meals)
+                if (widget.recipe['id'] != null && widget.recipe['date'] != null)
+                  _safelyBuildSection('Edit Meal', () => _buildEditMealButton()),
 
                 const SizedBox(height: 24),
 
@@ -1120,24 +1176,70 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       );
     }
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Nutrition Information',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green[50]!, Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green[400]!, Colors.green[600]!],
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
               ),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.emoji_food_beverage, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Nutrition Information',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Nutrition Cards Grid
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.6,
               children: nutrients.take(6).map((nutrient) {
                 final amount = nutrient['amount'];
                 String amountText = '';
@@ -1150,14 +1252,143 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   }
                 }
 
-                return Chip(
-                  backgroundColor: Colors.green[50],
-                  label: Text(
-                    '${nutrient['name']}: $amountText${nutrient['unit'] ?? ''}',
-                    style: TextStyle(color: Colors.green[800]),
-                  ),
-                );
+                return _buildNutritionCard(nutrient, amountText);
               }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNutritionCard(Map<String, dynamic> nutrient, String amountText) {
+    final name = nutrient['name']?.toString().toLowerCase() ?? '';
+    final unit = nutrient['unit']?.toString() ?? '';
+    
+    // Get icon and color based on nutrient type
+    IconData icon;
+    Color color;
+    
+    if (name.contains('calorie')) {
+      icon = Icons.local_fire_department;
+      color = Colors.red;
+    } else if (name.contains('protein')) {
+      icon = Icons.fitness_center;
+      color = Colors.blue;
+    } else if (name.contains('carbohydrate') || name.contains('carb')) {
+      icon = Icons.grain;
+      color = Colors.orange;
+    } else if (name.contains('fat')) {
+      icon = Icons.opacity;
+      color = Colors.yellow[700]!;
+    } else if (name.contains('fiber')) {
+      icon = Icons.eco;
+      color = Colors.green;
+    } else {
+      icon = Icons.info;
+      color = Colors.grey;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 6),
+            Flexible(
+              child: Text(
+                amountText.isNotEmpty ? amountText : '0.0',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ),
+            Text(
+              unit,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            Text(
+              nutrient['name'] ?? '',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[700],
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditMealButton() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.edit, color: Colors.orange[700], size: 24),
+                const SizedBox(width: 12),
+                Text(
+                  'Edit This Meal',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange[800],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Customize the ingredients and instructions for this meal to match your preferences. Nutrition values will update in real-time.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _editMeal,
+                icon: const Icon(Icons.edit),
+                label: const Text('Edit Meal'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -1321,21 +1552,64 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       return const SizedBox.shrink();
     }
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Ingredients',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green[50]!, Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green[400]!, Colors.green[600]!],
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
               ),
             ),
-            const SizedBox(height: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.restaurant_menu, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Ingredients',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             ...ingredients.map((ingredient) {
               // Handle both object format (API recipes) and string format (manual meals)
               String ingredientText;
@@ -1386,9 +1660,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   ],
                 ),
               );
-            }),
-          ],
+              }),
+            ],
+          ),
         ),
+        ],
       ),
     );
   }
@@ -1406,7 +1682,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       if (details['ingredients'] != null && details['ingredients'] is List) {
         final ingredients = details['ingredients'] as List;
         if (ingredients.isNotEmpty) {
-          instructions = 'Ingredients:\n' + ingredients.map((ing) => '• $ing').join('\n');
+          instructions = 'Ingredients:\n${ingredients.map((ing) => '• $ing').join('\n')}';
         }
       }
       
@@ -1419,21 +1695,64 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     final cleanInstructions = _stripHtmlTags(instructions);
     final steps = _splitIntoSteps(cleanInstructions);
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Instructions',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[800],
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green[50]!, Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.green[400]!, Colors.green[600]!],
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
               ),
             ),
-            const SizedBox(height: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.list_alt, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Instructions',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             ...steps.asMap().entries.map((entry) {
               final index = entry.key;
               final step = entry.value;
@@ -1470,9 +1789,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   ],
                 ),
               );
-            }),
-          ],
+              }),
+            ],
+          ),
         ),
+        ],
       ),
     );
   }
@@ -1591,7 +1912,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
-          return Container(
+          return SizedBox(
             height: 250,
             child: const Center(
               child: CircularProgressIndicator(color: Colors.green),
@@ -1627,249 +1948,289 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   }
 
   Widget _buildAllergenSection(Map<String, dynamic> details) {
-    // Handle both API recipes (extendedIngredients) and local recipes (ingredients)
-    List<dynamic>? ingredients;
-    
-    print('DEBUG: _buildAllergenSection - Recipe: ${details['title']}');
-    print('DEBUG: extendedIngredients type: ${details['extendedIngredients']?.runtimeType}');
-    print('DEBUG: ingredients type: ${details['ingredients']?.runtimeType}');
-    print('DEBUG: ingredients content: ${details['ingredients']}');
-    
-    if (details['extendedIngredients'] != null) {
-      // API recipe format - prioritize extendedIngredients
-      final extendedIngredients = details['extendedIngredients'];
-      if (extendedIngredients is List && extendedIngredients.isNotEmpty) {
-        ingredients = extendedIngredients;
-        print('DEBUG: Using extendedIngredients for allergen check, count: ${ingredients.length}');
-      }
-    }
-    
-    // Only use ingredients if extendedIngredients is not available or empty
-    if ((ingredients == null || ingredients.isEmpty) && details['ingredients'] != null) {
-      // Local recipe format - convert to API-like format
-      final localIngredients = details['ingredients'];
-      print('DEBUG: localIngredients type: ${localIngredients.runtimeType}');
-      print('DEBUG: localIngredients content: $localIngredients');
-      
-      if (localIngredients is List && localIngredients.isNotEmpty) {
-        print('DEBUG: Processing ingredients list for allergen check with ${localIngredients.length} items');
-        ingredients = localIngredients.map((ingredient) {
-          print('DEBUG: Processing ingredient for allergen check: $ingredient (type: ${ingredient.runtimeType})');
-          
-          // Handle both string format and object format
-          if (ingredient is Map<String, dynamic>) {
-            // Object format from Enhanced Recipe Dialog
-            return {
-              'amount': _safeDouble(ingredient['amount']) ?? 1.0,
-              'unit': ingredient['unit']?.toString() ?? '',
-              'name': ingredient['name']?.toString() ?? '',
-            };
-          } else {
-            // String format
-            return {
-              'amount': 1.0,
-              'unit': '',
-              'name': ingredient.toString(),
-            };
-          }
-        }).toList();
-        print('DEBUG: Converted ingredients for allergen check: $ingredients');
-      } else {
-        print('DEBUG: localIngredients is not a List for allergen check, it is: ${localIngredients.runtimeType}');
-      }
-    }
-    
-    if (ingredients == null || ingredients.isEmpty) {
-      return const SizedBox.shrink();
-    }
+  // Handle both API recipes (extendedIngredients) and local recipes (ingredients)
+  List<dynamic>? ingredients;
 
-    print('DEBUG: Calling AllergenService.checkAllergens with ingredients: $ingredients');
-    final allergens = AllergenService.checkAllergens(ingredients);
-    print('DEBUG: AllergenService.checkAllergens result: $allergens');
-    
-    final allergenCount = allergens.values.fold(
-      0,
-      (sum, list) => sum + list.length,
-    );
-    print('DEBUG: Allergen count: $allergenCount');
-    
-    final riskLevel = AllergenService.getRiskLevel(allergenCount);
-    print('DEBUG: Risk level: $riskLevel');
-    
-    final riskColor = Color(AllergenService.getRiskColor(riskLevel));
-    print('DEBUG: Risk color: $riskColor');
+  print('DEBUG: _buildAllergenSection - Recipe: ${details['title']}');
+  print('DEBUG: extendedIngredients type: ${details['extendedIngredients']?.runtimeType}');
+  print('DEBUG: ingredients type: ${details['ingredients']?.runtimeType}');
+  print('DEBUG: ingredients content: ${details['ingredients']}');
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
+  if (details['extendedIngredients'] != null) {
+    // API recipe format - prioritize extendedIngredients
+    final extendedIngredients = details['extendedIngredients'];
+    if (extendedIngredients is List && extendedIngredients.isNotEmpty) {
+      ingredients = extendedIngredients;
+      print('DEBUG: Using extendedIngredients for allergen check, count: ${ingredients.length}');
+    }
+  }
+
+  // Only use ingredients if extendedIngredients is not available or empty
+  if ((ingredients == null || ingredients.isEmpty) && details['ingredients'] != null) {
+    // Local recipe format - convert to API-like format
+    final localIngredients = details['ingredients'];
+    print('DEBUG: localIngredients type: ${localIngredients.runtimeType}');
+    print('DEBUG: localIngredients content: $localIngredients');
+
+    if (localIngredients is List && localIngredients.isNotEmpty) {
+      print('DEBUG: Processing ingredients list for allergen check with ${localIngredients.length} items');
+      ingredients = localIngredients.map((ingredient) {
+        print('DEBUG: Processing ingredient for allergen check: $ingredient (type: ${ingredient.runtimeType})');
+
+        // Handle both string format and object format
+        if (ingredient is Map<String, dynamic>) {
+          // Object format from Enhanced Recipe Dialog
+          return {
+            'amount': _safeDouble(ingredient['amount']) ?? 1.0,
+            'unit': ingredient['unit']?.toString() ?? '',
+            'name': ingredient['name']?.toString() ?? '',
+          };
+        } else {
+          // String format
+          return {
+            'amount': 1.0,
+            'unit': '',
+            'name': ingredient.toString(),
+          };
+        }
+      }).toList();
+      print('DEBUG: Converted ingredients for allergen check: $ingredients');
+    } else {
+      print('DEBUG: localIngredients is not a List for allergen check, it is: ${localIngredients.runtimeType}');
+    }
+  }
+
+  if (ingredients == null || ingredients.isEmpty) {
+    return const SizedBox.shrink();
+  }
+
+  print('DEBUG: Calling AllergenService.checkAllergens with ingredients: $ingredients');
+  final allergens = AllergenService.checkAllergens(ingredients);
+  print('DEBUG: AllergenService.checkAllergens result: $allergens');
+
+  final allergenCount = allergens.values.fold(
+    0,
+    (sum, list) => sum + list.length,
+  );
+  print('DEBUG: Allergen count: $allergenCount');
+
+  final riskLevel = AllergenService.getRiskLevel(allergenCount);
+  print('DEBUG: Risk level: $riskLevel');
+
+  final riskColor = Color(AllergenService.getRiskColor(riskLevel));
+  print('DEBUG: Risk color: $riskColor');
+
+  return Container(
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [Colors.green[50]!, Colors.white],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.green.withOpacity(0.1),
+          blurRadius: 10,
+          offset: const Offset(0, 5),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.green[400]!, Colors.green[600]!],
+            ),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(16),
+              topRight: Radius.circular(16),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
                   'Allergen Information',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: riskColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    riskLevel,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (allergens.isEmpty && (_mlAllergens == null || _mlAllergens!.values.every((v) => v == 0)))
-              const Text(
-                'No common allergens detected in this recipe.',
-                style: TextStyle(
-                  color: Colors.green,
-                  fontStyle: FontStyle.italic,
-                ),
-              )
-            else ...[
-              Text(
-                'This recipe contains the following allergens:',
-                style: Theme.of(context).textTheme.bodyMedium,
               ),
-              const SizedBox(height: 8),
-              if (_mlStatus != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.memory, size: 14, color: Color(0xFF888888)),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _mlStatus!,
-                          style: TextStyle(color: Colors.grey[700], fontStyle: FontStyle.italic, fontSize: 12),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: true,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: riskColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  riskLevel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (allergens.isEmpty && (_mlAllergens == null || _mlAllergens!.values.every((v) => v == 0)))
+                const Text(
+                  'No common allergens detected in this recipe.',
+                  style: TextStyle(
+                    color: Colors.green,
+                    fontStyle: FontStyle.italic,
+                  ),
+                )
+              else ...[
+                Text(
+                  'This recipe contains the following allergens:',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                if (_mlStatus != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.memory, size: 14, color: Color(0xFF888888)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _mlStatus!,
+                            style: TextStyle(color: Colors.grey[700], fontStyle: FontStyle.italic, fontSize: 12),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: true,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (_mlAllergens != null && _mlAllergens!.entries.any((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: _mlAllergens!.entries
-                        .where((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty)
-                        .map((e) => Chip(
-                              backgroundColor: Colors.red[50],
-                              label: Text('${e.key} (ML)', style: const TextStyle(color: Colors.red)),
-                            ))
-                        .toList(),
-                  ),
-                ),
-              if (_mlAllergens != null && _mlAllergens!.entries.any((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty))
-                ..._mlAllergens!.entries.where((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty).map((e) {
-                  final matches = _findMlMatches(e.key, _mlSourceText);
-                  return Padding(
-                    padding: const EdgeInsets.only(left: 2, bottom: 6),
-                    child: Text(
-                      'Reason (ML): found ${matches.join(', ')}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: true,
+                      ],
                     ),
-                  );
-                }).toList(),
-              ...allergens.entries.map((entry) {
-                final allergenType = entry.key;
-                final ingredients = entry.value;
+                  ),
+                if (_mlAllergens != null &&
+                    _mlAllergens!.entries.any((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: _mlAllergens!.entries
+                          .where((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty)
+                          .map((e) => Chip(
+                                backgroundColor: Colors.red[50],
+                                label: Text('${e.key} (ML)', style: const TextStyle(color: Colors.red)),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                if (_mlAllergens != null &&
+                    _mlAllergens!.entries.any((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty))
+                  ..._mlAllergens!.entries
+                      .where((e) => e.value == 1 && _findMlMatches(e.key, _mlSourceText).isNotEmpty)
+                      .map((e) {
+                    final matches = _findMlMatches(e.key, _mlSourceText);
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 2, bottom: 6),
+                      child: Text(
+                        'Reason (ML): found ${matches.join(', ')}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: true,
+                      ),
+                    );
+                  }),
+                ...allergens.entries.map((entry) {
+                  final allergenType = entry.key;
+                  final ingredients = entry.value;
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            AllergenService.getAllergenIcon(allergenType),
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            AllergenService.getDisplayName(allergenType),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.red,
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              AllergenService.getAllergenIcon(allergenType),
+                              style: const TextStyle(fontSize: 16),
                             ),
-                          ),
-                        ],
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 24),
-                        child: Text(
-                          'Found in: ${ingredients.join(', ')}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: Colors.grey[600]),
+                            const SizedBox(width: 8),
+                            Text(
+                              AllergenService.getDisplayName(allergenType),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.red,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 24),
-                        child: FutureBuilder<List<String>>(
-                          future: AllergenService.getSubstitutions(allergenType),
-                          builder: (context, snapshot) {
-                            if (snapshot.hasData) {
-                              final substitutions = snapshot.data!;
+                        Padding(
+                          padding: const EdgeInsets.only(left: 24),
+                          child: Text(
+                            'Found in: ${ingredients.join(', ')}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 24),
+                          child: FutureBuilder<List<String>>(
+                            future: AllergenService.getSubstitutions(allergenType),
+                            builder: (context, snapshot) {
+                              if (snapshot.hasData) {
+                                final substitutions = snapshot.data!;
+                                return Text(
+                                  'Substitutions: ${substitutions.take(2).join(', ')}',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: Colors.green[600],
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                );
+                              }
                               return Text(
-                                'Substitutions: ${substitutions.take(2).join(', ')}',
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: Colors.green[600],
+                                'Substitutions: Loading...',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.grey[600],
                                       fontStyle: FontStyle.italic,
                                     ),
                               );
-                            }
-                            return Text(
-                              'Substitutions: Loading...',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: Colors.grey[600],
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                            );
-                          },
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
+                      ],
+                    ),
+                  );
+                }),
+              ],
             ],
-          ],
+          ),
         ),
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
   String _stripHtmlTags(String htmlText) {
     try {
     // Simple HTML tag removal - you might want to use a proper HTML parser

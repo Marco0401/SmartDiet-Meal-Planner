@@ -162,7 +162,20 @@ class NutritionService {
   };
 
   /// Calculate nutrition for a list of ingredients
+  /// Calculate nutrition from a list of ingredient names (legacy method)
   static Future<Map<String, double>> calculateRecipeNutrition(List<String> ingredients) async {
+    // Convert to ingredient objects format
+    final ingredientObjects = ingredients.map((name) => {
+      'name': name,
+      'amount': 1.0,
+      'unit': 'piece',
+    }).toList();
+    
+    return calculateRecipeNutritionFromObjects(ingredientObjects);
+  }
+
+  /// Calculate nutrition from a list of ingredient objects with amounts and units
+  static Future<Map<String, double>> calculateRecipeNutritionFromObjects(List<Map<String, dynamic>> ingredients) async {
     double totalCalories = 0;
     double totalProtein = 0;
     double totalCarbs = 0;
@@ -170,24 +183,40 @@ class NutritionService {
     double totalFiber = 0;
 
     for (final ingredient in ingredients) {
-      if (ingredient.isEmpty) continue;
+      final name = ingredient['name']?.toString() ?? '';
+      // Handle both int and double amounts
+      final amount = (ingredient['amount'] is int) 
+          ? (ingredient['amount'] as int).toDouble()
+          : (ingredient['amount'] ?? 1.0) as double;
+      final unit = ingredient['unit']?.toString() ?? '';
+      
+      if (name.isEmpty) continue;
       
       try {
-        final nutrition = await _getIngredientNutrition(ingredient);
-        totalCalories += nutrition['calories'] ?? 0;
-        totalProtein += nutrition['protein'] ?? 0;
-        totalCarbs += nutrition['carbs'] ?? 0;
-        totalFat += nutrition['fat'] ?? 0;
-        totalFiber += nutrition['fiber'] ?? 0;
+        // Get base nutrition per 100g
+        final baseNutrition = await _getIngredientNutrition(name);
+        
+        // Convert amount to grams
+        final amountInGrams = _convertToGrams(amount, unit);
+        
+        // Calculate actual nutrition based on amount
+        // Nutrition database values are typically per 100g
+        final servingFactor = amountInGrams / 100.0;
+        
+        totalCalories += (baseNutrition['calories'] ?? 0) * servingFactor;
+        totalProtein += (baseNutrition['protein'] ?? 0) * servingFactor;
+        totalCarbs += (baseNutrition['carbs'] ?? 0) * servingFactor;
+        totalFat += (baseNutrition['fat'] ?? 0) * servingFactor;
+        totalFiber += (baseNutrition['fiber'] ?? 0) * servingFactor;
       } catch (e) {
-        print('DEBUG: Error processing ingredient "$ingredient": $e');
-        // Continue with next ingredient
+        print('DEBUG: Error processing ingredient "$name": $e');
       }
     }
 
-    // Scale down nutrition to reasonable meal portions
-    // Most nutrition databases are per 100g, so scale down for typical meal portions
-    final scaleFactor = 0.3; // Scale down to 30% of calculated values for realistic meal portions
+    // Apply realistic recipe scaling (not arbitrary!)
+    // Most recipes serve 4-6 people, so scale down to single serving
+    final servings = 4.0; // Average recipe serves 4
+    final scaleFactor = 1.0 / servings;
     
     return {
       'calories': (totalCalories * scaleFactor).clamp(200.0, 1000.0),
@@ -196,6 +225,114 @@ class NutritionService {
       'fat': (totalFat * scaleFactor).clamp(5.0, 60.0),
       'fiber': (totalFiber * scaleFactor).clamp(2.0, 30.0),
     };
+  }
+
+  /// Convert various units to grams
+  static double convertToGrams(double amount, String unit) {
+    return _convertToGrams(amount, unit);
+  }
+  
+  static double _convertToGrams(double amount, String unit) {
+    final unitLower = unit.toLowerCase().trim();
+    
+    // Weight conversions
+    switch (unitLower) {
+      case 'g':
+      case 'gram':
+      case 'grams':
+        return amount;
+      
+      case 'kg':
+      case 'kilogram':
+      case 'kilograms':
+        return amount * 1000;
+      
+      case 'oz':
+      case 'ounce':
+      case 'ounces':
+        return amount * 28.35;
+      
+      case 'lb':
+      case 'lbs':
+      case 'pound':
+      case 'pounds':
+        return amount * 453.592;
+      
+      // Volume to weight approximations (not perfect but close)
+      case 'cup':
+      case 'cups':
+        return amount * 240; // ~240g per cup (water approximation)
+      
+      case 'tbsp':
+      case 'tablespoon':
+      case 'tablespoons':
+        return amount * 15; // ~15g per tablespoon
+      
+      case 'tsp':
+      case 'teaspoon':
+      case 'teaspoons':
+        return amount * 5; // ~5g per teaspoon
+      
+      case 'ml':
+      case 'milliliter':
+      case 'milliliters':
+        return amount; // 1ml ≈ 1g for water
+      
+      case 'l':
+      case 'liter':
+      case 'liters':
+        return amount * 1000; // 1L = 1000g
+      
+      case 'piece':
+      case 'pieces':
+      case 'pc':
+      case 'pcs':
+      case '':
+        // If no unit specified, assume 100g per piece (average ingredient size)
+        return amount * 100;
+      
+      // Common food approximations
+      case 'slice':
+        return amount * 20; // Average slice ~20g
+      
+      case 'can':
+      case 'cans':
+        return amount * 400; // Average can ~400g
+      
+      case 'jar':
+      case 'jars':
+        return amount * 200; // Average jar ~200g
+      
+      case 'bottle':
+      case 'bottles':
+        return amount * 500; // Average bottle ~500g
+      
+      case 'package':
+      case 'packages':
+      case 'pack':
+      case 'packs':
+        return amount * 150; // Average package ~150g
+      
+      case 'bag':
+      case 'bags':
+        return amount * 250; // Average bag ~250g
+      
+      case 'box':
+      case 'boxes':
+        return amount * 300; // Average box ~300g
+      
+      case 'head':
+      case 'heads':
+        return amount * 500; // Average head (lettuce, cabbage) ~500g
+      
+      case 'clove':
+      case 'cloves':
+        return amount * 3; // Average garlic clove ~3g
+      
+      default:
+        // Unknown unit, assume 100g per unit
+        return amount * 100;
+    }
   }
 
   /// Convert dynamic map to Map<String, double> safely handling int/double types

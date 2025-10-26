@@ -15,6 +15,7 @@ import 'pages/guidelines_editor_page.dart';
 import 'pages/content_creation_page.dart';
 import 'pages/notification_center_page.dart';
 import 'pages/nutritional_data_validation_page.dart';
+import 'pages/ingredients_management_page.dart';
 import '../services/curated_data_migration_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -169,11 +170,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
           widget: const NutritionalDataValidationPage(),
         ),
         AdminPage(
-          title: 'Edit Guidelines',
-          icon: Icons.edit_note,
-          widget: const GuidelinesEditorPage(),
-        ),
-        AdminPage(
           title: 'Send Content',
           icon: Icons.school,
           widget: const ContentCreationPage(),
@@ -201,6 +197,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
           title: 'Manage Recipes',
           icon: Icons.restaurant_menu,
           widget: const RecipesManagementPage(),
+        ),
+        AdminPage(
+          title: 'Manage Ingredients',
+          icon: Icons.lunch_dining,
+          widget: const IngredientsManagementPage(),
         ),
         AdminPage(
           title: 'Manage Substitutions',

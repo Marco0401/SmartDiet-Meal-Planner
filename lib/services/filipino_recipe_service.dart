@@ -154,10 +154,23 @@ class FilipinoRecipeService {
         final recipes = data?['data'] as List<dynamic>? ?? [];
         print('DEBUG: Found ${recipes.length} recipes in Firestore');
         
+        // Add IDs to recipes that don't have them
+        final recipesWithIds = recipes.asMap().entries.map((entry) {
+          final index = entry.key;
+          final recipe = Map<String, dynamic>.from(entry.value);
+          
+          // If recipe doesn't have an ID, generate one
+          if (recipe['id'] == null || recipe['id'].toString().isEmpty) {
+            recipe['id'] = 'firestore_filipino_${index}';
+          }
+          
+          return recipe;
+        }).toList();
+        
         // Filter by query if provided
         if (query.isNotEmpty) {
           final lowercaseQuery = query.toLowerCase();
-          final filteredRecipes = recipes.where((recipe) {
+          final filteredRecipes = recipesWithIds.where((recipe) {
             final title = (recipe['title'] as String? ?? '').toLowerCase();
             final description = (recipe['description'] as String? ?? '').toLowerCase();
             return title.contains(lowercaseQuery) || description.contains(lowercaseQuery);
@@ -166,8 +179,8 @@ class FilipinoRecipeService {
           return filteredRecipes;
         }
         
-        print('DEBUG: Returning all ${recipes.length} recipes from Firestore');
-        return recipes;
+        print('DEBUG: Returning all ${recipesWithIds.length} recipes from Firestore');
+        return recipesWithIds;
       } else {
         print('DEBUG: No Firestore document found, falling back to hardcoded data');
       }
@@ -693,9 +706,136 @@ class FilipinoRecipeService {
     }
   }
 
+  /// Add a single curated Filipino recipe
+  static Future<void> addSingleCuratedFilipinoRecipe(Map<String, dynamic> newRecipe) async {
+    try {
+      print('DEBUG: Adding new Filipino recipe: ${newRecipe['title']}');
+      
+      // Clean the recipe data to ensure no null string values
+      final cleanedRecipe = <String, dynamic>{};
+      newRecipe.forEach((key, value) {
+        if (value is String) {
+          cleanedRecipe[key] = value.isEmpty ? '' : value;
+        } else if (value == null) {
+          // Handle null values based on field type
+          switch (key) {
+            case 'title':
+            case 'description':
+            case 'instructions':
+            case 'image':
+            case 'cuisine':
+            case 'difficulty':
+            case 'dietType':
+            case 'mealType':
+              cleanedRecipe[key] = '';
+              break;
+            case 'cookingTime':
+            case 'servings':
+              cleanedRecipe[key] = 0;
+              break;
+            case 'ingredients':
+              cleanedRecipe[key] = [];
+              break;
+            case 'nutrition':
+              cleanedRecipe[key] = {};
+              break;
+            default:
+              cleanedRecipe[key] = value;
+          }
+        } else {
+          cleanedRecipe[key] = value;
+        }
+      });
+
+      // Generate a unique ID for the new recipe
+      cleanedRecipe['id'] = 'admin_filipino_${DateTime.now().millisecondsSinceEpoch}';
+      cleanedRecipe['source'] = 'Admin Created';
+      cleanedRecipe['createdAt'] = DateTime.now().toIso8601String();
+      cleanedRecipe['updatedAt'] = DateTime.now().toIso8601String();
+
+      print('DEBUG: Cleaned new Filipino recipe data: $cleanedRecipe');
+
+      final doc = await _firestore
+          .collection('system_data')
+          .doc('filipino_recipes')
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data();
+        final recipes = List<Map<String, dynamic>>.from(data?['data'] ?? []);
+        
+        // Add the new recipe to the list
+        recipes.add(cleanedRecipe);
+
+        await _firestore
+            .collection('system_data')
+            .doc('filipino_recipes')
+            .update({
+          'data': recipes,
+          'updatedAt': DateTime.now().toIso8601String(),
+        });
+
+        print('New Filipino recipe added successfully');
+      } else {
+        // Create the document if it doesn't exist
+        await _firestore
+            .collection('system_data')
+            .doc('filipino_recipes')
+            .set({
+          'data': [cleanedRecipe],
+          'createdAt': DateTime.now().toIso8601String(),
+          'updatedAt': DateTime.now().toIso8601String(),
+        });
+
+        print('New Filipino recipes document created with first recipe');
+      }
+    } catch (e) {
+      print('Error adding Filipino recipe: $e');
+      rethrow;
+    }
+  }
+
   /// Update a single curated Filipino recipe (admin only)
   static Future<void> updateSingleCuratedFilipinoRecipe(Map<String, dynamic> updatedRecipe) async {
     try {
+      // Clean the recipe data to ensure no null string values
+      final cleanedRecipe = <String, dynamic>{};
+      updatedRecipe.forEach((key, value) {
+        if (value is String) {
+          cleanedRecipe[key] = value.isEmpty ? '' : value;
+        } else if (value == null) {
+          // Handle null values based on field type
+          switch (key) {
+            case 'title':
+            case 'description':
+            case 'instructions':
+            case 'image':
+            case 'cuisine':
+            case 'difficulty':
+            case 'dietType':
+            case 'mealType':
+              cleanedRecipe[key] = '';
+              break;
+            case 'cookingTime':
+            case 'servings':
+              cleanedRecipe[key] = 0;
+              break;
+            case 'ingredients':
+              cleanedRecipe[key] = [];
+              break;
+            case 'nutrition':
+              cleanedRecipe[key] = {};
+              break;
+            default:
+              cleanedRecipe[key] = value;
+          }
+        } else {
+          cleanedRecipe[key] = value;
+        }
+      });
+      
+      print('DEBUG: Cleaned Filipino recipe data: $cleanedRecipe');
+      
       final doc = await _firestore
           .collection('system_data')
           .doc('filipino_recipes')
@@ -706,12 +846,32 @@ class FilipinoRecipeService {
         final recipes = List<Map<String, dynamic>>.from(data?['data'] ?? []);
         
         // Find and update the specific recipe
-        final recipeIndex = recipes.indexWhere((recipe) => recipe['id'] == updatedRecipe['id']);
+        // Handle both generated IDs and original IDs
+        int recipeIndex = -1;
+        
+        // First try to find by the cleaned recipe ID
+        recipeIndex = recipes.indexWhere((recipe) => recipe['id'] == cleanedRecipe['id']);
+        
+        // If not found and it's a generated ID, try to find by original position
+        if (recipeIndex == -1 && cleanedRecipe['id'].toString().startsWith('firestore_filipino_')) {
+          final indexStr = cleanedRecipe['id'].toString().replaceFirst('firestore_filipino_', '');
+          final index = int.tryParse(indexStr);
+          if (index != null && index < recipes.length) {
+            recipeIndex = index;
+          }
+        }
+        
+        // If still not found, try to find by title as fallback
+        if (recipeIndex == -1) {
+          recipeIndex = recipes.indexWhere((recipe) => 
+            recipe['title'] == cleanedRecipe['title']);
+        }
+        
         if (recipeIndex != -1) {
           final oldRecipe = recipes[recipeIndex];
           recipes[recipeIndex] = {
             ...recipes[recipeIndex],
-            ...updatedRecipe,
+            ...cleanedRecipe,
             'updatedAt': DateTime.now().toIso8601String(),
           };
           

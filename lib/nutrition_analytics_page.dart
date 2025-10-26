@@ -1013,7 +1013,7 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     return FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
-        .collection('meals')
+        .collection('meal_plans')
         .where('date', whereIn: weekDateKeys)
         .snapshots();
   }

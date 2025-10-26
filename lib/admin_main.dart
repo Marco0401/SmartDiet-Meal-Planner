@@ -12,14 +12,14 @@ void main() async {
   // Initialize Firebase with your existing project configuration
   try {
     await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: "AIzaSyBHy5ToXX9ksTuG4oNWFD381W67MAma4AQ",
-        authDomain: "smartdiet-3fc8b.firebaseapp.com",
-        projectId: "smartdiet-3fc8b",
-        storageBucket: "smartdiet-3fc8b.firebasestorage.app",
-        messagingSenderId: "6652139548",
-        appId: "1:6652139548:web:78c87494a7596ec762a7d9",
-        measurementId: "G-0X926KNZKM",
+      options: FirebaseOptions(
+        apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
+        authDomain: dotenv.env['FIREBASE_AUTH_DOMAIN'] ?? '',
+        projectId: dotenv.env['FIREBASE_PROJECT_ID'] ?? '',
+        storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? '',
+        messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID'] ?? '',
+        appId: dotenv.env['FIREBASE_APP_ID'] ?? '',
+        measurementId: dotenv.env['FIREBASE_MEASUREMENT_ID'] ?? '',
       ),
     );
   } catch (e) {
