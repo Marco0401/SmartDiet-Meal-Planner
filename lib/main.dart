@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -79,13 +80,24 @@ class _MyHomePageState extends State<MyHomePage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   List<dynamic> _recipes = [];
+  List<dynamic> _allRecipes = []; // Store all fetched recipes before filtering
+  List<String> _excludeIngredients = []; // Ingredients to exclude
+  bool _showFilterPanel = false;
   bool _isLoading = false;
   String? _error;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchRecipes('chicken'); // Default query for Filipino dishes
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _fetchRecipes(String query) async {
@@ -100,8 +112,14 @@ class _MyHomePageState extends State<MyHomePage> {
       // Shuffle recipes based on current date for daily randomization
       final shuffledRecipes = _shuffleRecipesForToday(recipes);
       
+      // Store all recipes before filtering
+      final filteredRecipes = _excludeIngredients.isEmpty 
+          ? shuffledRecipes 
+          : _filterRecipesByExcludedIngredients(shuffledRecipes);
+      
       setState(() {
-        _recipes = shuffledRecipes;
+        _allRecipes = shuffledRecipes;
+        _recipes = filteredRecipes;
         _isLoading = false;
       });
     } catch (e) {
@@ -110,6 +128,139 @@ class _MyHomePageState extends State<MyHomePage> {
         _isLoading = false;
       });
     }
+  }
+  
+  // Filter recipes that contain excluded ingredients
+  List<dynamic> _filterRecipesByExcludedIngredients(List<dynamic> recipes) {
+    print('DEBUG: Filtering recipes. Excluding: $_excludeIngredients');
+    return recipes.where((recipe) {
+      final ingredients = _getRecipeIngredients(recipe);
+      final ingredientList = ingredients.map((ing) => ing.toLowerCase()).toList();
+      final recipeTitle = recipe['title'] ?? 'Unknown';
+      
+      print('DEBUG: Checking recipe: $recipeTitle');
+      print('DEBUG: Recipe ingredients: $ingredientList');
+      
+      // Check if any excluded ingredient is in this recipe
+      for (final excluded in _excludeIngredients) {
+        final excludedLower = excluded.toLowerCase();
+        print('DEBUG: Checking against excluded ingredient: $excludedLower');
+        
+        // Enhanced matching: check if excluded word is in any ingredient name
+        if (ingredientList.any((ing) => ing.contains(excludedLower) || excludedLower.contains(ing))) {
+          print('DEBUG: Recipe "$recipeTitle" EXCLUDED - contains $excluded');
+          return false; // Exclude this recipe
+        }
+        
+        // Special cases for common allergen terms
+        if (excludedLower == 'dairy') {
+          final dairyIngredient = ingredientList.firstWhere((ing) => _isDairyIngredient(ing), orElse: () => '');
+          if (dairyIngredient.isNotEmpty) {
+            print('DEBUG: Recipe "$recipeTitle" EXCLUDED - contains dairy (via "$dairyIngredient")');
+            return false;
+          }
+        }
+        if (excludedLower == 'eggs') {
+          final eggIngredient = ingredientList.firstWhere((ing) => _isEggIngredient(ing), orElse: () => '');
+          if (eggIngredient.isNotEmpty) {
+            print('DEBUG: Recipe "$recipeTitle" EXCLUDED - contains eggs (via "$eggIngredient")');
+            return false;
+          }
+        }
+        if (excludedLower == 'gluten') {
+          final glutenIngredient = ingredientList.firstWhere((ing) => _isGlutenIngredient(ing), orElse: () => '');
+          if (glutenIngredient.isNotEmpty) {
+            print('DEBUG: Recipe "$recipeTitle" EXCLUDED - contains gluten (via "$glutenIngredient")');
+            return false;
+          }
+        }
+        if (excludedLower == 'nuts') {
+          final nutsIngredient = ingredientList.firstWhere((ing) => _isNutsIngredient(ing), orElse: () => '');
+          if (nutsIngredient.isNotEmpty) {
+            print('DEBUG: Recipe "$recipeTitle" EXCLUDED - contains nuts (via "$nutsIngredient")');
+            return false;
+          }
+        }
+      }
+      
+      print('DEBUG: Recipe "$recipeTitle" INCLUDED');
+      return true; // Include this recipe
+    }).toList();
+  }
+  
+  bool _isDairyIngredient(String ingredient) {
+    final dairyKeywords = ['milk', 'cheese', 'butter', 'cream', 'yogurt', 'sour cream', 'whey', 'casein'];
+    return dairyKeywords.any((keyword) => ingredient.contains(keyword));
+  }
+  
+  bool _isEggIngredient(String ingredient) {
+    final eggKeywords = ['egg', 'mayo'];
+    return eggKeywords.any((keyword) => ingredient.contains(keyword));
+  }
+  
+  bool _isGlutenIngredient(String ingredient) {
+    final glutenKeywords = ['flour', 'wheat', 'bread', 'pasta', 'noodle', 'soy sauce'];
+    return glutenKeywords.any((keyword) => ingredient.contains(keyword));
+  }
+  
+  bool _isNutsIngredient(String ingredient) {
+    final nutsKeywords = ['almond', 'walnut', 'cashew', 'pistachio', 'pecan', 'hazelnut', 'peanut', 'peanuts', 'macadamia', 'brazil nut', 'pine nut', 'chestnut'];
+    return nutsKeywords.any((keyword) => ingredient.contains(keyword));
+  }
+  
+  // Extract ingredients from recipe in various formats
+  List<String> _getRecipeIngredients(Map<String, dynamic> recipe) {
+    final ingredients = <String>[];
+    
+    // Check extendedIngredients (Spoonacular format)
+    if (recipe['extendedIngredients'] is List) {
+      for (var ing in recipe['extendedIngredients'] as List) {
+        if (ing is Map) {
+          if (ing['original'] != null) {
+            ingredients.add(ing['original'].toString());
+          } else if (ing['name'] != null) {
+            ingredients.add(ing['name'].toString());
+          }
+        } else if (ing is String) {
+          ingredients.add(ing);
+        }
+      }
+    }
+    
+    // Check ingredients field
+    if (recipe['ingredients'] is List) {
+      for (var ing in recipe['ingredients'] as List) {
+        if (ing is Map) {
+          if (ing['name'] != null) {
+            ingredients.add(ing['name'].toString());
+          } else if (ing['original'] != null) {
+            ingredients.add(ing['original'].toString());
+          }
+        } else if (ing is String) {
+          ingredients.add(ing);
+        }
+      }
+    }
+    
+    return ingredients;
+  }
+  
+  // Add or remove excluded ingredient
+  void _toggleExcludeIngredient(String ingredient) {
+    setState(() {
+      if (_excludeIngredients.contains(ingredient)) {
+        _excludeIngredients.remove(ingredient);
+        print('DEBUG: Removed "$ingredient" from exclusion list');
+      } else {
+        _excludeIngredients.add(ingredient);
+        print('DEBUG: Added "$ingredient" to exclusion list. Total exclusions: $_excludeIngredients');
+      }
+      // Re-filter recipes
+      _recipes = _excludeIngredients.isEmpty 
+          ? _allRecipes 
+          : _filterRecipesByExcludedIngredients(_allRecipes);
+      print('DEBUG: Recipes filtered. Showing ${_recipes.length} recipes (from ${_allRecipes.length} total)');
+    });
   }
 
   // Shuffle recipes based on current date for consistent daily randomization
@@ -145,18 +296,18 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _performSearch() {
-    String query = _searchQuery.trim();
-    if (query.isEmpty) {
-      query = 'chicken'; // Default query for Filipino dishes
-    }
+    // Cancel previous timer if exists
+    _debounceTimer?.cancel();
+    
+    // Set a new timer to debounce the search
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      String query = _searchQuery.trim();
+      if (query.isEmpty) {
+        query = 'chicken'; // Default query for Filipino dishes
+      }
 
-    _fetchRecipes(query);
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+      _fetchRecipes(query);
+    });
   }
 
   @override
@@ -346,54 +497,187 @@ class _MyHomePageState extends State<MyHomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   children: [
-                    // Main Search Bar
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.white,
-                            Colors.green[50]!,
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(25),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.green.withOpacity(0.15),
-                            blurRadius: 15,
-                            offset: const Offset(0, 5),
-                            spreadRadius: 2,
+                    // Main Search Bar with Filter Button
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.white,
+                                  Colors.green[50]!,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(25),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.green.withOpacity(0.15),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 5),
+                                  spreadRadius: 2,
+                                ),
+                                BoxShadow(
+                                  color: Colors.white,
+                                  blurRadius: 0,
+                                  offset: const Offset(0, -1),
+                                ),
+                              ],
+                              border: Border.all(
+                                color: Colors.green[200]!,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: TextField(
+                              controller: _searchController,
+                              decoration: InputDecoration(
+                                hintText: 'Search recipes...',
+                                prefixIcon: Icon(Icons.search),
+                                border: InputBorder.none,
+                              ),
+                              onChanged: (value) {
+                                setState(() {
+                                  _searchQuery = value;
+                                });
+                                _performSearch();
+                              },
+                            ),
                           ),
-                          BoxShadow(
-                            color: Colors.white,
-                            blurRadius: 0,
-                            offset: const Offset(0, -1),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.red[400]!,
+                                Colors.red[600]!,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.red.withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
                           ),
-                        ],
-                        border: Border.all(
-                          color: Colors.green[200]!,
-                          width: 1.5,
+                          child: IconButton(
+                            icon: const Icon(Icons.filter_alt, color: Colors.white),
+                            tooltip: 'Filter by ingredients',
+                            onPressed: () {
+                              setState(() {
+                                _showFilterPanel = !_showFilterPanel;
+                              });
+                            },
+                          ),
                         ),
-                      ),
-                      child: TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Search recipes...',
-                          prefixIcon: Icon(Icons.search),
-                          border: InputBorder.none,
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _searchQuery = value;
-                          });
-                          _performSearch();
-                        },
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
+              
+              // Exclude Ingredients Filter
+              if (_excludeIngredients.isNotEmpty || _showFilterPanel)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red[200]!),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Row(
+                            children: [
+                              Icon(Icons.filter_alt, color: Colors.red[700], size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Excluding Ingredients:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                icon: Icon(_showFilterPanel ? Icons.expand_less : Icons.expand_more, size: 20),
+                                onPressed: () {
+                                  setState(() {
+                                    _showFilterPanel = !_showFilterPanel;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_excludeIngredients.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _excludeIngredients.map((ingredient) {
+                                return Chip(
+                                  deleteIcon: const Icon(Icons.close, size: 16),
+                                  onDeleted: () => _toggleExcludeIngredient(ingredient),
+                                  backgroundColor: Colors.red[50],
+                                  label: Text(ingredient),
+                                  labelStyle: const TextStyle(color: Colors.red),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        if (_showFilterPanel)
+                          Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Quick Exclude:',
+                                  style: TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: ['Eggs', 'Dairy', 'Nuts', 'Gluten', 'Shellfish', 'Soy'].map((ing) {
+                                    final isSelected = _excludeIngredients.contains(ing);
+                                    return FilterChip(
+                                      label: Text(ing),
+                                      selected: isSelected,
+                                      onSelected: (_) => _toggleExcludeIngredient(ing),
+                                      backgroundColor: Colors.grey[200],
+                                      selectedColor: Colors.red[100],
+                                      labelStyle: TextStyle(
+                                        color: isSelected ? Colors.red : Colors.grey[700],
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              
               // Main Content - Show different content based on search state
               if (_searchQuery.isEmpty) ...[
                 // Wrap main content in SingleChildScrollView for scrolling

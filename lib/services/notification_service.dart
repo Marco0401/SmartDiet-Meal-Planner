@@ -414,7 +414,7 @@ class NotificationService {
       final mealsQuery = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .where('date', isEqualTo: today)
           .get();
 

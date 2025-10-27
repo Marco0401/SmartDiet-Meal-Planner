@@ -469,7 +469,7 @@ class NutritionService {
     await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
-        .collection('meals')
+        .collection('meal_plans')
         .add({
       'title': title,
       'date': date,
@@ -674,7 +674,7 @@ class NutritionService {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .doc(mealId)
           .update({
         'nutrition': newNutrition,

@@ -788,7 +788,7 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
       final existingMealsSnapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .get();
 
       // Delete meals in the selected week
@@ -819,7 +819,7 @@ class _ExpertMealPlansPageState extends State<ExpertMealPlansPage> with TickerPr
             final mealRef = FirebaseFirestore.instance
                 .collection('users')
                 .doc(user.uid)
-                .collection('meals')
+                .collection('meal_plans')
                 .doc();
 
             batch.set(mealRef, {

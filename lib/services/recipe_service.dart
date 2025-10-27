@@ -64,35 +64,43 @@ class RecipeService {
         print('Spoonacular API key not configured, using fallback APIs');
       }
       
-      // 2. Try TheMealDB (always available, no API key required)
-      try {
-        final themealdbRecipes = await _fetchRecipesFallback(query);
-        allRecipes.addAll(themealdbRecipes);
-        print('DEBUG: TheMealDB: Successfully fetched ${themealdbRecipes.length} recipes');
-      } catch (e) {
-        print('TheMealDB error: $e');
+      // 2. Try TheMealDB only if we don't have enough recipes yet (always available, no API key required)
+      if (allRecipes.length < 10) {
+        try {
+          final themealdbRecipes = await _fetchRecipesFallback(query);
+          allRecipes.addAll(themealdbRecipes);
+          print('DEBUG: TheMealDB: Successfully fetched ${themealdbRecipes.length} recipes');
+        } catch (e) {
+          print('TheMealDB error: $e');
+        }
       }
       
-      // 3. Try Filipino Recipe Service (local recipes)
-      try {
-        final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(query);
-        allRecipes.addAll(filipinoRecipes);
-        print('Filipino Recipe Service: Successfully fetched ${filipinoRecipes.length} recipes');
-      } catch (e) {
-        print('Filipino Recipe Service error: $e');
+      // 3. Try Filipino Recipe Service only if we still need more recipes
+      if (allRecipes.length < 10) {
+        try {
+          final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(query);
+          allRecipes.addAll(filipinoRecipes);
+          print('Filipino Recipe Service: Successfully fetched ${filipinoRecipes.length} recipes');
+        } catch (e) {
+          print('Filipino Recipe Service error: $e');
+        }
       }
       
-      // 4. Try Admin Recipes (from Firebase)
-      try {
-        final adminRecipes = await _fetchAdminRecipes(query);
-        allRecipes.addAll(adminRecipes);
-        print('Admin Recipes: Successfully fetched ${adminRecipes.length} recipes');
-      } catch (e) {
-        print('Admin Recipes error: $e');
+      // 4. Try Admin Recipes only if we still need more
+      if (allRecipes.length < 15) {
+        try {
+          final adminRecipes = await _fetchAdminRecipes(query);
+          allRecipes.addAll(adminRecipes);
+          print('Admin Recipes: Successfully fetched ${adminRecipes.length} recipes');
+        } catch (e) {
+          print('Admin Recipes error: $e');
+        }
       }
       
-      print('Total recipes fetched: ${allRecipes.length}');
-      return allRecipes;
+      // Limit total results to 20 for better performance
+      final limitedRecipes = allRecipes.take(20).toList();
+      print('Total recipes fetched: ${allRecipes.length} (limited to ${limitedRecipes.length})');
+      return limitedRecipes;
     } catch (e) {
       print('Error in fetchRecipes: $e');
       // Use fallback on any error
@@ -114,12 +122,47 @@ class RecipeService {
       final data = json.decode(response.body);
       final meals = data['meals'] as List<dynamic>? ?? [];
       
+      // Extract ingredients from TheMealDB meal object
+      List<String> _extractIngredients(Map<String, dynamic> meal) {
+        final ingredients = <String>[];
+        for (int i = 1; i <= 20; i++) {
+          final ingredient = meal['strIngredient$i'];
+          final measure = meal['strMeasure$i'];
+          if (ingredient != null && ingredient.toString().trim().isNotEmpty) {
+            if (measure != null && measure.toString().trim().isNotEmpty) {
+              ingredients.add('$measure $ingredient');
+            } else {
+              ingredients.add(ingredient.toString());
+            }
+          }
+        }
+        return ingredients;
+      }
+      
+      // Filter recipes to only include those with the search term in the name
+      // and limit to top 10 results
+      final queryLower = query.toLowerCase();
+      final filteredMeals = meals
+          .where((meal) {
+            final mealName = meal['strMeal']?.toString().toLowerCase() ?? '';
+            return mealName.contains(queryLower);
+          })
+          .take(10)
+          .toList();
+      
+      print('DEBUG: TheMealDB filtered from ${meals.length} to ${filteredMeals.length} results');
+      
       // Convert to similar format as Spoonacular
-      return meals.map((meal) => {
-        'id': 'themealdb_${meal['idMeal']}', // Prefix to identify TheMealDB recipes
-        'title': meal['strMeal'],
-        'image': meal['strMealThumb'],
-        'sourceUrl': meal['strSource'],
+      return filteredMeals.map((meal) {
+        final mealMap = meal as Map<String, dynamic>;
+        final ingredients = _extractIngredients(mealMap);
+        return {
+          'id': 'themealdb_${mealMap['idMeal']}', // Prefix to identify TheMealDB recipes
+          'title': mealMap['strMeal'],
+          'image': mealMap['strMealThumb'],
+          'sourceUrl': mealMap['strSource'],
+          'ingredients': ingredients, // Add ingredients for filtering
+        };
       }).toList();
     } else {
       throw Exception('Failed to load recipes from fallback API');
@@ -182,9 +225,7 @@ class RecipeService {
       }
       
       // Use fallback if no API key or Spoonacular fails
-      if (recipeDetails == null) {
-        recipeDetails = await _fetchRecipeDetailsFallback(id);
-      }
+      recipeDetails ??= await _fetchRecipeDetailsFallback(id);
       
       // Check for nutrition overrides (for API recipes)
       final overriddenRecipe = await _applyNutritionOverride(recipeDetails, id);
@@ -801,7 +842,7 @@ class RecipeService {
         final mealsSnapshot = await FirebaseFirestore.instance
             .collection('users')
             .doc(userId)
-            .collection('meals')
+            .collection('meal_plans')
             .get();
         
         for (final mealDoc in mealsSnapshot.docs) {
@@ -813,7 +854,7 @@ class RecipeService {
             await FirebaseFirestore.instance
                 .collection('users')
                 .doc(userId)
-                .collection('meals')
+                .collection('meal_plans')
                 .doc(mealDoc.id)
                 .update({
               'title': newRecipe['title'],

@@ -223,11 +223,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
           icon: Icons.campaign,
           widget: const AnnouncementsPage(),
         ),
-        AdminPage(
-          title: 'Curated Content',
-          icon: Icons.edit_note,
-          widget: const CuratedContentManagementPage(),
-        ),
       ];
     }
   }
@@ -1386,7 +1381,7 @@ class _DashboardOverviewPageState extends State<DashboardOverviewPage> with Tick
           final mealsSnapshot = await FirebaseFirestore.instance
               .collection('users')
               .doc(userDoc.id)
-              .collection('meals')
+              .collection('meal_plans')
               .get();
           
           totalNutritionEntries += mealsSnapshot.docs.length;
@@ -1394,7 +1389,7 @@ class _DashboardOverviewPageState extends State<DashboardOverviewPage> with Tick
           final todayMeals = await FirebaseFirestore.instance
               .collection('users')
               .doc(userDoc.id)
-              .collection('meals')
+              .collection('meal_plans')
               .where('addedAt', isGreaterThan: Timestamp.fromDate(startOfDay))
               .get();
           

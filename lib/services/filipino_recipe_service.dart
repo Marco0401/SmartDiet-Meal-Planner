@@ -161,7 +161,7 @@ class FilipinoRecipeService {
           
           // If recipe doesn't have an ID, generate one
           if (recipe['id'] == null || recipe['id'].toString().isEmpty) {
-            recipe['id'] = 'firestore_filipino_${index}';
+            recipe['id'] = 'firestore_filipino_$index';
           }
           
           return recipe;
@@ -977,7 +977,7 @@ class FilipinoRecipeService {
         final mealsSnapshot = await _firestore
             .collection('users')
             .doc(userId)
-            .collection('meals')
+              .collection('meal_plans')
             .get();
         
         for (final mealDoc in mealsSnapshot.docs) {
@@ -989,7 +989,7 @@ class FilipinoRecipeService {
             await _firestore
                 .collection('users')
                 .doc(userId)
-                .collection('meals')
+                .collection('meal_plans')
                 .doc(mealDoc.id)
                 .update({
               'title': newRecipe['title'],

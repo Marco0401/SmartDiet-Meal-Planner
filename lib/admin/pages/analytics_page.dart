@@ -778,7 +778,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         final mealsSnapshot = await FirebaseFirestore.instance
             .collection('users')
             .doc(userDoc.id)
-            .collection('meals')
+            .collection('meal_plans')
             .get();
         
         for (final mealDoc in mealsSnapshot.docs) {
@@ -995,7 +995,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           final mealsSnapshot = await FirebaseFirestore.instance
               .collection('users')
               .doc(userDoc.id)
-              .collection('meals')
+              .collection('meal_plans')
               .where('substituted', isEqualTo: true)
               .limit(2) // Limit per user
               .get();
@@ -1244,7 +1244,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           final mealsSnapshot = await FirebaseFirestore.instance
               .collection('users')
               .doc(userDoc.id)
-              .collection('meals')
+              .collection('meal_plans')
               .get();
 
           totalNutritionEntries += mealsSnapshot.docs.length;
@@ -1253,7 +1253,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           final newMealsSnapshot = await FirebaseFirestore.instance
               .collection('users')
               .doc(userDoc.id)
-              .collection('meals')
+              .collection('meal_plans')
               .where('addedAt', isGreaterThan: Timestamp.fromDate(startDate))
               .get();
 
@@ -1469,7 +1469,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         final mealsSnapshot = await FirebaseFirestore.instance
             .collection('users')
             .doc(userDoc.id)
-            .collection('meals')
+            .collection('meal_plans')
             .where('recipeUpdatedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
             .get();
         

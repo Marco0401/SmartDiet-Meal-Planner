@@ -1551,11 +1551,11 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
 
       print('DEBUG: Meal data created: $mealData');
 
-      // Save to Firestore in the main meals collection
+      // Save to Firestore in the main meal_plans collection
       final docRef = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .add(mealData);
 
       print('DEBUG: Meal saved with ID: ${docRef.id}');

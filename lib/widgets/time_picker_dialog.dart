@@ -5,10 +5,10 @@ class TimePickerDialog extends StatefulWidget {
   final String title;
 
   const TimePickerDialog({
-    Key? key,
+    super.key,
     this.initialTime,
     this.title = 'Select Time',
-  }) : super(key: key);
+  });
 
   @override
   State<TimePickerDialog> createState() => _TimePickerDialogState();

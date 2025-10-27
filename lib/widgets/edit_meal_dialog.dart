@@ -679,6 +679,17 @@ class _EditMealDialogState extends State<EditMealDialog> {
             ? detectedAllergens.entries.map((e) => e.key).toList()
             : [],
         'updatedAt': FieldValue.serverTimestamp(),
+        
+        // Preserve substitution metadata to prevent nutrition recalculation
+        if (widget.meal['substituted'] == true) 'substituted': true,
+        if (widget.meal['originalNutrition'] != null) 
+            'originalNutrition': widget.meal['originalNutrition'],
+        if (widget.meal['substitutions'] != null) 
+            'substitutions': widget.meal['substitutions'],
+        if (widget.meal['extendedIngredients'] != null) 
+            'extendedIngredients': widget.meal['extendedIngredients'],
+        if (widget.meal['originalAllergens'] != null) 
+            'originalAllergens': widget.meal['originalAllergens'],
       };
 
       // Update meal in Firestore

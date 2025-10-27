@@ -78,7 +78,7 @@ class _RecipesManagementPageState extends State<RecipesManagementPage> with Tick
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Manage Recipes & Ingredients'),
+        title: const Text('Manage Recipes'),
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,

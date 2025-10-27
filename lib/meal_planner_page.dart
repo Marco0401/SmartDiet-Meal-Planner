@@ -328,6 +328,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           'detectedAllergens': mealData['detectedAllergens'],
           'substituted': mealData['substituted'] ?? false,
           'originalAllergens': mealData['originalAllergens'],
+          'originalNutrition': mealData['originalNutrition'], // Preserve original nutrition for substituted meals
           'substitutions': mealData['substitutions'],
           'recipeId': mealData['recipeId'], // Preserve original recipe ID
           'source': mealData['source'] ?? 'meal_planner',

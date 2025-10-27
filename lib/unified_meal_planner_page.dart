@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'meal_planner_page.dart';
 import 'ai_meal_planner_page.dart';
-import 'services/ai_meal_planner_service.dart';
 
 class UnifiedMealPlannerPage extends StatefulWidget {
   const UnifiedMealPlannerPage({super.key});
@@ -229,11 +228,11 @@ class _UnifiedMealPlannerPageState extends State<UnifiedMealPlannerPage> {
         final mealData = meal as Map<String, dynamic>;
         final date = mealData['date'] as String;
         
-        // Save each meal to the user's meals collection
+        // Save each meal to the user's meal_plans collection
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .collection('meals')
+            .collection('meal_plans')
             .add({
           'title': mealData['title'] ?? 'Planned Meal',
           'date': date,

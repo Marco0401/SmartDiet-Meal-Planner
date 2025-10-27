@@ -566,7 +566,7 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
         final mealsSnapshot = await FirebaseFirestore.instance
             .collection('users')
             .doc(userDoc.id)
-            .collection('meals')
+            .collection('meal_plans')
             .get();
         
         for (final mealDoc in mealsSnapshot.docs) {
@@ -586,7 +586,7 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
               await FirebaseFirestore.instance
                   .collection('users')
                   .doc(userDoc.id)
-                  .collection('meals')
+                  .collection('meal_plans')
                   .doc(mealDoc.id)
                   .update({'substitutions': substitutions});
               updatedCount++;
@@ -628,7 +628,7 @@ class _SubstitutionsManagementPageState extends State<SubstitutionsManagementPag
           final mealsSnapshot = await FirebaseFirestore.instance
               .collection('users')
               .doc(userDoc.id)
-              .collection('meals')
+              .collection('meal_plans')
               .get();
           
           print('DEBUG: User ${userDoc.id} has ${mealPlansSnapshot.docs.length} meal plans and ${mealsSnapshot.docs.length} meals');
