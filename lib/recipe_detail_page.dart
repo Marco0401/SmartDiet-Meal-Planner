@@ -71,6 +71,37 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       print('DEBUG: Recipe keys: ${widget.recipe.keys.toList()}');
       print('DEBUG: Ingredients type: ${widget.recipe['ingredients']?.runtimeType}');
       print('DEBUG: ExtendedIngredients type: ${widget.recipe['extendedIngredients']?.runtimeType}');
+      // If this recipe came from Favorites (docId present), fetch the latest nested recipe object
+      final favoriteDocId = widget.recipe['docId']?.toString();
+      if (favoriteDocId != null && favoriteDocId.isNotEmpty) {
+        try {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final favSnap = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('favorites')
+                .doc(favoriteDocId)
+                .get();
+            if (favSnap.exists) {
+              final favData = favSnap.data() as Map<String, dynamic>;
+              final latestRecipe = Map<String, dynamic>.from(favData['recipe'] ?? {});
+              latestRecipe['docId'] = favoriteDocId; // preserve for future edits
+              // Remove any lingering date field from favorites recipe in memory
+              latestRecipe.remove('date');
+              print('DEBUG: Loaded latest favorite recipe from Firestore');
+              setState(() {
+                _recipeDetails = latestRecipe;
+                _isLoading = false;
+              });
+              // After setting latest data from favorites, continue rendering directly
+              return;
+            }
+          }
+        } catch (e) {
+          print('DEBUG: Error fetching latest favorite recipe: $e');
+        }
+      }
       
       // Check if this is a local recipe or API recipe
       // Use recipeId if available (for meals from meal planner), otherwise fall back to id
@@ -94,6 +125,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       print('DEBUG: Meal data summary: ${widget.recipe['summary']}');
       print('DEBUG: Meal data description: ${widget.recipe['description']}');
       
+      // Use meal data directly if it has any of these conditions
+      final hasIngredients = widget.recipe['ingredients'] != null || widget.recipe['extendedIngredients'] != null;
+      final isFromMealPlanner = widget.recipe['date'] != null; // Meals in planner have date field
+      
       if (recipeId.toString().startsWith('local_') || 
           recipeId.toString().startsWith('admin_filipino_') ||
           recipeId.toString().startsWith('firestore_filipino_') ||
@@ -109,7 +144,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'USDA' ||
           source == 'admin created' ||
           source == 'admin' ||
-          substituted == true) {
+          substituted == true ||
+          isFromMealPlanner) { // Also use data directly for planned meals
         // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, meal from planner, or scanned product - use the data directly
         print('DEBUG: Local/manual/substituted/expert_plan/meal_planner/scanned recipe, using data directly');
         print('DEBUG: Using meal data directly - summary: ${widget.recipe['summary']}, description: ${widget.recipe['description']}');
@@ -338,11 +374,18 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   }
 
   Future<void> _editMeal() async {
-    // Extract the meal ID and date from the recipe
-    final mealId = widget.recipe['id']?.toString() ?? '';
-    final dateKey = widget.recipe['date']?.toString() ?? '';
+    // Use the freshest data available
+    final baseRecipe = _recipeDetails ?? widget.recipe;
+    // Extract the meal ID and date from the recipe (for meal planner)
+    final mealId = baseRecipe['id']?.toString() ?? '';
+    final dateKey = baseRecipe['date']?.toString() ?? '';
     
-    if (mealId.isEmpty || dateKey.isEmpty) {
+    // Check if it's a favorite meal (has docId)
+    final favoriteId = baseRecipe['docId']?.toString() ?? '';
+    final isFavorite = favoriteId.isNotEmpty && dateKey.isEmpty;
+    
+    // Validate that we have required IDs
+    if (mealId.isEmpty && favoriteId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Cannot edit this meal. Missing required information.'),
@@ -356,9 +399,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     final result = await showDialog(
       context: context,
       builder: (context) => EditMealDialog(
-        meal: widget.recipe,
-        mealId: mealId,
-        dateKey: dateKey,
+        meal: baseRecipe,
+        mealId: isFavorite ? favoriteId : mealId,
+        dateKey: dateKey, // Empty for favorites
       ),
     );
 
@@ -369,8 +412,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Meal updated successfully!'),
+        SnackBar(
+          content: Text('${isFavorite ? "Recipe" : "Meal"} updated successfully!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -659,7 +702,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .add({
         'title': recipe['title'] ?? 'Recipe',
         'date': mealPlanData['date'],
@@ -704,7 +747,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .add({
         'title': recipe['title'] ?? 'Recipe',
         'date': mealPlanData['date'],
@@ -750,7 +793,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .doc(mealId)
           .update({
         'nutrition': recipe['nutrition'],
@@ -973,8 +1016,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
                 const SizedBox(height: 16),
 
-                // Edit Meal Button (only for planned meals)
-                if (widget.recipe['id'] != null && widget.recipe['date'] != null)
+                // Edit Meal Button (for both planned meals and favorite meals)
+                if ((widget.recipe['id'] != null && widget.recipe['date'] != null) || 
+                    widget.recipe['docId'] != null)
                   _safelyBuildSection('Edit Meal', () => _buildEditMealButton()),
 
                 const SizedBox(height: 24),
@@ -1530,6 +1574,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             // Object format from Enhanced Recipe Dialog
             return {
               'amount': _safeDouble(ingredient['amount']) ?? 1.0,
+              'amountDisplay': ingredient['amountDisplay']?.toString() ?? '', // preserve fractions
               'unit': ingredient['unit']?.toString() ?? '',
               'name': ingredient['name']?.toString() ?? '',
             };
@@ -1623,7 +1668,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   ingredientText = ingredient['original'].toString();
                 } else if (ingredient['name'] != null && ingredient['name'].toString().isNotEmpty) {
                   // Fallback to 'name' field and format with amount/unit
-                  final amount = _formatAmount(ingredient['amount']);
+                  // Use amountDisplay to preserve fractions, fallback to formatted amount
+                  final amountDisplay = ingredient['amountDisplay']?.toString() ?? '';
+                  final amount = amountDisplay.isNotEmpty ? amountDisplay : _formatAmount(ingredient['amount']);
                   final unit = ingredient['unit']?.toString() ?? '';
                   final name = ingredient['name'].toString();
                   

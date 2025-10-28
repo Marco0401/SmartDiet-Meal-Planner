@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:async';
 import 'main.dart';
 import 'register_page.dart';
 import 'onboarding/onboarding_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'services/google_signin_service.dart';
+import 'utils/error_handler.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -76,172 +80,251 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _login() async {
+    if (_isLoading) return; // Prevent multiple taps
+
+    // Check internet connectivity first
+    final hasInternet = await ErrorHandler.hasInternetConnection();
+    if (!hasInternet && mounted) {
+      ErrorHandler.showOfflineSnackbar(context);
+      setState(() {
+        _error = 'No internet connection. Please check your network.';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
     });
+
     try {
-      print("Attempting sign in...");
+      print('DEBUG: Attempting email/password sign in...');
       final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-      print("Signed in: ${credential.user?.uid}");
+      print('DEBUG: Signed in: ${credential.user?.uid}');
       
+      if (credential.user == null) {
+        throw Exception('Login failed - no user returned');
+      }
+
       // Save the email for future use
-      await _saveLastUsedEmail(credential.user!.email!);
+      if (credential.user!.email != null) {
+        await _saveLastUsedEmail(credential.user!.email!);
+      }
       
+      // Check email verification
       if (!credential.user!.emailVerified) {
         setState(() {
-          _error = "Please verify your email before logging in.";
+          _error = 'Please verify your email before logging in.';
         });
         await FirebaseAuth.instance.signOut();
         return;
       }
-      print("Email verified");
+
+      print('DEBUG: Email verified, checking Firestore profile...');
       // Check if user profile exists in Firestore
       final docRef = FirebaseFirestore.instance
           .collection('users')
           .doc(credential.user!.uid);
       final doc = await docRef.get();
-      print("Firestore doc exists: ${doc.exists}");
+      
       if (!doc.exists) {
-        // --- CREATE USER DOCUMENT IF NOT EXISTS ---
+        print('DEBUG: Creating user profile...');
         await docRef.set({
           'email': credential.user!.email,
           'createdAt': FieldValue.serverTimestamp(),
         });
         if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => OnboardingPage(uid: credential.user!.uid),
-                ),
-              );
-            }
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OnboardingPage(uid: credential.user!.uid),
+            ),
+          );
         }
       } else {
+        print('DEBUG: Profile exists, navigating to home...');
         if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const MyHomePage(title: 'SmartDiet'),
-                ),
-              );
-            }
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MyHomePage(title: 'SmartDiet'),
+            ),
+          );
         }
       }
     } on FirebaseAuthException catch (e) {
+      print('DEBUG: FirebaseAuthException: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getAuthErrorMessage(e);
       setState(() {
-        if (e.code == 'user-not-found') {
-          _error = 'No account found for that email.';
-        } else if (e.code == 'wrong-password') {
-          _error = 'Incorrect password.';
-        } else {
-          _error = e.message;
-        }
+        _error = errorMessage;
       });
-      print("FirebaseAuthException: ${e.message}");
+    } on FirebaseException catch (e) {
+      print('DEBUG: FirebaseException: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getFirestoreErrorMessage(e);
+      setState(() {
+        _error = errorMessage;
+      });
+    } on SocketException catch (_) {
+      print('DEBUG: Network error during login');
+      setState(() {
+        _error = 'No internet connection. Please check your network.';
+      });
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+    } on TimeoutException catch (_) {
+      print('DEBUG: Timeout during login');
+      setState(() {
+        _error = 'Request timeout. Please try again.';
+      });
     } catch (e) {
+      print('DEBUG: Unknown error during login: $e');
       setState(() {
-        _error = e.toString();
+        _error = ErrorHandler.getGeneralErrorMessage(e);
       });
-      print("Unknown error: ${e.toString()}");
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _signInWithGoogle() async {
+    if (_isLoading) return; // Prevent multiple taps
+    
     setState(() {
       _isLoading = true;
       _error = null;
     });
+
     try {
-      print("Starting Google sign-in...");
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      // Step 1: Sign in with Google
+      print('DEBUG: Starting Google Sign-In...');
+      final googleSignInService = GoogleSignInService();
+      final GoogleSignInAccount? googleUser = await googleSignInService.signIn();
+      
+      // User cancelled the sign-in
       if (googleUser == null) {
+        print('DEBUG: Google Sign-In cancelled by user');
         setState(() {
           _isLoading = false;
-          _error = "Google sign-in cancelled.";
         });
-        print("Google sign-in cancelled by user.");
         return;
       }
-      print("Google user: ${googleUser.email}");
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+
+      print('DEBUG: Google account selected: ${googleUser.email}');
+
+      // Step 2: Get authentication credentials
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      if (googleAuth.accessToken == null || googleAuth.idToken == null) {
+        throw Exception('Failed to get Google authentication tokens');
+      }
+
+      // Step 3: Create Firebase credential
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(
-        credential,
-      );
-      print("Firebase user: ${userCredential.user?.uid}");
+
+      // Step 4: Sign in to Firebase
+      print('DEBUG: Signing in to Firebase...');
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
       
-      // Save the email for future use
-      await _saveLastUsedEmail(userCredential.user!.email!);
-      // Check if user profile exists in Firestore
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid);
+      if (userCredential.user == null) {
+        throw Exception('Failed to sign in to Firebase');
+      }
+
+      final user = userCredential.user!;
+      print('DEBUG: Firebase sign-in successful: ${user.uid}');
+
+      // Step 5: Save email for future sessions
+      if (user.email != null) {
+        await _saveLastUsedEmail(user.email!);
+      }
+
+      // Step 6: Check/Create user profile in Firestore
+      final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       final doc = await docRef.get();
-      print("Firestore doc exists: ${doc.exists}");
+
       if (!doc.exists) {
-        // --- CREATE USER DOCUMENT IF NOT EXISTS ---
+        print('DEBUG: Creating new user profile...');
+        // Create user document for new users
         await docRef.set({
-          'email': userCredential.user!.email,
+          'email': user.email,
+          'displayName': user.displayName,
+          'photoURL': user.photoURL,
           'createdAt': FieldValue.serverTimestamp(),
+          'provider': 'google',
         });
+
+        // Navigate to onboarding
         if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => OnboardingPage(uid: userCredential.user!.uid),
-                ),
-              );
-            }
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OnboardingPage(uid: user.uid),
+            ),
+          );
         }
       } else {
+        print('DEBUG: Existing user, navigating to home...');
+        // Navigate to home for existing users
         if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const MyHomePage(title: 'SmartDiet'),
-                ),
-              );
-            }
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MyHomePage(title: 'SmartDiet'),
+            ),
+          );
         }
       }
     } on FirebaseAuthException catch (e) {
+      print('DEBUG: FirebaseAuthException: ${e.code} - ${e.message}');
+      String errorMessage;
+      
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          errorMessage = 'An account already exists with this email using a different sign-in method.';
+          break;
+        case 'invalid-credential':
+          errorMessage = 'Invalid Google credentials. Please try again.';
+          break;
+        case 'operation-not-allowed':
+          errorMessage = 'Google sign-in is not enabled. Please contact support.';
+          break;
+        case 'user-disabled':
+          errorMessage = 'This account has been disabled.';
+          break;
+        case 'user-not-found':
+          errorMessage = 'No account found. Please register first.';
+          break;
+        case 'network-request-failed':
+          errorMessage = 'Network error. Please check your internet connection.';
+          break;
+        default:
+          errorMessage = e.message ?? 'An error occurred during Google sign-in.';
+      }
+      
       setState(() {
-        _error = e.message;
+        _error = errorMessage;
       });
-      print("FirebaseAuthException: ${e.message}");
     } catch (e) {
+      print('DEBUG: General exception: $e');
       setState(() {
-        _error = e.toString();
+        _error = 'An unexpected error occurred. Please try again.';
       });
-      print("Unknown error: ${e.toString()}");
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

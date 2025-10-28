@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/nutrition_service.dart';
 
 class NutritionalDataValidationPage extends StatefulWidget {
   const NutritionalDataValidationPage({super.key});
@@ -531,6 +532,17 @@ class _NutritionalDataValidationPageState extends State<NutritionalDataValidatio
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _cleanDuplicates,
+                    icon: const Icon(Icons.cleaning_services),
+                    label: const Text('Clean Duplicate Ingredients'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -578,6 +590,37 @@ class _NutritionalDataValidationPageState extends State<NutritionalDataValidatio
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _migrateIngredientDatabase,
+                    icon: const Icon(Icons.upload),
+                    label: const Text('Migrate Ingredients'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _cleanDuplicates,
+                    icon: const Icon(Icons.cleaning_services),
+                    label: const Text('Clean Duplicates'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
             Text(
               '${filteredIngredients.length} ingredients in database',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -630,6 +673,176 @@ class _NutritionalDataValidationPageState extends State<NutritionalDataValidatio
     );
   }
 
+  Future<void> _cleanDuplicates() async {
+    // Show confirmation dialog first
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('⚠️ Clean Duplicates'),
+        content: const Text(
+          'This will remove duplicate ingredients (case-insensitive) from your database.\n\n'
+          'For duplicates, the first occurrence will be kept.\n\n'
+          'This action cannot be undone. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Clean Duplicates'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Cleaning duplicates...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Read existing ingredients from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('ingredient_nutrition')
+          .get();
+
+      if (!doc.exists) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No ingredients found in database'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      final data = doc.data();
+      final existingIngredients = Map<String, dynamic>.from(data?['ingredients'] ?? {});
+      print('DEBUG: Found ${existingIngredients.length} total ingredients');
+
+      // Find and remove duplicates (case-insensitive)
+      final cleanedIngredients = <String, dynamic>{};
+      final lowerCaseMap = <String, String>{}; // lowercase -> original key
+      final duplicatesFound = <String>[];
+      int duplicateCount = 0;
+
+      for (final entry in existingIngredients.entries) {
+        final ingredientName = entry.key;
+        final ingredientLower = ingredientName.toLowerCase();
+
+        // Check if we already have this ingredient (case-insensitive)
+        if (lowerCaseMap.containsKey(ingredientLower)) {
+          // Found a duplicate
+          final existingKey = lowerCaseMap[ingredientLower]!;
+          duplicatesFound.add('Duplicate: "$ingredientName" (keeping "$existingKey")');
+          duplicateCount++;
+          print('DEBUG: Found duplicate: "$ingredientName" (already have "$existingKey")');
+        } else {
+          // First occurrence, keep it
+          cleanedIngredients[ingredientName] = entry.value;
+          lowerCaseMap[ingredientLower] = ingredientName;
+        }
+      }
+
+      if (duplicateCount == 0) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ No duplicates found! Database is clean.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return;
+      }
+
+      print('DEBUG: Removed $duplicateCount duplicates');
+      print('DEBUG: Clean ingredients count: ${cleanedIngredients.length}');
+
+      // Update Firestore with cleaned ingredients
+      await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('ingredient_nutrition')
+          .set({
+        'ingredients': cleanedIngredients,
+        'cleanedAt': FieldValue.serverTimestamp(),
+        'version': 2,
+        'totalIngredients': cleanedIngredients.length,
+      });
+
+      if (mounted) {
+        Navigator.pop(context);
+        
+        // Show detailed results
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('✅ Cleanup Complete!'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Removed $duplicateCount duplicate ingredients'),
+                  Text('Kept ${cleanedIngredients.length} unique ingredients'),
+                  const SizedBox(height: 16),
+                  if (duplicatesFound.isNotEmpty) ...[
+                    const Text('Duplicates removed:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    ...duplicatesFound.take(20).map((dup) => Padding(
+                      padding: const EdgeInsets.only(left: 8, bottom: 4),
+                      child: Text('• $dup', style: const TextStyle(fontSize: 12)),
+                    )),
+                    if (duplicatesFound.length > 20)
+                      Text('... and ${duplicatesFound.length - 20} more'),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error cleaning duplicates: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _migrateIngredientDatabase() async {
     showDialog(
       context: context,
@@ -646,30 +859,74 @@ class _NutritionalDataValidationPageState extends State<NutritionalDataValidatio
     );
 
     try {
-      // Hardcoded ingredient database
-      final ingredientDatabase = {
-        'chicken breast': {'calories': 165, 'protein': 31, 'carbs': 0, 'fat': 3.6, 'fiber': 0},
-        'rice': {'calories': 130, 'protein': 2.7, 'carbs': 28, 'fat': 0.3, 'fiber': 0.4},
-        'broccoli': {'calories': 34, 'protein': 2.8, 'carbs': 7, 'fat': 0.4, 'fiber': 2.6},
-        'bangus (milkfish)': {'calories': 170, 'protein': 20, 'carbs': 0, 'fat': 10, 'fiber': 0},
-        // Add more ingredients as needed
-      };
+      // Get the full hardcoded ingredient database from NutritionService
+      final hardcodedDb = NutritionService.getIngredientDatabase();
+      print('DEBUG: Loaded ${hardcodedDb.length} ingredients from NutritionService');
+      
+      // Read existing ingredients from Firestore
+      final doc = await FirebaseFirestore.instance
+          .collection('system_data')
+          .doc('ingredient_nutrition')
+          .get();
+      
+      Map<String, dynamic> existingIngredients = {};
+      if (doc.exists) {
+        final data = doc.data();
+        existingIngredients = Map<String, dynamic>.from(data?['ingredients'] ?? {});
+        print('DEBUG: Found ${existingIngredients.length} existing ingredients in Firestore');
+      }
+      
+      // Create a case-insensitive lookup map for existing ingredients
+      final existingLowerCaseMap = <String, String>{};
+      for (final key in existingIngredients.keys) {
+        existingLowerCaseMap[key.toLowerCase()] = key;
+      }
+      
+      // Merge hardcoded ingredients with existing, avoiding duplicates
+      final mergedIngredients = Map<String, dynamic>.from(existingIngredients);
+      int newCount = 0;
+      int skippedCount = 0;
+      
+      for (final entry in hardcodedDb.entries) {
+        final ingredientName = entry.key;
+        final ingredientLower = ingredientName.toLowerCase();
+        
+        // Check if this ingredient already exists (case-insensitive)
+        if (existingLowerCaseMap.containsKey(ingredientLower)) {
+          print('DEBUG: Skipping duplicate: $ingredientName (exists as: ${existingLowerCaseMap[ingredientLower]})');
+          skippedCount++;
+          continue;
+        }
+        
+        // Add new ingredient
+        mergedIngredients[ingredientName] = entry.value;
+        newCount++;
+      }
+      
+      print('DEBUG: Added $newCount new ingredients, skipped $skippedCount duplicates');
+      print('DEBUG: Total ingredients after merge: ${mergedIngredients.length}');
 
+      // Update Firestore with merged ingredients
       await FirebaseFirestore.instance
           .collection('system_data')
           .doc('ingredient_nutrition')
           .set({
-        'ingredients': ingredientDatabase,
+        'ingredients': mergedIngredients,
         'migratedAt': FieldValue.serverTimestamp(),
-        'version': 1,
+        'version': 2,
+        'totalIngredients': mergedIngredients.length,
       });
 
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Migrated ${ingredientDatabase.length} ingredients!'),
+            content: Text('✅ Migration complete!\n'
+                'Added: $newCount new ingredients\n'
+                'Skipped: $skippedCount duplicates\n'
+                'Total: ${mergedIngredients.length} ingredients'),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

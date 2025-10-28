@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:io';
+import 'dart:async';
+import 'login_page.dart';
 import 'main.dart';
 import 'onboarding/onboarding_page.dart';
+import 'services/google_signin_service.dart';
+import 'utils/error_handler.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -26,39 +31,83 @@ class _RegisterPageState extends State<RegisterPage> {
   User? _newUser;
 
   Future<void> _register() async {
+    if (_isLoading) return; // Prevent multiple taps
+
+    // Check internet connectivity first
+    final hasInternet = await ErrorHandler.hasInternetConnection();
+    if (!hasInternet && mounted) {
+      ErrorHandler.showOfflineSnackbar(context);
+      setState(() {
+        _error = 'No internet connection. Please check your network.';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
       _showVerify = false;
     });
+
+    // Validate passwords match
     if (_passwordController.text != _confirmController.text) {
       setState(() {
         _isLoading = false;
-        _error = "Passwords do not match";
+        _error = 'Passwords do not match';
       });
       return;
     }
+
     try {
+      print('DEBUG: Creating new account...');
       UserCredential userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
             email: _emailController.text.trim(),
             password: _passwordController.text.trim(),
           );
 
+      if (userCredential.user == null) {
+        throw Exception('Registration failed - no user returned');
+      }
+
       _newUser = userCredential.user;
+      print('DEBUG: Sending verification email...');
       await _newUser!.sendEmailVerification();
 
       setState(() {
         _showVerify = true;
       });
+      print('DEBUG: Verification email sent successfully');
     } on FirebaseAuthException catch (e) {
+      print('DEBUG: FirebaseAuthException: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getAuthErrorMessage(e);
       setState(() {
-        _error = e.message;
+        _error = errorMessage;
+      });
+    } on SocketException catch (_) {
+      print('DEBUG: Network error during registration');
+      setState(() {
+        _error = 'No internet connection. Please check your network.';
+      });
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+    } on TimeoutException catch (_) {
+      print('DEBUG: Timeout during registration');
+      setState(() {
+        _error = 'Request timeout. Please try again.';
+      });
+    } catch (e) {
+      print('DEBUG: Unknown error during registration: $e');
+      setState(() {
+        _error = ErrorHandler.getGeneralErrorMessage(e);
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -106,84 +155,129 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _signUpWithGoogle() async {
+    if (_isLoading) return; // Prevent multiple taps
+    
     setState(() {
       _isLoading = true;
       _error = null;
       _showVerify = false;
     });
+
     try {
-      print("Starting Google sign-up...");
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      // Step 1: Sign in with Google
+      print('DEBUG: Starting Google Sign-Up...');
+      final googleSignInService = GoogleSignInService();
+      final GoogleSignInAccount? googleUser = await googleSignInService.signIn();
+      
+      // User cancelled the sign-in
       if (googleUser == null) {
+        print('DEBUG: Google Sign-Up cancelled by user');
         setState(() {
           _isLoading = false;
-          _error = "Google sign-up cancelled.";
         });
-        print("Google sign-up cancelled by user.");
         return;
       }
-      print("Google user: ${googleUser.email}");
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+
+      print('DEBUG: Google account selected: ${googleUser.email}');
+
+      // Step 2: Get authentication credentials
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      if (googleAuth.accessToken == null || googleAuth.idToken == null) {
+        throw Exception('Failed to get Google authentication tokens');
+      }
+
+      // Step 3: Create Firebase credential
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(
-        credential,
-      );
-      print("Firebase user: ${userCredential.user?.uid}");
+
+      // Step 4: Sign in to Firebase (or create account if it doesn't exist)
+      print('DEBUG: Authenticating with Firebase...');
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
       
-      // Check if user profile exists in Firestore
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid);
+      if (userCredential.user == null) {
+        throw Exception('Failed to authenticate with Firebase');
+      }
+
+      final user = userCredential.user!;
+      print('DEBUG: Firebase authentication successful: ${user.uid}');
+
+      // Step 5: Check/Create user profile in Firestore
+      final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       final doc = await docRef.get();
-      print("Firestore doc exists: ${doc.exists}");
+
       if (!doc.exists) {
-        // --- CREATE USER DOCUMENT IF NOT EXISTS ---
+        print('DEBUG: Creating new user profile for: ${user.email}');
+        // Create user document for new users
         await docRef.set({
-          'email': userCredential.user!.email,
+          'email': user.email,
+          'displayName': user.displayName,
+          'photoURL': user.photoURL,
           'createdAt': FieldValue.serverTimestamp(),
+          'provider': 'google',
         });
+
+        // Navigate to onboarding for new users
         if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => OnboardingPage(uid: userCredential.user!.uid),
-                ),
-              );
-            }
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OnboardingPage(uid: user.uid),
+            ),
+          );
         }
       } else {
+        print('DEBUG: User already exists, navigating to home...');
+        // User already exists, navigate to home
         if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const MyHomePage(title: 'SmartDiet'),
-                ),
-              );
-            }
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MyHomePage(title: 'SmartDiet'),
+            ),
+          );
         }
       }
     } on FirebaseAuthException catch (e) {
+      print('DEBUG: FirebaseAuthException: ${e.code} - ${e.message}');
+      String errorMessage;
+      
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          errorMessage = 'An account already exists with this email using a different sign-in method. Please try signing in with email and password.';
+          break;
+        case 'invalid-credential':
+          errorMessage = 'Invalid Google credentials. Please try again.';
+          break;
+        case 'operation-not-allowed':
+          errorMessage = 'Google sign-up is not enabled. Please contact support.';
+          break;
+        case 'user-disabled':
+          errorMessage = 'This account has been disabled.';
+          break;
+        case 'network-request-failed':
+          errorMessage = 'Network error. Please check your internet connection.';
+          break;
+        default:
+          errorMessage = e.message ?? 'An error occurred during Google sign-up.';
+      }
+      
       setState(() {
-        _error = e.message;
+        _error = errorMessage;
       });
     } catch (e) {
+      print('DEBUG: General exception: $e');
       setState(() {
-        _error = "An error occurred during Google sign-up: $e";
+        _error = 'An unexpected error occurred. Please try again.';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

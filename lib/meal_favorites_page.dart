@@ -3,6 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'recipe_detail_page.dart';
+import 'services/recipe_service.dart';
+import 'services/allergen_service.dart';
+import 'services/allergen_detection_service.dart';
+import 'widgets/allergen_warning_dialog.dart';
+import 'widgets/substitution_dialog_helper.dart';
 
 class MealFavoritesPage extends StatefulWidget {
   const MealFavoritesPage({super.key});
@@ -381,10 +386,14 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
             print('DEBUG: ExtendedIngredients type: ${recipe['extendedIngredients']?.runtimeType}');
             print('DEBUG: ExtendedIngredients content: ${recipe['extendedIngredients']}');
             
+          // Add docId to recipe for edit functionality
+          final recipeWithDocId = Map<String, dynamic>.from(recipe);
+          recipeWithDocId['docId'] = favorite['docId'];
+          
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => RecipeDetailPage(recipe: recipe),
+              builder: (context) => RecipeDetailPage(recipe: recipeWithDocId),
             ),
           );
         },
@@ -437,6 +446,70 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                       ),
                     ],
                   ),
+                  
+                  // Badges for substituted or allergen warnings
+                  if (recipe['substituted'] == true || recipe['hasAllergens'] == true)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (recipe['substituted'] == true)
+                            Tooltip(
+                              message: 'Substituted ingredients: ${(recipe['substitutions'] as Map?)?.values.map((v) => v.toString()).join(', ') ?? 'N/A'}',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.swap_horiz, size: 14, color: Colors.blue[700]),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Substituted',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue[700],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (recipe['hasAllergens'] == true)
+                            Tooltip(
+                              message: 'Contains allergens: ${(recipe['detectedAllergens'] as List?)?.join(', ') ?? 'N/A'}',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange[700]),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Contains Allergens',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.orange[700],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   
                   const SizedBox(height: 12),
                   
@@ -702,31 +775,161 @@ class FavoriteService {
         return;
       }
 
-      // Debug: Print the data being saved to Firestore
-      print('DEBUG: Data being saved to Firestore:');
-      print('  recipe: ${recipe.runtimeType}');
-      recipe.forEach((key, value) {
-        print('    $key: ${value.runtimeType} = $value');
-      });
+      // Create a copy of the recipe to work with
+      Map<String, dynamic> fullRecipe = Map<String, dynamic>.from(recipe);
+      
+      // Check if this is a basic search result (missing extendedIngredients/analyzedInstructions)
+      final needsFullDetails = fullRecipe['extendedIngredients'] == null || 
+                                fullRecipe['analyzedInstructions'] == null ||
+                                (fullRecipe['extendedIngredients'] is List && 
+                                 (fullRecipe['extendedIngredients'] as List).isEmpty);
+      
+      // Fetch full recipe details if needed
+      if (needsFullDetails && fullRecipe['id'] != null) {
+        print('DEBUG: Fetching full recipe details for: ${fullRecipe['title']}');
+        try {
+          final details = await RecipeService.fetchRecipeDetails(fullRecipe['id']);
+          // Merge with existing data, preserving any existing fields
+          fullRecipe = {...details, ...fullRecipe};
+          print('DEBUG: Successfully fetched full recipe details');
+        } catch (e) {
+          print('DEBUG: Error fetching full details: $e');
+          // Continue with basic recipe if fetch fails
+        }
+      }
 
+      // Check for user allergens
+      final userAllergens = await AllergenDetectionService.getUserAllergens();
+      bool hasAllergens = false;
+      List<String> detectedAllergens = [];
+      
+      if (userAllergens.isNotEmpty) {
+        // Extract ingredients for allergen checking
+        List<dynamic> ingredients = [];
+        if (fullRecipe['extendedIngredients'] != null) {
+          ingredients = fullRecipe['extendedIngredients'];
+        } else if (fullRecipe['ingredients'] != null) {
+          ingredients = fullRecipe['ingredients'];
+        }
+        
+        if (ingredients.isNotEmpty) {
+          final allergenResult = AllergenService.checkAllergens(ingredients);
+          
+          // Check if any detected allergens match user allergens
+          for (final userAllergen in userAllergens) {
+            if (allergenResult.containsKey(userAllergen.toLowerCase())) {
+              hasAllergens = true;
+              detectedAllergens.add(userAllergen);
+            }
+          }
+          
+          // If allergens detected, show warning dialog
+          if (hasAllergens) {
+            print('DEBUG: Allergens detected: $detectedAllergens');
+            
+            bool shouldProceed = false;
+            bool shouldSubstitute = false;
+            
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => AllergenWarningDialog(
+                recipe: fullRecipe,
+                detectedAllergens: detectedAllergens,
+                substitutionSuggestions: AllergenDetectionService.getSubstitutionSuggestions(detectedAllergens),
+                riskLevel: detectedAllergens.length > 2 ? 'high' : detectedAllergens.length > 1 ? 'medium' : 'low',
+                onContinue: () {
+                  print('DEBUG: User chose to continue with allergens');
+                  shouldProceed = true;
+                  Navigator.of(context).pop();
+                },
+                onSubstitute: () async {
+                  print('DEBUG: User chose to find substitutes');
+                  shouldSubstitute = true;
+                  Navigator.of(context).pop();
+                },
+              ),
+            );
+            
+            if (!shouldProceed && !shouldSubstitute) {
+              // User cancelled (closed dialog)
+              return;
+            }
+            
+            if (shouldSubstitute) {
+              // User chose to substitute ingredients
+              print('DEBUG: Showing substitution dialog');
+              
+              final substitutionResult = await SubstitutionDialogHelper.showSubstitutionDialog(
+                context,
+                fullRecipe,
+                detectedAllergens,
+              );
+              
+              if (substitutionResult != null && substitutionResult['substituted'] == true) {
+                // Apply substitutions to the recipe
+                fullRecipe = substitutionResult;
+                fullRecipe['hasAllergens'] = false;
+                fullRecipe['substituted'] = true;
+                fullRecipe['originalAllergens'] = detectedAllergens;
+                print('DEBUG: Substitutions applied successfully');
+              } else {
+                // User cancelled substitution
+                return;
+              }
+            } else if (shouldProceed) {
+              // User chose to proceed despite allergens
+              fullRecipe['hasAllergens'] = true;
+              fullRecipe['detectedAllergens'] = detectedAllergens;
+            }
+          }
+        }
+      }
+
+      // Convert TimeOfDay to string if present
+      if (fullRecipe['mealTime'] is TimeOfDay) {
+        final mealTime = fullRecipe['mealTime'] as TimeOfDay;
+        fullRecipe['mealTime'] = '${mealTime.hour}:${mealTime.minute}';
+      }
+
+      // Remove meal planner specific fields to avoid confusion with meal planner edits
+      // These fields should not exist in favorites as they're meal planner metadata
+      fullRecipe.remove('date'); // Remove meal planner date
+      fullRecipe.remove('mealType'); // Remove meal type from planner
+      fullRecipe.remove('meal_type'); // Remove alternate meal type field
+      
+      // Store the original meal planner ID separately if it exists
+      final originalMealId = fullRecipe['id'];
+      
+      // Remove meal planner document ID to avoid conflicts
+      // The recipe will get its own favorites document ID
+      if (fullRecipe.containsKey('id') && fullRecipe['date'] == null) {
+        // Only keep 'id' if it's a recipe ID (not a meal planner doc ID)
+        // Recipe IDs are typically numeric or have specific prefixes
+      } // else keep the recipe ID for API lookups
+
+      // Save to Firestore
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('favorites')
           .add({
-        'recipe': recipe,
+        'recipe': fullRecipe,
         'notes': notes,
         'addedAt': FieldValue.serverTimestamp(),
         'rating': null,
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Added to favorites!'),
+        SnackBar(
+          content: Text(fullRecipe['substituted'] == true 
+              ? 'Added to favorites with substitutions!' 
+              : 'Added to favorites!'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
+      print('DEBUG: Error in addToFavorites: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error adding to favorites: ${e.toString()}'),

@@ -8,6 +8,9 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:async';
+import 'utils/error_handler.dart';
 
 
 class IngredientScannerPage extends StatefulWidget {
@@ -42,12 +45,21 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
 
   // API Methods for Food Data
   Future<Map<String, dynamic>?> _fetchProductFromOpenFoodFacts(String barcode) async {
+    // Check internet connectivity first
+    final hasInternet = await ErrorHandler.hasInternetConnection();
+    if (!hasInternet) {
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+      return null;
+    }
+
     try {
       print('DEBUG: Fetching product from OpenFoodFacts for barcode: $barcode');
       final response = await http.get(
         Uri.parse('https://world.openfoodfacts.org/api/v0/product/$barcode.json'),
         headers: {'User-Agent': 'SmartDiet/1.0'},
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -58,15 +70,45 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
       }
       print('DEBUG: Product not found in OpenFoodFacts');
       return null;
+    } on SocketException catch (_) {
+      print('DEBUG: Network error fetching OpenFoodFacts data');
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+      return null;
+    } on TimeoutException catch (_) {
+      print('DEBUG: Timeout fetching OpenFoodFacts data');
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, 'Request timeout. Please try again.');
+      }
+      return null;
+    } on http.ClientException catch (e) {
+      print('DEBUG: HTTP client error: $e');
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, 'Failed to connect to server.');
+      }
+      return null;
     } catch (e) {
-      print('DEBUG: Error fetching from OpenFoodFacts: $e');
+      print('DEBUG: Error fetching product from OpenFoodFacts: $e');
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, 'Error fetching product data.');
+      }
       return null;
     }
   }
 
   Future<Map<String, dynamic>?> _fetchProductFromUSDA(String searchTerm) async {
+    // Check internet connectivity first
+    final hasInternet = await ErrorHandler.hasInternetConnection();
+    if (!hasInternet) {
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+      return null;
+    }
+
     try {
-      print('DEBUG: Searching USDA FoodData Central for: $searchTerm');
+      print('DEBUG: Searching USDA database for: $searchTerm');
       
       // Get API key from environment variables
       final apiKey = dotenv.env['USDA_API_KEY'] ?? 'DEMO_KEY';
@@ -75,7 +117,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
       final response = await http.get(
         Uri.parse('https://api.nal.usda.gov/fdc/v1/foods/search?query=${Uri.encodeComponent(searchTerm)}&api_key=$apiKey&pageSize=1'),
         headers: {'User-Agent': 'SmartDiet/1.0'},
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -582,19 +624,44 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Ingredient Scanner'),
-        backgroundColor: Colors.green,
+        title: const Text(
+          'Ingredient Scanner',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+        ),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
         leading: _isScanningBarcode 
           ? IconButton(
-              icon: const Icon(Icons.close),
+              icon: const Icon(Icons.close, size: 28),
               onPressed: _stopBarcodeScanning,
             )
-          : null,
+          : IconButton(
+              icon: const Icon(Icons.arrow_back, size: 28),
+              onPressed: () => Navigator.pop(context),
+            ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
-      body: _isScanningBarcode ? _buildBarcodeScanner() : _buildResultsSection(),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF8FFF4), Color(0xFFE8F5E9)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: _isScanningBarcode ? _buildBarcodeScanner() : _buildResultsSection(),
+      ),
     );
   }
 
@@ -671,103 +738,224 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
   }
 
   Widget _buildEmptyState() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.camera_alt_rounded,
-            size: 80,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Scan ingredients or barcode to analyze for allergens',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
+            // Hero Icon
+            Container(
+              padding: const EdgeInsets.all(30),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [Colors.green[100]!, Colors.green[50]!],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withOpacity(0.2),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.qr_code_scanner_rounded,
+                size: 80,
+                color: Colors.green[700],
+              ),
             ),
-            textAlign: TextAlign.center,
+            const SizedBox(height: 24),
+            const Text(
+              'Smart Ingredient Scanner',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF2E7D32),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Instantly detect allergens and analyze nutritional content',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 48),
+            
+            // Scanning Options
+            _buildScanOption(
+              icon: Icons.camera_alt_rounded,
+              title: 'Scan with Camera',
+              subtitle: 'Take a photo of ingredient labels',
+              gradient: const LinearGradient(
+                colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
+              ),
+              onTap: _captureIngredientPhoto,
+            ),
+            const SizedBox(height: 16),
+            _buildScanOption(
+              icon: Icons.photo_library_rounded,
+              title: 'Choose from Gallery',
+              subtitle: 'Select an existing photo',
+              gradient: LinearGradient(
+                colors: [Colors.blue[700]!, Colors.blue[400]!],
+              ),
+              onTap: _pickIngredientPhoto,
+            ),
+            const SizedBox(height: 16),
+            _buildScanOption(
+              icon: Icons.qr_code_scanner_rounded,
+              title: 'Scan Barcode',
+              subtitle: 'Quick product lookup',
+              gradient: LinearGradient(
+                colors: [Colors.orange[700]!, Colors.orange[400]!],
+              ),
+              onTap: _isScanningBarcode ? null : _startBarcodeScanning,
+            ),
+            
+            const SizedBox(height: 40),
+            // Info Cards
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoCard(
+                    icon: Icons.check_circle_outline,
+                    text: 'Accurate\nDetection',
+                    color: Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInfoCard(
+                    icon: Icons.flash_on,
+                    text: 'Instant\nResults',
+                    color: Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInfoCard(
+                    icon: Icons.security,
+                    text: 'Safe &\nSecure',
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScanOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Gradient gradient,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: gradient,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: Colors.white, size: 32),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios,
+                color: Colors.white.withOpacity(0.8),
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
           const SizedBox(height: 8),
           Text(
-            'Choose your preferred scanning method below',
+            text,
             style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+              height: 1.3,
             ),
             textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 40),
-          // Take Photo Button
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _captureIngredientPhoto,
-              icon: const Icon(Icons.camera_alt_rounded, size: 24),
-              label: const Text(
-                'Take Photo of Ingredients',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[600],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 4,
-                shadowColor: Colors.green.withOpacity(0.3),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Choose from Gallery Button
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _pickIngredientPhoto,
-              icon: const Icon(Icons.photo_library_rounded, size: 24),
-              label: const Text(
-                'Choose Photo from Gallery',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue[600],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 4,
-                shadowColor: Colors.blue.withOpacity(0.3),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Barcode Scanner Button
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _isScanningBarcode ? null : _startBarcodeScanning,
-              icon: const Icon(Icons.qr_code_scanner_rounded, size: 24),
-              label: Text(
-                _isScanningBarcode ? 'Scanning...' : 'Scan Barcode',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange[600],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 4,
-                shadowColor: Colors.orange.withOpacity(0.3),
-              ),
-            ),
           ),
         ],
       ),
@@ -1522,9 +1710,17 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
     print('DEBUG: Adding to meal plan - Product: ${product['name']}');
     
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to add items to meal plan')),
+      ErrorHandler.showErrorSnackbar(
+        context,
+        'Please log in to add items to meal plan',
       );
+      return;
+    }
+
+    // Check internet connectivity first
+    final hasInternet = await ErrorHandler.hasInternetConnection();
+    if (!hasInternet && mounted) {
+      ErrorHandler.showOfflineSnackbar(context);
       return;
     }
 
@@ -1560,23 +1756,41 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
 
       print('DEBUG: Meal saved with ID: ${docRef.id}');
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${product['name']} added to meal plan!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showSuccessSnackbar(
+          context,
+          '${product['name']} added to meal plan!',
+        );
+      }
 
       // Navigate back to meal planner
-      Navigator.pop(context, true);
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+    } on FirebaseException catch (e) {
+      print('DEBUG: Firebase error adding to meal plan: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getFirestoreErrorMessage(e);
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, errorMessage);
+      }
+    } on SocketException catch (_) {
+      print('DEBUG: Network error adding to meal plan');
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+    } on TimeoutException catch (_) {
+      print('DEBUG: Timeout adding to meal plan');
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, 'Request timeout. Please try again.');
+      }
     } catch (e) {
       print('DEBUG: Error adding to meal plan: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error adding to meal plan: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(
+          context,
+          'Failed to add to meal plan. Please try again.',
+        );
+      }
     }
   }
 

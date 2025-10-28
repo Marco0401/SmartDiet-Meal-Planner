@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'dart:async';
 import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
 import 'services/allergen_detection_service.dart';
@@ -16,6 +17,7 @@ import 'manual_meal_entry_page.dart';
 import 'nutrition_analytics_page.dart';
 import 'expert_meal_plans_page.dart';
 import 'models/user_profile.dart';
+import 'utils/error_handler.dart';
 import 'dart:math';
 
 class MealPlannerPage extends StatefulWidget {
@@ -62,6 +64,30 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       default:
         return const TimeOfDay(hour: 12, minute: 0);
     }
+  }
+
+  TimeOfDay _normalizeMealTime(dynamic timeValue, String mealType) {
+    if (timeValue is TimeOfDay) {
+      return timeValue;
+    }
+    if (timeValue is Map) {
+      final hour = timeValue['hour'];
+      final minute = timeValue['minute'];
+      if (hour is int && minute is int) {
+        return TimeOfDay(hour: hour, minute: minute);
+      }
+    }
+    if (timeValue is String && timeValue.contains(':')) {
+      final parts = timeValue.split(':');
+      if (parts.length == 2) {
+        final hour = int.tryParse(parts[0]);
+        final minute = int.tryParse(parts[1]);
+        if (hour != null && minute != null) {
+          return TimeOfDay(hour: hour.clamp(0, 23), minute: minute.clamp(0, 59));
+        }
+      }
+    }
+    return getDefaultTimeForMealType(mealType);
   }
 
   // Helper function to extract all ingredient names from a recipe
@@ -160,6 +186,16 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
   }
 
   Future<void> _loadWeeklyMeals() async {
+    // Check internet connectivity first
+    final hasInternet = await ErrorHandler.hasInternetConnection();
+    if (!hasInternet && mounted) {
+      setState(() {
+        _error = 'No internet connection. Please check your network and try again.';
+      });
+      ErrorHandler.showOfflineSnackbar(context);
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -167,6 +203,10 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('No user logged in');
+      }
+
       if (user != null) {
         // Get the start of the week (Monday)
         final startOfWeek = _selectedDate.subtract(
@@ -296,19 +336,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         }
         
         // Handle meal time - use stored time or default based on meal type
-        TimeOfDay mealTime;
-        if (mealData['mealTime'] != null) {
-          // Use stored time if available
-          final timeData = mealData['mealTime'];
-          if (timeData is Map && timeData['hour'] != null && timeData['minute'] != null) {
-            mealTime = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
-          } else {
-            mealTime = getDefaultTimeForMealType(normalizedMealType);
-          }
-        } else {
-          // Use default time for corrected meal type
-          mealTime = getDefaultTimeForMealType(normalizedMealType);
-        }
+        final mealTime = _normalizeMealTime(mealData['mealTime'], normalizedMealType);
 
         final convertedMeal = {
           'id': mealDoc.id,
@@ -346,14 +374,46 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           _weeklyMeals[dateKey] = meals;
         }
       }
+    } on FirebaseException catch (e) {
+      print('DEBUG: Firebase error loading meals: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getFirestoreErrorMessage(e);
+      setState(() {
+        _error = errorMessage;
+      });
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, errorMessage);
+      }
+    } on SocketException catch (_) {
+      print('DEBUG: Network error loading meals');
+      setState(() {
+        _error = 'No internet connection. Please check your network.';
+      });
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+    } on TimeoutException catch (_) {
+      print('DEBUG: Timeout error loading meals');
+      setState(() {
+        _error = 'Request timeout. Please try again.';
+      });
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, 'Request timeout. Please try again.');
+      }
     } catch (e) {
+      print('DEBUG: Unknown error loading meals: $e');
+      final errorMessage = ErrorHandler.getGeneralErrorMessage(e);
       setState(() {
-        _error = e.toString();
+        _error = errorMessage;
       });
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, errorMessage);
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -751,11 +811,25 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         }
         print('DEBUG: Successfully saved new meals for $dateKey');
       }
+    } on FirebaseException catch (e) {
+      print('DEBUG: Firebase error saving meals: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getFirestoreErrorMessage(e);
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, errorMessage);
+      }
+    } on SocketException catch (_) {
+      print('DEBUG: Network error saving meals');
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
     } catch (e) {
-      print('DEBUG: Error saving meals: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error saving meal: $e')));
+      print('DEBUG: Unknown error saving meals: $e');
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(
+          context,
+          'Failed to save meal. Please try again.',
+        );
+      }
     }
   }
 
@@ -996,6 +1070,8 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      final copiedWeeksCount = _selectedWeeks.length;
+
       // Copy meals for each selected week
       for (final targetWeekStart in _selectedWeeks) {
         for (int dayOffset = 0; dayOffset < 7; dayOffset++) {
@@ -1012,20 +1088,66 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             
             // Copy meals to target date
             for (final meal in sourceMeals) {
+              // Clone meal for local state usage
               final newMeal = Map<String, dynamic>.from(meal);
               newMeal.remove('id'); // Remove ID so it gets a new one
               newMeal['date'] = targetDateKey;
-              
-              // Save to Firestore
+
+              // Prepare Firestore-safe payload with proper structure
+              Map<String, int> mealTimeData;
+              if (newMeal['mealTime'] is TimeOfDay) {
+                final timeOfDay = newMeal['mealTime'] as TimeOfDay;
+                mealTimeData = {
+                  'hour': timeOfDay.hour,
+                  'minute': timeOfDay.minute,
+                };
+              } else if (newMeal['mealTime'] is Map) {
+                mealTimeData = Map<String, int>.from(newMeal['mealTime']);
+              } else {
+                final defaultTime = getDefaultTimeForMealType(newMeal['mealType'] ?? 'lunch');
+                mealTimeData = {
+                  'hour': defaultTime.hour,
+                  'minute': defaultTime.minute,
+                };
+              }
+
+              // Save to Firestore with properly structured data
               final docRef = await FirebaseFirestore.instance
                   .collection('users')
                   .doc(user.uid)
-                  .collection('meals')
-                  .add(newMeal);
-              
+                  .collection('meal_plans')
+                  .add({
+                'title': newMeal['title'] ?? 'Planned Meal',
+                'date': targetDateKey,
+                'meal_type': newMeal['mealType'] ?? 'lunch',
+                'mealType': newMeal['mealType'] ?? 'lunch',
+                'mealTime': mealTimeData,
+                'nutrition': _ensureNutritionWithFiber(newMeal['nutrition'] ?? {}),
+                'ingredients': newMeal['ingredients'] ?? [],
+                'extendedIngredients': newMeal['extendedIngredients'],
+                'instructions': newMeal['instructions'] ?? '',
+                'image': newMeal['image'],
+                'cuisine': newMeal['cuisine'],
+                'description': newMeal['description'],
+                'summary': newMeal['summary'],
+                'hasAllergens': newMeal['hasAllergens'] ?? false,
+                'detectedAllergens': newMeal['detectedAllergens'],
+                'substituted': newMeal['substituted'] ?? false,
+                'originalAllergens': newMeal['originalAllergens'],
+                'substitutions': newMeal['substitutions'],
+                'recipeId': newMeal['recipeId'],
+                'created_at': FieldValue.serverTimestamp(),
+                'updated_at': FieldValue.serverTimestamp(),
+                'userId': user.uid,
+                'source': 'meal_planner',
+              });
+
               newMeal['id'] = docRef.id;
-              
-              // Update local state
+
+              // Ensure local copy keeps TimeOfDay instance for UI
+              final normalizedMealType = newMeal['mealType']?.toString() ?? 'Lunch';
+              newMeal['mealTime'] = _normalizeMealTime(newMeal['mealTime'], normalizedMealType);
+
               if (_weeklyMeals[targetDateKey] == null) {
                 _weeklyMeals[targetDateKey] = [];
               }
@@ -1035,6 +1157,9 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         }
       }
 
+      // Reload meals to show copied data
+      await _loadWeeklyMeals();
+
       setState(() {
         _isLoading = false;
         _selectedWeeks.clear();
@@ -1042,21 +1167,38 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Plan copied to ${_selectedWeeks.length} week(s) successfully!'),
+          content: Text('Plan copied to $copiedWeeksCount week(s) successfully!'),
           backgroundColor: Colors.green,
         ),
       );
-    } catch (e) {
+    } on FirebaseException catch (e) {
+      print('DEBUG: Firebase error copying plan: ${e.code} - ${e.message}');
+      final errorMessage = ErrorHandler.getFirestoreErrorMessage(e);
       setState(() {
         _isLoading = false;
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error copying plan: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(context, 'Failed to copy plan: $errorMessage');
+      }
+    } on SocketException catch (_) {
+      print('DEBUG: Network error copying plan');
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ErrorHandler.showOfflineSnackbar(context);
+      }
+    } catch (e) {
+      print('DEBUG: Unknown error copying plan: $e');
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ErrorHandler.showErrorSnackbar(
+          context,
+          'Failed to copy plan. Please try again.',
+        );
+      }
     }
   }
 
@@ -1065,11 +1207,11 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     if (user == null) return;
 
     try {
-      // Get existing meals for this date
+      // Get existing meals for this date from meal_plans collection
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .where('date', isEqualTo: dateKey)
           .get();
 
@@ -1077,6 +1219,9 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       for (final doc in snapshot.docs) {
         await doc.reference.delete();
       }
+      
+      // Also clear from local state
+      _weeklyMeals[dateKey] = [];
     } catch (e) {
       print('Error clearing meals for date $dateKey: $e');
     }
@@ -1163,7 +1308,77 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-          ? Center(child: Text('Error: $_error'))
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.red[50],
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Colors.red[700],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Oops! Something went wrong',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.grey[600],
+                        height: 1.5,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 32),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _error = null;
+                        });
+                        _loadWeeklyMeals();
+                      },
+                      icon: const Icon(Icons.refresh, color: Colors.white),
+                      label: const Text(
+                        'Retry',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[600],
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 16,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        elevation: 8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : RefreshIndicator(
               onRefresh: () async {
                 await _loadWeeklyMeals();
@@ -1289,54 +1504,163 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
 
   Widget _buildWeeklyCalendar(DateTime startOfWeek) {
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: 7,
       itemBuilder: (context, index) {
         final date = startOfWeek.add(Duration(days: index));
         final dateKey = _formatDate(date);
         final meals = _weeklyMeals[dateKey] ?? [];
         final nutrition = _calculateDailyNutrition(dateKey);
-        final isToday = date.isAtSameMomentAs(
-          DateTime.now().subtract(
-            Duration(days: DateTime.now().weekday - date.weekday),
-          ),
-        );
+        final now = DateTime.now();
+        final isToday = date.day == now.day && date.month == now.month && date.year == now.year;
 
-        return Card(
+        return Container(
           margin: const EdgeInsets.only(bottom: 16),
-          elevation: isToday ? 4 : 2,
-          color: isToday ? Colors.green[50] : Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isToday 
+                  ? [Colors.green[50]!, Colors.green[100]!]
+                  : [Colors.white, Colors.grey[50]!],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isToday ? Colors.green[300]! : Colors.grey[200]!,
+              width: isToday ? 2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isToday ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+                blurRadius: isToday ? 12 : 8,
+                offset: Offset(0, isToday ? 6 : 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Day Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _formatDisplayDate(date),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: isToday ? Colors.green[800] : Colors.green[700],
-                      ),
+                // Day Header with gradient background
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isToday
+                          ? [Colors.green[400]!, Colors.green[600]!]
+                          : [Colors.grey[300]!, Colors.grey[400]!],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    if (nutrition['calories'] > 0)
-                      Text(
-                        '${nutrition['calories'].toStringAsFixed(0)} cal',
-                        style: TextStyle(
-                          color: Colors.green[600],
-                          fontWeight: FontWeight.w500,
-                        ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              isToday ? Icons.today : Icons.calendar_today,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _formatDisplayDate(date),
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  shadows: [
+                                    Shadow(
+                                      offset: Offset(0, 1),
+                                      blurRadius: 2,
+                                      color: Colors.black26,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isToday)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'Today',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
-                  ],
+                      if (nutrition['calories'] > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.local_fire_department,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${nutrition['calories'].toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              const Text(
+                                'cal',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
+                // Meals content
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
 
-                // Meal Types
-                ..._mealTypes.map((mealType) {
+                      // Meal Types
+                      ..._mealTypes.map((mealType) {
                   final mealTypeMeals = meals
                       .where((meal) => 
                           (meal['mealType'] == mealType) || 
@@ -1359,233 +1683,345 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                     print('DEBUG: Meal in UI: ${meal['title']} - mealType: ${meal['mealType']} - hasAllergens: ${meal['hasAllergens']} - substituted: ${meal['substituted']}');
                   }
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            mealType,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green,
-                            ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.add_circle_outline,
-                              size: 20,
-                            ),
-                            onPressed: () => _addMeal(dateKey, mealType),
-                            color: Colors.green,
-                          ),
-                        ],
-                      ),
-                      if (mealTypeMeals.isNotEmpty)
-                        ...mealTypeMeals.asMap().entries.map((entry) {
-                          final meal = entry.value;
-
-                          return Card(
-                            margin: const EdgeInsets.only(left: 16, bottom: 8),
-                            child: ListTile(
-                              leading: (() {
-                                print('DEBUG: Meal image check - meal: ${meal['title']}, image: ${meal['image']}, type: ${meal['image'].runtimeType}');
-                                return meal['image'] != null && meal['image'].toString().isNotEmpty;
-                              })()
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: _buildMealImage(meal['image']),
-                                    )
-                                  : Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: Colors.green[100],
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Icon(
-                                        Icons.restaurant,
-                                        color: Colors.green,
-                                      ),
-                                    ),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                meal['title'] ?? 'Unknown Meal',
-                                style: const TextStyle(fontSize: 14),
-                                    ),
-                                  ),
-                                  if (meal['hasAllergens'] == true || meal['substituted'] == true)
-                                    Tooltip(
-                                      message: meal['substituted'] == true 
-                                          ? 'Substituted ingredients: ${(meal['substitutions'] as Map?)?.values.map((v) => v.toString()).join(', ') ?? 'N/A'}'
-                                          : 'Contains allergens: ${(meal['detectedAllergens'] as List?)?.join(', ') ?? 'N/A'}',
-                                      child: Container(
-                                        margin: const EdgeInsets.only(left: 8),
-                                        padding: const EdgeInsets.all(4),
-                                        decoration: BoxDecoration(
-                                          color: meal['substituted'] == true 
-                                              ? Colors.blue.withOpacity(0.2)
-                                              : Colors.orange.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Icon(
-                                          meal['substituted'] == true 
-                                              ? Icons.swap_horiz
-                                              : Icons.warning_amber_rounded,
-                                          size: 16,
-                                          color: meal['substituted'] == true 
-                                              ? Colors.blue[700]
-                                              : Colors.orange[700],
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (meal['nutrition'] != null)
-                                    Text(
-                                      '${(meal['nutrition']['calories'] ?? 0).toStringAsFixed(0)} cal',
-                                      style: TextStyle(
-                                        color: Colors.green[600],
-                                      ),
-                                    ),
-                                  const SizedBox(height: 2),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.access_time,
-                                        size: 14,
-                                        color: Colors.grey[600],
-                                      ),
-                                      const SizedBox(width: 4),
-                                      GestureDetector(
-                                        onTap: () => _editMealTime(dateKey, meal),
-                                        child: Text(
-                                          (meal['mealTime'] as TimeOfDay? ?? getDefaultTimeForMealType(meal['mealType'] ?? 'lunch')).format(context),
-                                          style: TextStyle(
-                                            color: Colors.blue[600],
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined),
-                                    onPressed: () async {
-                                      final result = await showDialog(
-                                        context: context,
-                                        builder: (context) => EditMealDialog(
-                                          meal: meal,
-                                          mealId: meal['id']?.toString() ?? '',
-                                          dateKey: dateKey,
-                                        ),
-                                      );
-                                      if (result == true) {
-                                        setState(() {
-                                          // Refresh the meal data
-                                          _loadWeeklyMeals();
-                                        });
-                                      }
-                                    },
-                                    color: Colors.blue[400],
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline),
-                                    onPressed: () =>
-                                        _removeMeal(dateKey, meals.indexOf(meal)),
-                                    color: Colors.red[400],
-                                  ),
-                                ],
-                              ),
-                              onTap: () async {
-                                if (meal['id'] != null) {
-                                  print('DEBUG: Opening meal from planner: ${meal['title']}');
-                                  print('DEBUG: Meal data keys: ${meal.keys.toList()}');
-                                  print('DEBUG: Ingredients type: ${meal['ingredients'].runtimeType}');
-                                  print('DEBUG: Ingredients content: ${meal['ingredients']}');
-                                  print('DEBUG: ExtendedIngredients type: ${meal['extendedIngredients']?.runtimeType}');
-                                  print('DEBUG: ExtendedIngredients content: ${meal['extendedIngredients']}');
-                                  
-        // Use the meal data directly (already parsed) instead of fetching fresh data
-        Map<String, dynamic> recipeToShow = meal;
-        print('DEBUG: Using parsed meal data for recipe detail page');
-        print('DEBUG: Meal data passed to RecipeDetailPage - summary: ${meal['summary']}, description: ${meal['description']}');
-        print('DEBUG: Meal data keys passed to RecipeDetailPage: ${meal.keys.toList()}');
-                                  
-                                  // Only fetch fresh data for non-substituted meals that don't have complete data
-                                  if (meal['substituted'] != true && 
-                                      (meal['ingredients'] == null || meal['ingredients'].isEmpty)) {
-                                    final recipeId = meal['recipeId'] ?? meal['id'];
-                                    if (recipeId != null && 
-                                        !recipeId.toString().startsWith('local_') && 
-                                        !recipeId.toString().startsWith('manual_')) {
-                                      try {
-                                        print('DEBUG: Fetching full recipe details for non-substituted meal: $recipeId');
-                                        final fullDetails = await RecipeService.fetchRecipeDetails(recipeId);
-                                        recipeToShow = fullDetails;
-                                        print('DEBUG: Successfully fetched full recipe details');
-                                                                            } catch (e) {
-                                        print('DEBUG: Error fetching full recipe details: $e');
-                                        // Continue with meal data if fetch fails
-                                      }
-                                    }
-                                  } else {
-                                    print('DEBUG: Using meal planner data (substituted or complete data available)');
-                                  }
-                                  
-                                  final result = await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          RecipeDetailPage(recipe: recipeToShow),
-                                    ),
-                                  );
-                                  
-                                  // Refresh meals when returning from recipe detail page
-                                  // This ensures any nutrition updates are reflected
-                                  if (result != null || mounted) {
-                                    print('DEBUG: Refreshing meals after returning from recipe detail');
-                                    await _loadWeeklyMeals();
-                                  }
-                                }
-                              },
-                            ),
-                          );
-                        }),
-                      if (mealTypeMeals.isEmpty)
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Meal type header
                         Container(
-                          margin: const EdgeInsets.only(left: 16),
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                            'No $mealType planned',
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontStyle: FontStyle.italic,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                _getMealTypeColor(mealType).withOpacity(0.1),
+                                _getMealTypeColor(mealType).withOpacity(0.05),
+                              ],
                             ),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _getMealTypeColor(mealType).withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: _getMealTypeColor(mealType).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  _getMealTypeIcon(mealType),
+                                  size: 18,
+                                  color: _getMealTypeColor(mealType),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                mealType,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: _getMealTypeColor(mealType),
+                                ),
+                              ),
+                              const Spacer(),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () => _addMeal(dateKey, mealType),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: _getMealTypeColor(mealType).withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      Icons.add,
+                                      size: 20,
+                                      color: _getMealTypeColor(mealType),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      const SizedBox(height: 8),
-                    ],
+                        const SizedBox(height: 8),
+                        if (mealTypeMeals.isEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(left: 12, top: 4),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.grey[300]!,
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: Colors.grey[500],
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'No meals planned',
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          ...mealTypeMeals.asMap().entries.map((entry) {
+                            final meal = entry.value;
+
+                            return Container(
+                              margin: const EdgeInsets.only(left: 12, bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.grey[200]!,
+                                  width: 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.grey.withOpacity(0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () async {
+                                    if (meal['id'] != null) {
+                                      print('DEBUG: Opening meal from planner: ${meal['title']}');
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => RecipeDetailPage(recipe: meal),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Row(
+                                      children: [
+                                        // Meal image
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: meal['image'] != null && meal['image'].toString().isNotEmpty
+                                              ? _buildMealImage(meal['image'])
+                                              : Container(
+                                                  width: 60,
+                                                  height: 60,
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      colors: [
+                                                        _getMealTypeColor(mealType).withOpacity(0.3),
+                                                        _getMealTypeColor(mealType).withOpacity(0.1),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.restaurant_menu,
+                                                    color: _getMealTypeColor(mealType),
+                                                    size: 28,
+                                                  ),
+                                                ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        // Meal info
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      meal['title'] ?? 'Unknown Meal',
+                                                      style: TextStyle(
+                                                        fontSize: 15,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: Colors.grey[800],
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  if (meal['hasAllergens'] == true || meal['substituted'] == true)
+                                                    Container(
+                                                      margin: const EdgeInsets.only(left: 6),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: meal['substituted'] == true 
+                                                            ? Colors.green.withOpacity(0.15)
+                                                            : Colors.orange.withOpacity(0.15),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Icon(
+                                                        meal['substituted'] == true 
+                                                            ? Icons.swap_horiz
+                                                            : Icons.warning_amber,
+                                                        size: 14,
+                                                        color: meal['substituted'] == true 
+                                                            ? Colors.green[700]
+                                                            : Colors.orange[700],
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  if (meal['nutrition'] != null)...[
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.green.withOpacity(0.1),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.local_fire_department,
+                                                            size: 12,
+                                                            color: Colors.green[700],
+                                                          ),
+                                                          const SizedBox(width: 3),
+                                                          Text(
+                                                            '${(meal['nutrition']['calories'] ?? 0).toStringAsFixed(0)}',
+                                                            style: TextStyle(
+                                                              fontSize: 12,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: Colors.green[700],
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                  ],
+                                                  GestureDetector(
+                                                    onTap: () => _editMealTime(dateKey, meal),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.green.withOpacity(0.1),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.access_time,
+                                                            size: 12,
+                                                            color: Colors.green[600],
+                                                          ),
+                                                          const SizedBox(width: 3),
+                                                          Text(
+                                                            (meal['mealTime'] as TimeOfDay? ?? getDefaultTimeForMealType(meal['mealType'] ?? 'lunch')).format(context),
+                                                            style: TextStyle(
+                                                              fontSize: 12,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: Colors.green[600],
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // Delete button
+                                        Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            onTap: () => _removeMeal(dateKey, meals.indexOf(meal)),
+                                            borderRadius: BorderRadius.circular(8),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red.withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Icon(
+                                                Icons.delete_outline,
+                                                size: 20,
+                                                color: Colors.red[600],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                      ],
+                    ),
                   );
                 }),
               ],
             ),
           ),
+          ],
+        ),
+      ),
         );
-      },
-    );
+    },
+  );
+}
+
+  // Helper methods for meal type styling
+  Color _getMealTypeColor(String mealType) {
+    switch (mealType.toLowerCase()) {
+      case 'breakfast':
+        return Colors.green[600]!;
+      case 'lunch':
+        return Colors.green[700]!;
+      case 'dinner':
+        return Colors.green[800]!;
+      case 'snack':
+        return Colors.green[500]!;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getMealTypeIcon(String mealType) {
+    switch (mealType.toLowerCase()) {
+      case 'breakfast':
+        return Icons.wb_sunny;
+      case 'lunch':
+        return Icons.lunch_dining;
+      case 'dinner':
+        return Icons.dinner_dining;
+      case 'snack':
+        return Icons.cookie;
+      default:
+        return Icons.restaurant;
+    }
   }
 
   void _showNutritionAnalytics() {

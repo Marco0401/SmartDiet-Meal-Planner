@@ -39,36 +39,68 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Nutrition Analytics'),
-        backgroundColor: const Color(0xFF4CAF50),
-        foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          tabs: const [
-            Tab(text: 'Nutritional Analytics', icon: Icon(Icons.analytics)),
-            Tab(text: 'Profile Analysis', icon: Icon(Icons.person)),
-          ],
+        title: const Text(
+          'Nutrition Analytics',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
         ),
-      ),
-      body: Column(
-        children: [
-          _buildWeekNavigation(startOfWeek),
-          Expanded(
-            child: TabBarView(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(50),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+            ),
+            child: TabBar(
               controller: _tabController,
-              children: [
-                // Nutritional Analytics Tab
-                _buildNutritionalAnalyticsTab(startOfWeek),
-                // Profile Analysis Tab
-                _buildProfileAnalysisTab(),
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white60,
+              indicatorColor: Colors.white,
+              indicatorWeight: 3,
+              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              tabs: const [
+                Tab(text: 'Weekly Progress', icon: Icon(Icons.analytics, size: 20)),
+                Tab(text: 'Your Profile', icon: Icon(Icons.person, size: 20)),
               ],
             ),
           ),
-        ],
+        ),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF8FFF4), Color(0xFFE8F5E9)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 140),
+            _buildWeekNavigation(startOfWeek),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildNutritionalAnalyticsTab(startOfWeek),
+                  _buildProfileAnalysisTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -708,48 +740,159 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   Widget _buildWeeklyOverviewCard(Map<String, double> weeklyAverages) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [Colors.white, Colors.green[50]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.green.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
+        border: Border.all(color: Colors.green[200]!, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Weekly Average Progress',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green[600]!, Colors.green[400]!],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.trending_up, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Weekly Average Progress',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2E7D32),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 24),
+          _buildEnhancedProgressItem('Calories', weeklyAverages['calories'] ?? 0, 2000, Colors.orange, Icons.local_fire_department),
           const SizedBox(height: 16),
-          _buildProgressItem('Calories', weeklyAverages['calories'] ?? 0, 2000, Colors.orange),
-          const SizedBox(height: 12),
-          _buildProgressItem('Protein', weeklyAverages['protein'] ?? 0, 50, Colors.blue),
-          const SizedBox(height: 12),
-          _buildProgressItem('Carbs', weeklyAverages['carbs'] ?? 0, 250, Colors.green),
-          const SizedBox(height: 12),
-          _buildProgressItem('Fat', weeklyAverages['fat'] ?? 0, 65, Colors.red),
-          const SizedBox(height: 12),
-          _buildProgressItem('Fiber', weeklyAverages['fiber'] ?? 0, 25, Colors.purple),
-          const SizedBox(height: 12),
-          _buildProgressItem('Sugar', weeklyAverages['sugar'] ?? 0, 50, Colors.amber),
+          _buildEnhancedProgressItem('Protein', weeklyAverages['protein'] ?? 0, 50, Colors.blue, Icons.fitness_center),
+          const SizedBox(height: 16),
+          _buildEnhancedProgressItem('Carbs', weeklyAverages['carbs'] ?? 0, 250, Colors.green, Icons.grain),
+          const SizedBox(height: 16),
+          _buildEnhancedProgressItem('Fat', weeklyAverages['fat'] ?? 0, 65, Colors.red, Icons.opacity),
+          const SizedBox(height: 16),
+          _buildEnhancedProgressItem('Fiber', weeklyAverages['fiber'] ?? 0, 25, Colors.purple, Icons.eco),
+          const SizedBox(height: 16),
+          _buildEnhancedProgressItem('Sugar', weeklyAverages['sugar'] ?? 0, 50, Colors.amber, Icons.cake),
         ],
       ),
     );
   }
 
-
-
+  Widget _buildEnhancedProgressItem(String label, double current, double target, Color color, IconData icon) {
+    final percentage = (current / target * 100).clamp(0, 200);
+    final isOverTarget = percentage > 100;
+    final percentageText = '${percentage.toInt()}%';
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${current.toInt()} / ${target.toInt()}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isOverTarget ? Colors.red : color,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isOverTarget ? Icons.arrow_upward : Icons.check,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      percentageText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: (percentage / 100).clamp(0, 1),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isOverTarget ? Colors.red : color,
+              ),
+              minHeight: 8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildProgressItem(String label, double current, double target, Color color) {
     final percentage = (current / target * 100).clamp(0, 200);
@@ -789,31 +932,58 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   Widget _buildDailyBreakdownCard(DateTime startOfWeek, Map<String, Map<String, double>> dailyNutrition) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [Colors.white, Colors.blue[50]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.blue.withOpacity(0.15),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(color: Colors.grey[200]!, width: 1),
+        border: Border.all(color: Colors.blue[200]!, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.blue[600]!, Colors.blue[400]!],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.calendar_today, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Daily Breakdown',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1565C0),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Text(
-            'Daily Breakdown',
+            'Tap on any day to view detailed nutrition',
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.green[700],
+              fontSize: 13,
+              color: Colors.grey[600],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           ...List.generate(7, (index) {
             final date = startOfWeek.add(Duration(days: index));
             final isToday = date.day == DateTime.now().day && 
@@ -831,7 +1001,6 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   }
 
   Widget _buildDayCard(DateTime date, bool isToday, Map<String, Map<String, double>> dailyNutrition) {
-    // Get real data from daily nutrition or show zeros
     final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
     final dayData = dailyNutrition[dateKey] ?? {
       'calories': 0.0,
@@ -840,40 +1009,286 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
       'fat': 0.0,
     };
 
-    final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     final dayName = dayNames[date.weekday - 1];
+    final shortDayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final shortDayName = shortDayNames[date.weekday - 1];
     final dateStr = '${date.day}/${date.month}';
+    final totalCalories = dayData['calories']!.toInt();
+    final hasData = totalCalories > 0;
 
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: hasData ? () {
+          _showDayDetailsDialog(date, dayName, dayData);
+        } : null,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: isToday
+                ? LinearGradient(
+                    colors: [Colors.green[50]!, Colors.green[100]!],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : LinearGradient(
+                    colors: [Colors.white, Colors.grey[50]!],
+                  ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isToday ? Colors.green[300]! : Colors.grey[200]!,
+              width: isToday ? 2 : 1,
+            ),
+            boxShadow: [
+              if (isToday)
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  if (isToday)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.green[600]!, Colors.green[400]!],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.today, color: Colors.white, size: 14),
+                          SizedBox(width: 4),
+                          Text(
+                            'TODAY',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        shortDayName.toUpperCase(),
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    dateStr,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const Spacer(),
+                  if (hasData)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.local_fire_department, color: Colors.orange[700], size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$totalCalories',
+                            style: TextStyle(
+                              color: Colors.orange[700],
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              if (hasData) ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildEnhancedNutrientValue('Protein', dayData['protein']!.toInt(), Colors.blue, Icons.fitness_center),
+                    _buildEnhancedNutrientValue('Carbs', dayData['carbs']!.toInt(), Colors.green, Icons.grain),
+                    _buildEnhancedNutrientValue('Fat', dayData['fat']!.toInt(), Colors.red, Icons.opacity),
+                  ],
+                ),
+              ] else ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.grey[400]),
+                    const SizedBox(width: 6),
+                    Text(
+                      'No meals logged',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[500],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnhancedNutrientValue(String label, int value, Color color, IconData icon) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '$value g',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showDayDetailsDialog(DateTime date, String dayName, Map<String, double> dayData) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blue[600]!, Colors.blue[400]!],
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.calendar_today, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    dayName,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '${date.day}/${date.month}/${date.year}',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailRow('Calories', '${dayData['calories']!.toInt()}', 'kcal', Colors.orange, Icons.local_fire_department),
+              const SizedBox(height: 12),
+              _buildDetailRow('Protein', '${dayData['protein']!.toInt()}', 'g', Colors.blue, Icons.fitness_center),
+              const SizedBox(height: 12),
+              _buildDetailRow('Carbs', '${dayData['carbs']!.toInt()}', 'g', Colors.green, Icons.grain),
+              const SizedBox(height: 12),
+              _buildDetailRow('Fat', '${dayData['fat']!.toInt()}', 'g', Colors.red, Icons.opacity),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(fontSize: 16)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, String unit, Color color, IconData icon) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Row(
         children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 16),
           Expanded(
-            flex: 2,
             child: Text(
-              isToday ? 'Today' : '$dayName $dateStr',
+              label,
               style: TextStyle(
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: isToday ? Colors.green[700] : Colors.grey[700],
+                color: Colors.grey[800],
               ),
             ),
           ),
-          Expanded(
-            child: _buildNutrientValue('Cal', dayData['calories']!.toInt(), Colors.orange),
-          ),
-          Expanded(
-            child: _buildNutrientValue('P', dayData['protein']!.toInt(), Colors.blue),
-          ),
-          Expanded(
-            child: _buildNutrientValue('C', dayData['carbs']!.toInt(), Colors.green),
-          ),
-          Expanded(
-            child: _buildNutrientValue('F', dayData['fat']!.toInt(), Colors.red),
+          Text(
+            '$value $unit',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
         ],
       ),

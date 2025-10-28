@@ -10,11 +10,11 @@ import 'account_settings_page.dart';
 import 'shopping_list_generator_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/recipe_service.dart';
+import 'services/google_signin_service.dart';
 import 'recipe_detail_page.dart';
 import 'meal_planner_page.dart';
 import 'meal_suggestions_page.dart';
 import 'meal_favorites_page.dart';
-import 'progress_tracking_page.dart';
 import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
 import 'ingredient_scanner_page.dart';
@@ -66,13 +66,39 @@ class _MyHomePageState extends State<MyHomePage> {
   int _currentBottomNavIndex = 0;
   final GlobalKey<NotificationBadgeState> _notificationBadgeKey = GlobalKey<NotificationBadgeState>();
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
-    await GoogleSignIn().signOut();
-    if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-        (route) => false,
-      );
+    // Show confirmation dialog
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    // If user confirmed, proceed with logout
+    if (shouldLogout == true) {
+      await FirebaseAuth.instance.signOut();
+      await GoogleSignInService().signOut();
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+          (route) => false,
+        );
+      }
     }
   }
 
@@ -473,14 +499,25 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
-            _drawerOption(1, "Ingredient Scanner", Icons.qr_code_scanner),
-            _drawerOption(2, "Get Meal Suggestions", Icons.lightbulb),
-            _drawerOption(3, "App Settings", Icons.settings),
-            _drawerOption(4, "About SmartDiet", Icons.info),
+            _drawerOption(1, "Get Meal Suggestions", Icons.lightbulb),
+            _drawerOption(2, "App Settings", Icons.settings),
+            _drawerOption(3, "About SmartDiet", Icons.info),
             const Divider(),
           ],
         ),
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const IngredientScannerPage()),
+          );
+        },
+        backgroundColor: const Color(0xFF2E7D32),
+        elevation: 6,
+        child: const Icon(Icons.qr_code_scanner, size: 28, color: Colors.white),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -685,117 +722,145 @@ class _MyHomePageState extends State<MyHomePage> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
-                        // Profile Header
+                        // Profile Header with Quick Actions
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-                          child: Card(
-                            elevation: 12,
-                            shadowColor: Colors.green.withOpacity(0.3),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25),
-                            ),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.white,
-                                    Colors.green[50]!,
+                          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                          child: FutureBuilder<Map<String, dynamic>?>(
+                            future: _fetchUserProfile(),
+                            builder: (context, snapshot) {
+                              final data = snapshot.data;
+                              final name = data?['fullName'] ?? 'User';
+                              final photoUrl = data?['photoUrl'];
+                              String initials = '';
+                              if (name is String && name.isNotEmpty) {
+                                final parts = name.trim().split(' ');
+                                initials = parts.length > 1
+                                    ? (parts[0][0] + parts[1][0]).toUpperCase()
+                                    : name[0].toUpperCase();
+                              }
+                              
+                              return Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.green.withOpacity(0.3),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 10),
+                                    ),
                                   ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
                                 ),
-                                borderRadius: BorderRadius.circular(25),
-                                border: Border.all(
-                                  color: Colors.green[200]!,
-                                  width: 1,
-                                ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 20,
-                                horizontal: 16,
-                              ),
-                              child: FutureBuilder<Map<String, dynamic>?>(
-                                future: _fetchUserProfile(),
-                                builder: (context, snapshot) {
-                                  if (snapshot.connectionState ==
-                                      ConnectionState.waiting) {
-                                    return const Center(
-                                      child: CircularProgressIndicator(),
-                                    );
-                                  }
-                                  final data = snapshot.data;
-                                  final name = data?['fullName'] ?? 'User';
-                                  final photoUrl = data?['photoUrl'];
-                                  String initials = '';
-                                  if (name is String && name.isNotEmpty) {
-                                    final parts = name.trim().split(' ');
-                                    initials = parts.length > 1
-                                        ? (parts[0][0] + parts[1][0])
-                                              .toUpperCase()
-                                        : name[0].toUpperCase();
-                                  }
-                                  return Row(
-                                    children: [
-                                      CircleAvatar(
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(3),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 3),
+                                      ),
+                                      child: CircleAvatar(
                                         radius: 32,
-                                        backgroundColor: Colors.green[100],
-                                        backgroundImage:
-                                            photoUrl != null && photoUrl != ''
+                                        backgroundColor: Colors.white,
+                                        backgroundImage: photoUrl != null && photoUrl != ''
                                             ? NetworkImage(photoUrl)
                                             : null,
-                                        child:
-                                            (photoUrl == null || photoUrl == '')
+                                        child: (photoUrl == null || photoUrl == '')
                                             ? Text(
                                                 initials,
                                                 style: const TextStyle(
                                                   fontSize: 24,
-                                                  color: Color(0xFF388E3C),
+                                                  color: Color(0xFF2E7D32),
                                                   fontWeight: FontWeight.bold,
                                                 ),
                                               )
                                             : null,
                                       ),
-                                      const SizedBox(width: 18),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Hello, $name!',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleLarge
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.green[900],
-                                                    fontSize: 22,
-                                                  ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Welcome back,',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 14,
                                             ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Welcome back to SmartDiet',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodyMedium
-                                                  ?.copyWith(
-                                                    color: Colors.green[700],
-                                                  ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            name,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                              height: 1.2,
                                             ),
-                                          ],
-                                        ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  );
-                                },
-                              ),
-                              ),
-                            ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(
+                                        Icons.local_fire_department,
+                                        color: Colors.orangeAccent,
+                                        size: 32,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
                         ),
-                        // Featured Recipe Card (first recipe) - only show when not searching
-                        if (_recipes.isNotEmpty)
+                        
+                        // Featured Recipes Section
+                        if (_recipes.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Colors.orange[400]!, Colors.orange[600]!],
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.restaurant_menu,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Featured Recipe',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2E7D32),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 24),
                             child: InkWell(
@@ -1030,6 +1095,7 @@ class _MyHomePageState extends State<MyHomePage> {
                             ),
                             ),
                           ),
+                        ],
                         const SizedBox(height: 24),
                         // Recipes List Section - only show when not searching
                         Padding(
@@ -1459,8 +1525,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   });
                   break;
                 case 1:
-          Navigator.push(
-            context,
+                  Navigator.push(
+                    context,
                     MaterialPageRoute(builder: (context) => const MealPlannerPage()),
                   );
                   break;
@@ -1474,16 +1540,10 @@ class _MyHomePageState extends State<MyHomePage> {
                 case 3:
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ProgressTrackingPage()),
-                  );
-                  break;
-                case 4:
-                  Navigator.push(
-                    context,
                     MaterialPageRoute(builder: (context) => const ShoppingListGeneratorPage()),
                   );
                   break;
-                case 5:
+                case 4:
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
@@ -1513,10 +1573,6 @@ class _MyHomePageState extends State<MyHomePage> {
               BottomNavigationBarItem(
                 icon: Icon(Icons.restaurant, size: 24),
                 label: 'My Recipes',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.trending_up, size: 24),
-                label: 'Progress',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.shopping_cart, size: 24),
@@ -1681,6 +1737,57 @@ class _MyHomePageState extends State<MyHomePage> {
                             );
   }
 
+  Widget _buildQuickActionCard({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _drawerOption(int number, String text, IconData icon) {
                             return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -1729,16 +1836,11 @@ class _MyHomePageState extends State<MyHomePage> {
           if (number == 1) {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const IngredientScannerPage()),
-            );
-          } else if (number == 2) {
-            Navigator.push(
-              context,
               MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
             );
-          } else if (number == 3) {
+          } else if (number == 2) {
             _showAppSettingsDialog();
-          } else if (number == 4) {
+          } else if (number == 3) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const AboutSmartDietPage()),

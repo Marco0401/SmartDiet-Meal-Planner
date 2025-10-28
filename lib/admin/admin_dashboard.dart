@@ -209,11 +209,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
           widget: const SubstitutionsManagementPage(),
         ),
         AdminPage(
-          title: 'Migration Tools',
-          icon: Icons.sync,
-          widget: const MigrationPage(),
-        ),
-        AdminPage(
           title: 'Analytics & Reports',
           icon: Icons.analytics,
           widget: const AnalyticsPage(),
@@ -477,7 +472,33 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () async {
-                        await FirebaseAuth.instance.signOut();
+                        // Show confirmation dialog
+                        final shouldLogout = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Logout'),
+                            content: const Text('Are you sure you want to logout?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Logout'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        // If user confirmed, proceed with logout
+                        if (shouldLogout == true) {
+                          await FirebaseAuth.instance.signOut();
+                        }
                       },
                       icon: const Icon(Icons.logout),
                       label: const Text('Logout'),
