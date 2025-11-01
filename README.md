@@ -187,49 +187,6 @@ SmartDiet is a comprehensive Flutter-powered nutrition management app that puts 
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- **Flutter SDK**: 3.22.0 or higher
-  ```bash
-  flutter --version
-  ```
-
-- **Android Studio** or **Xcode** (for mobile builds)
-
-- **Firebase Project** with:
-  - Authentication enabled
-  - Cloud Firestore database
-  - Storage bucket
-  - (Optional) Cloud Messaging
-
-- **API Keys** (optional):
-  - Spoonacular API key (for recipe search)
-  - USDA API key (for nutrition data)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/smartdiet.git
-   cd smartdiet
-   ```
-
-2. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
-
-3. **Configure Firebase** (see [Firebase Setup](#firebase-setup))
-
-4. **Run the app**
-   ```bash
-   flutter run
-   ```
-
----
-
 ## Key Features Deep Dive
 
 ### Smart Manual Meal Entry
