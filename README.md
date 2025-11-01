@@ -19,12 +19,11 @@ SmartDiet is a comprehensive Flutter-powered nutrition management app that puts 
 2. [Screenshots](#screenshots)
 3. [Architecture](#architecture)
 4. [Tech Stack](#tech-stack)
-6. [Getting Started](#getting-started)
-7. [Key Features Deep Dive](#key-features-deep-dive)
-8. [Admin Portal](#admin-portal)
-9. [Testing](#testing)
-10. [Contributing](#contributing)
-11. [License](#license)
+5. [Key Features Deep Dive](#key-features-deep-dive)
+6. [Admin Portal](#admin-portal)
+7. [Testing](#testing)
+8. [Contributing](#contributing)
+9. [License](#license)
 
 ---
 
