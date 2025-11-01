@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'models/user_profile.dart';
+import 'services/nutrition_calculator_service.dart';
 
 class NutritionAnalyticsPage extends StatefulWidget {
   const NutritionAnalyticsPage({super.key});
@@ -171,84 +172,8 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   }
 
   Map<String, dynamic> _calculateUserAnalysis(UserProfile profile) {
-    // Calculate BMI
-    final heightInMeters = profile.height / 100;
-    final bmi = profile.weight / (heightInMeters * heightInMeters);
-    
-    String weightCategory;
-    if (bmi < 18.5) {
-      weightCategory = 'Underweight';
-    } else if (bmi < 25) {
-      weightCategory = 'Normal weight';
-    } else if (bmi < 30) {
-      weightCategory = 'Overweight';
-    } else {
-      weightCategory = 'Obesity';
-    }
-
-    // Calculate BMR (Basal Metabolic Rate)
-    double bmr;
-    if (profile.gender.toLowerCase() == 'male') {
-      bmr = 88.362 + (13.397 * profile.weight) + (4.799 * profile.height) - (5.677 * profile.age);
-    } else {
-      bmr = 447.593 + (9.247 * profile.weight) + (3.098 * profile.height) - (4.330 * profile.age);
-    }
-
-    // Apply activity multiplier
-    double activityMultiplier = 1.2; // Sedentary default
-    switch (profile.activityLevel.toLowerCase()) {
-      case 'lightly active':
-        activityMultiplier = 1.375;
-        break;
-      case 'moderately active':
-        activityMultiplier = 1.55;
-        break;
-      case 'very active':
-        activityMultiplier = 1.725;
-        break;
-      case 'extremely active':
-        activityMultiplier = 1.9;
-        break;
-    }
-
-    final dailyCalories = bmr * activityMultiplier;
-
-    // Adjust for goals
-    double targetCalories = dailyCalories;
-    switch (profile.goal.toLowerCase()) {
-      case 'lose weight':
-        targetCalories *= 0.85; // 15% deficit
-        break;
-      case 'gain weight':
-      case 'gain muscle':
-        targetCalories *= 1.15; // 15% surplus
-        break;
-    }
-
-    // Calculate macros
-    final protein = (targetCalories * 0.25) / 4; // 25% of calories from protein
-    final fat = (targetCalories * 0.30) / 9; // 30% of calories from fat
-    final carbs = (targetCalories * 0.45) / 4; // 45% of calories from carbs
-    final fiber = targetCalories / 80; // Roughly 1g per 80 calories
-
-    return {
-      'age': profile.age,
-      'height': profile.height,
-      'weight': profile.weight,
-      'gender': profile.gender,
-      'bmi': bmi,
-      'weightCategory': weightCategory,
-      'goal': profile.goal,
-      'activityLevel': profile.activityLevel,
-      'bmr': bmr,
-      'dailyCalories': targetCalories,
-      'protein': protein,
-      'carbs': carbs,
-      'fat': fat,
-      'fiber': fiber,
-      'allergies': profile.allergies,
-      'healthConditions': profile.healthConditions,
-    };
+    // Use shared calculation service for consistency across the app
+    return NutritionCalculatorService.calculateDailyTargets(profile);
   }
 
   Widget _buildProfileAnalysisTab() {
@@ -270,8 +195,12 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
 
     final analysis = _calculatedAnalysis!;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+    return RefreshIndicator(
+      onRefresh: _refreshProfile,
+      color: Colors.green,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(), // Ensures pull-to-refresh works even when content is small
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -287,7 +216,14 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
           _buildHealthInsightsCard(analysis),
         ],
       ),
+      ),
     );
+  }
+  
+  Future<void> _refreshProfile() async {
+    print('DEBUG: Refreshing profile data...');
+    await _loadUserProfile();
+    print('DEBUG: Profile refresh complete!');
   }
 
   Widget _buildProfileOverviewCard(Map<String, dynamic> analysis) {
@@ -647,9 +583,10 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   }
 
   String _getCalorieContext(String goal, double bmi) {
-    if (goal.toLowerCase().contains('lose')) {
+    final goalLower = goal.toLowerCase();
+    if (goalLower.contains('lose')) {
       return 'Calorie deficit for weight loss. Target: 15% below maintenance calories.';
-    } else if (goal.toLowerCase().contains('gain')) {
+    } else if (goalLower.contains('gain') || goalLower.contains('muscle') || goalLower.contains('build')) {
       return 'Calorie surplus for weight gain. Target: 15% above maintenance calories.';
     } else {
       return 'Maintenance calories to maintain current weight.';
@@ -719,18 +656,26 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
         // Process the real-time data
         final processedData = _processMealPlansData(snapshot.data, startOfWeek);
         
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Weekly Overview Card
-              _buildWeeklyOverviewCard(processedData['weeklyAverages']),
-              const SizedBox(height: 20),
-              
-              // Daily Breakdown
-              _buildDailyBreakdownCard(startOfWeek, processedData['dailyNutrition']),
-            ],
+        return RefreshIndicator(
+          onRefresh: () async {
+            // Stream will auto-refresh, but we can still provide visual feedback
+            await Future.delayed(const Duration(milliseconds: 500));
+          },
+          color: Colors.green,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Weekly Overview Card
+                _buildWeeklyOverviewCard(processedData['weeklyAverages']),
+                const SizedBox(height: 20),
+                
+                // Daily Breakdown
+                _buildDailyBreakdownCard(startOfWeek, processedData['dailyNutrition']),
+              ],
+            ),
           ),
         );
       },
@@ -1164,6 +1109,10 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
   }
 
   Widget _buildEnhancedNutrientValue(String label, int value, Color color, IconData icon) {
+    // Get target values from user profile
+    final target = _getTargetValue(label);
+    final percentage = target > 0 ? ((value / target) * 100).round() : 0;
+    
     return Column(
       children: [
         Container(
@@ -1176,11 +1125,19 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
         ),
         const SizedBox(height: 6),
         Text(
-          '$value g',
+          '$value / ${target.toInt()}g',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
             color: color,
+          ),
+        ),
+        Text(
+          '$percentage%',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: percentage > 100 ? Colors.red : color,
           ),
         ),
         Text(
@@ -1194,7 +1151,30 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
     );
   }
 
+  double _getTargetValue(String nutrient) {
+    if (_calculatedAnalysis == null) return 0;
+    
+    switch (nutrient.toLowerCase()) {
+      case 'protein':
+        return _calculatedAnalysis!['protein'] ?? 100;
+      case 'carbs':
+        return _calculatedAnalysis!['carbs'] ?? 250;
+      case 'fat':
+        return _calculatedAnalysis!['fat'] ?? 65;
+      case 'fiber':
+        return _calculatedAnalysis!['fiber'] ?? 25;
+      default:
+        return 0;
+    }
+  }
+
   void _showDayDetailsDialog(DateTime date, String dayName, Map<String, double> dayData) {
+    // Get target values
+    final targetCalories = _calculatedAnalysis?['dailyCalories'] ?? 2000;
+    final targetProtein = _calculatedAnalysis?['protein'] ?? 100;
+    final targetCarbs = _calculatedAnalysis?['carbs'] ?? 250;
+    final targetFat = _calculatedAnalysis?['fat'] ?? 65;
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1233,13 +1213,13 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDetailRow('Calories', '${dayData['calories']!.toInt()}', 'kcal', Colors.orange, Icons.local_fire_department),
+              _buildDetailRowWithTarget('Calories', dayData['calories']!.toInt(), targetCalories.toInt(), 'kcal', Colors.orange, Icons.local_fire_department),
               const SizedBox(height: 12),
-              _buildDetailRow('Protein', '${dayData['protein']!.toInt()}', 'g', Colors.blue, Icons.fitness_center),
+              _buildDetailRowWithTarget('Protein', dayData['protein']!.toInt(), targetProtein.toInt(), 'g', Colors.blue, Icons.fitness_center),
               const SizedBox(height: 12),
-              _buildDetailRow('Carbs', '${dayData['carbs']!.toInt()}', 'g', Colors.green, Icons.grain),
+              _buildDetailRowWithTarget('Carbs', dayData['carbs']!.toInt(), targetCarbs.toInt(), 'g', Colors.green, Icons.grain),
               const SizedBox(height: 12),
-              _buildDetailRow('Fat', '${dayData['fat']!.toInt()}', 'g', Colors.red, Icons.opacity),
+              _buildDetailRowWithTarget('Fat', dayData['fat']!.toInt(), targetFat.toInt(), 'g', Colors.red, Icons.opacity),
             ],
           ),
         ),
@@ -1288,6 +1268,88 @@ class _NutritionAnalyticsPageState extends State<NutritionAnalyticsPage>
               fontSize: 18,
               fontWeight: FontWeight.bold,
               color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRowWithTarget(String label, int consumed, int target, String unit, Color color, IconData icon) {
+    final percentage = target > 0 ? ((consumed / target) * 100).round() : 0;
+    final isOver = percentage > 100;
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$consumed / $target $unit',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isOver ? Colors.red : color,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$percentage%',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: (percentage / 100).clamp(0, 1),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isOver ? Colors.red : color,
+              ),
+              minHeight: 8,
             ),
           ),
         ],

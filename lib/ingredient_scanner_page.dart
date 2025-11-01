@@ -786,9 +786,18 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 48),
-            
-            // Scanning Options
+            const SizedBox(height: 20),
+            // Barcode Scanner Option
+            _buildScanOption(
+              icon: Icons.qr_code_scanner_rounded,
+              title: 'Scan Barcode',
+              subtitle: 'Quick product lookup',
+              gradient: LinearGradient(
+                colors: [Colors.orange[700]!, Colors.orange[400]!],
+              ),
+              onTap: _isScanningBarcode ? null : _startBarcodeScanning,
+            ),
+            const SizedBox(height: 16),
             _buildScanOption(
               icon: Icons.camera_alt_rounded,
               title: 'Scan with Camera',
@@ -808,17 +817,7 @@ class _IngredientScannerPageState extends State<IngredientScannerPage> {
               ),
               onTap: _pickIngredientPhoto,
             ),
-            const SizedBox(height: 16),
-            _buildScanOption(
-              icon: Icons.qr_code_scanner_rounded,
-              title: 'Scan Barcode',
-              subtitle: 'Quick product lookup',
-              gradient: LinearGradient(
-                colors: [Colors.orange[700]!, Colors.orange[400]!],
-              ),
-              onTap: _isScanningBarcode ? null : _startBarcodeScanning,
-            ),
-            
+
             const SizedBox(height: 40),
             // Info Cards
             Row(

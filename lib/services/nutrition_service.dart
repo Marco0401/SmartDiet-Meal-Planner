@@ -610,9 +610,9 @@ class NutritionService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User not authenticated');
 
-    // Always recalculate nutrition to ensure consistency with new scaling system
-    final nutrition = await calculateRecipeNutrition(ingredients);
-    print('DEBUG: Saving meal "$title" with scaled nutrition: $nutrition');
+    // Use customNutrition if provided, otherwise calculate from ingredients
+    final nutrition = customNutrition ?? await calculateRecipeNutrition(ingredients);
+    print('DEBUG: Saving meal "$title" with nutrition: $nutrition');
 
     await FirebaseFirestore.instance
         .collection('users')

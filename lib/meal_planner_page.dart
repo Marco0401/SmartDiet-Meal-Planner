@@ -8,6 +8,7 @@ import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
 import 'services/allergen_detection_service.dart';
 import 'services/notification_service.dart';
+import 'services/nutrition_progress_notifier.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
 import 'widgets/time_picker_dialog.dart' as time_picker;
@@ -805,6 +806,15 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             // Update the local meal with the document ID
             meal['id'] = docRef.id;
             print('DEBUG: Assigned ID ${docRef.id} to meal: ${meal['title']}');
+            
+            // Show motivational progress notification for newly added meal
+            final nutrition = meal['nutrition'] as Map<String, dynamic>? ?? {};
+            if (mounted && nutrition.isNotEmpty) {
+              await NutritionProgressNotifier.showProgressNotification(
+                context,
+                nutrition,
+              );
+            }
           } else {
             print('DEBUG: Skipping existing meal: ${meal['title']} (ID: ${meal['id']})');
           }

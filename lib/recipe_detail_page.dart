@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'dart:io';
 import 'services/allergen_ml_service.dart';
 import 'services/allergen_service.dart';
@@ -9,8 +10,10 @@ import 'services/nutrition_service.dart';
 import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
 import 'services/substitution_nutrition_service.dart';
+import 'services/nutrition_progress_notifier.dart';
 import 'meal_favorites_page.dart';
 import 'meal_plan_dialog.dart';
+import 'manual_meal_entry_page.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
 import 'widgets/edit_meal_dialog.dart';
@@ -395,15 +398,35 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       return;
     }
 
-    // Show the Edit Meal Dialog
-    final result = await showDialog(
-      context: context,
-      builder: (context) => EditMealDialog(
-        meal: baseRecipe,
-        mealId: isFavorite ? favoriteId : mealId,
-        dateKey: dateKey, // Empty for favorites
-      ),
-    );
+    // Check if this is a manual entry recipe
+    final source = baseRecipe['source']?.toString() ?? '';
+    final isManualEntry = source == 'manual_entry';
+    
+    dynamic result;
+    
+    if (isManualEntry) {
+      // Route to Manual Meal Entry Page for manual entry recipes
+      result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ManualMealEntryPage(
+            selectedDate: dateKey.isNotEmpty ? dateKey : DateFormat('yyyy-MM-dd').format(DateTime.now()),
+            mealType: baseRecipe['mealType']?.toString(),
+            prefilledData: baseRecipe,
+          ),
+        ),
+      );
+    } else {
+      // Show the Edit Meal Dialog for other recipes
+      result = await showDialog(
+        context: context,
+        builder: (context) => EditMealDialog(
+          meal: baseRecipe,
+          mealId: isFavorite ? favoriteId : mealId,
+          dateKey: dateKey, // Empty for favorites
+        ),
+      );
+    }
 
     // If meal was successfully edited, refresh the page to show updated nutrition
     if (result == true) {
@@ -556,15 +579,17 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             await _saveOriginalMeal(finalRecipe, result, ingredients, nutrition);
           }
 
-        print('DEBUG: Meal saved successfully, showing success message');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(finalRecipe['substituted'] == true 
-              ? 'Substituted recipe added to meal plan!' 
-              : 'Recipe added to meal plan!'),
-            backgroundColor: Colors.green,
-          ),
+        print('DEBUG: Meal saved successfully, showing progress notification');
+        
+        // Show motivational progress notification
+        final nutrition = finalRecipe['nutrition'] as Map<String, dynamic>? ?? {};
+        await NutritionProgressNotifier.showProgressNotification(
+          context,
+          nutrition,
         );
+        
+        // Small delay to let user see the notification
+        await Future.delayed(const Duration(milliseconds: 500));
         
         // Navigate back to meal planner to refresh the view
         print('DEBUG: Navigating back to meal planner to refresh');

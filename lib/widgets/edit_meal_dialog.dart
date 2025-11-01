@@ -1206,6 +1206,31 @@ class _EditMealDialogState extends State<EditMealDialog> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    // Info notice
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, size: 20, color: Colors.blue[700]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'All ingredient nutrition values are based on per 100g. The system automatically calculates based on the amount you enter.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue[900],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
