@@ -247,22 +247,7 @@ Test critical UI flows:
 - Meal planner interactions
 - Allergen warning dialogs
 - Ingredient scanner
-
-### Manual QA Checklist
-
-- [ ] Create new meal in smart mode
-- [ ] Create new meal in manual mode
-- [ ] Edit existing manual entry meal
-- [ ] Add meal to planner for future date
-- [ ] Verify nutrition notification shows correct date
-- [ ] Scan ingredient with camera
-- [ ] Scan barcode for product lookup
-- [ ] Replace ingredient due to allergen
-- [ ] Add meal to favorites
-- [ ] Edit favorite recipe
-- [ ] View nutrition analytics
-- [ ] Receive and dismiss notifications
-
+  
 ---
 
 ## Contributing
