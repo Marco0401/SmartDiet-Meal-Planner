@@ -1,6 +1,6 @@
 # SmartDiet - Smart Nutrition Management
 # Download Here:
-https://github.com/Marco0401/SmartDiet-Meal-Planner/releases/download/v1.0.0/app-release.apk
+(https://github.com/Marco0401/SmartDiet-Meal-Planner/releases/tag/v1.1.0/app-release.apk)
 
 ## Overview
 
