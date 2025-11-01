@@ -6,8 +6,9 @@ import 'nutrition_calculator_service.dart';
 class NutritionProgressNotifier {
   static Future<void> showProgressNotification(
     BuildContext context,
-    Map<String, dynamic> nutritionData,
-  ) async {
+    Map<String, dynamic> nutritionData, {
+    DateTime? mealDate,
+  }) async {
     try {
       // Get user profile to calculate targets
       final user = FirebaseAuth.instance.currentUser;
@@ -25,9 +26,9 @@ class NutritionProgressNotifier {
       // Calculate daily targets using shared service
       final targets = NutritionCalculatorService.calculateDailyTargetsFromMap(userData);
       
-      // Get today's date
-      final today = DateTime.now();
-      final dateKey = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      // Use provided meal date or default to today
+      final targetDate = mealDate ?? DateTime.now();
+      final dateKey = '${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}';
       
       // Get today's total nutrition from all meals
       final mealsSnapshot = await FirebaseFirestore.instance
@@ -63,7 +64,7 @@ class NutritionProgressNotifier {
       final message = _generateMotivationalMessage(caloriesPercentage, proteinPercentage);
       
       // Show overlay notification
-      _showOverlayNotification(context, message, totalCalories, totalProtein, totalCarbs, totalFat, targets);
+      _showOverlayNotification(context, message, totalCalories, totalProtein, totalCarbs, totalFat, targets, targetDate);
     } catch (e) {
       print('Error showing progress notification: $e');
     }
@@ -100,6 +101,7 @@ class NutritionProgressNotifier {
     double carbs,
     double fat,
     Map<String, double> targets,
+    DateTime targetDate,
   ) {
     final overlay = Overlay.of(context);
     late OverlayEntry overlayEntry;
@@ -172,7 +174,7 @@ class NutritionProgressNotifier {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              "Today's nutrition updated!",
+                              _getDateMessage(targetDate),
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 13,
@@ -287,5 +289,25 @@ class NutritionProgressNotifier {
         ),
       ],
     );
+  }
+
+  static String _getDateMessage(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDay = DateTime(date.year, date.month, date.day);
+    
+    final difference = targetDay.difference(today).inDays;
+    
+    if (difference == 0) {
+      return "Today's nutrition updated!";
+    } else if (difference == 1) {
+      return "Tomorrow's nutrition updated!";
+    } else if (difference == -1) {
+      return "Yesterday's nutrition updated!";
+    } else if (difference > 1) {
+      return "Nutrition updated for ${date.month}/${date.day}/${date.year}";
+    } else {
+      return "Nutrition updated for ${date.month}/${date.day}/${date.year}";
+    }
   }
 }

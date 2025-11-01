@@ -810,9 +810,11 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             // Show motivational progress notification for newly added meal
             final nutrition = meal['nutrition'] as Map<String, dynamic>? ?? {};
             if (mounted && nutrition.isNotEmpty) {
+              final mealDate = DateFormat('yyyy-MM-dd').parse(dateKey);
               await NutritionProgressNotifier.showProgressNotification(
                 context,
                 nutrition,
+                mealDate: mealDate,
               );
             }
           } else {

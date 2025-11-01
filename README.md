@@ -19,12 +19,11 @@ SmartDiet is a comprehensive Flutter-powered nutrition management app that puts 
 2. [Screenshots](#screenshots)
 3. [Architecture](#architecture)
 4. [Tech Stack](#tech-stack)
-6. [Getting Started](#getting-started)
-7. [Key Features Deep Dive](#key-features-deep-dive)
-8. [Admin Portal](#admin-portal)
-9. [Testing](#testing)
-10. [Contributing](#contributing)
-11. [License](#license)
+5. [Key Features Deep Dive](#key-features-deep-dive)
+6. [Admin Portal](#admin-portal)
+7. [Testing](#testing)
+8. [Contributing](#contributing)
+9. [License](#license)
 
 ---
 
@@ -187,49 +186,6 @@ SmartDiet is a comprehensive Flutter-powered nutrition management app that puts 
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- **Flutter SDK**: 3.22.0 or higher
-  ```bash
-  flutter --version
-  ```
-
-- **Android Studio** or **Xcode** (for mobile builds)
-
-- **Firebase Project** with:
-  - Authentication enabled
-  - Cloud Firestore database
-  - Storage bucket
-  - (Optional) Cloud Messaging
-
-- **API Keys** (optional):
-  - Spoonacular API key (for recipe search)
-  - USDA API key (for nutrition data)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/smartdiet.git
-   cd smartdiet
-   ```
-
-2. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
-
-3. **Configure Firebase** (see [Firebase Setup](#firebase-setup))
-
-4. **Run the app**
-   ```bash
-   flutter run
-   ```
-
----
-
 ## Key Features Deep Dive
 
 ### Smart Manual Meal Entry
@@ -291,22 +247,7 @@ Test critical UI flows:
 - Meal planner interactions
 - Allergen warning dialogs
 - Ingredient scanner
-
-### Manual QA Checklist
-
-- [ ] Create new meal in smart mode
-- [ ] Create new meal in manual mode
-- [ ] Edit existing manual entry meal
-- [ ] Add meal to planner for future date
-- [ ] Verify nutrition notification shows correct date
-- [ ] Scan ingredient with camera
-- [ ] Scan barcode for product lookup
-- [ ] Replace ingredient due to allergen
-- [ ] Add meal to favorites
-- [ ] Edit favorite recipe
-- [ ] View nutrition analytics
-- [ ] Receive and dismiss notifications
-
+  
 ---
 
 ## Contributing

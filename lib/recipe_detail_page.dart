@@ -583,9 +583,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         
         // Show motivational progress notification
         final nutrition = finalRecipe['nutrition'] as Map<String, dynamic>? ?? {};
+        final mealDate = DateFormat('yyyy-MM-dd').parse(result['date']);
         await NutritionProgressNotifier.showProgressNotification(
           context,
           nutrition,
+          mealDate: mealDate,
         );
         
         // Small delay to let user see the notification

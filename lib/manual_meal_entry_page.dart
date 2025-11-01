@@ -1391,6 +1391,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         await NutritionProgressNotifier.showProgressNotification(
           context,
           nutritionData,
+          mealDate: _selectedDate,
         );
         
         // Small delay to let user see the notification
