@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'services/nutrition_service.dart';
 import 'manual_meal_entry_page.dart';
 import 'unified_meal_planner_page.dart';
+import 'recipe_search_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -168,6 +169,16 @@ class _DashboardPageState extends State<DashboardPage> {
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RecipeSearchPage()),
+              );
+            },
+            tooltip: 'Search Recipes',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadDashboardData,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -12,6 +13,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/recipe_service.dart';
 import 'services/google_signin_service.dart';
 import 'recipe_detail_page.dart';
+import 'recipe_search_page.dart';
 import 'meal_planner_page.dart';
 import 'meal_suggestions_page.dart';
 import 'meal_favorites_page.dart';
@@ -19,6 +21,7 @@ import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
 import 'ingredient_scanner_page.dart';
 import 'about_smartdiet_page.dart';
+import 'community_recipes_page.dart';
 import 'utils/initialize_substitution_nutrition.dart';
 import 'utils/migrate_substitution_nutrition.dart';
 
@@ -102,13 +105,10 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  // Search state
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
+  // Recipe state
   List<dynamic> _recipes = [];
   List<dynamic> _allRecipes = []; // Store all fetched recipes before filtering
   List<String> _excludeIngredients = []; // Ingredients to exclude
-  bool _showFilterPanel = false;
   bool _isLoading = false;
   String? _error;
   Timer? _debounceTimer;
@@ -122,7 +122,6 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _debounceTimer?.cancel();
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -321,20 +320,6 @@ class _MyHomePageState extends State<MyHomePage> {
     return doc.data();
   }
 
-  void _performSearch() {
-    // Cancel previous timer if exists
-    _debounceTimer?.cancel();
-    
-    // Set a new timer to debounce the search
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-      String query = _searchQuery.trim();
-      if (query.isEmpty) {
-        query = 'chicken'; // Default query for Filipino dishes
-      }
-
-      _fetchRecipes(query);
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -377,6 +362,28 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
         ),
         actions: [
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.search,
+                    color: Colors.white,
+                  ),
+                  tooltip: 'Search Recipes',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RecipeSearchPage(),
+                      ),
+                    );
+                  },
+                ),
+              ),
               Container(
                 margin: const EdgeInsets.only(right: 8),
                 decoration: BoxDecoration(
@@ -500,8 +507,9 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
             _drawerOption(1, "Get Meal Suggestions", Icons.lightbulb),
-            _drawerOption(2, "App Settings", Icons.settings),
-            _drawerOption(3, "About SmartDiet", Icons.info),
+            _drawerOption(2, "Shopping List", Icons.shopping_cart),
+            _drawerOption(3, "App Settings", Icons.settings),
+            _drawerOption(4, "About SmartDiet", Icons.info),
             const Divider(),
           ],
         ),
@@ -529,194 +537,8 @@ class _MyHomePageState extends State<MyHomePage> {
         child: SafeArea(
           child: Column(
             children: [
-              // Search Bar with Filters
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    // Main Search Bar with Filter Button
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.white,
-                                  Colors.green[50]!,
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              borderRadius: BorderRadius.circular(25),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.green.withOpacity(0.15),
-                                  blurRadius: 15,
-                                  offset: const Offset(0, 5),
-                                  spreadRadius: 2,
-                                ),
-                                BoxShadow(
-                                  color: Colors.white,
-                                  blurRadius: 0,
-                                  offset: const Offset(0, -1),
-                                ),
-                              ],
-                              border: Border.all(
-                                color: Colors.green[200]!,
-                                width: 1.5,
-                              ),
-                            ),
-                            child: TextField(
-                              controller: _searchController,
-                              decoration: InputDecoration(
-                                hintText: 'Search recipes...',
-                                prefixIcon: Icon(Icons.search),
-                                border: InputBorder.none,
-                              ),
-                              onChanged: (value) {
-                                setState(() {
-                                  _searchQuery = value;
-                                });
-                                _performSearch();
-                              },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.red[400]!,
-                                Colors.red[600]!,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.red.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.filter_alt, color: Colors.white),
-                            tooltip: 'Filter by ingredients',
-                            onPressed: () {
-                              setState(() {
-                                _showFilterPanel = !_showFilterPanel;
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Exclude Ingredients Filter
-              if (_excludeIngredients.isNotEmpty || _showFilterPanel)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.red[200]!),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.red.withOpacity(0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Row(
-                            children: [
-                              Icon(Icons.filter_alt, color: Colors.red[700], size: 20),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Excluding Ingredients:',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.red,
-                                ),
-                              ),
-                              const Spacer(),
-                              IconButton(
-                                icon: Icon(_showFilterPanel ? Icons.expand_less : Icons.expand_more, size: 20),
-                                onPressed: () {
-                                  setState(() {
-                                    _showFilterPanel = !_showFilterPanel;
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (_excludeIngredients.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _excludeIngredients.map((ingredient) {
-                                return Chip(
-                                  deleteIcon: const Icon(Icons.close, size: 16),
-                                  onDeleted: () => _toggleExcludeIngredient(ingredient),
-                                  backgroundColor: Colors.red[50],
-                                  label: Text(ingredient),
-                                  labelStyle: const TextStyle(color: Colors.red),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                        if (_showFilterPanel)
-                          Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Quick Exclude:',
-                                  style: TextStyle(fontWeight: FontWeight.w500),
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: ['Eggs', 'Dairy', 'Nuts', 'Gluten', 'Shellfish', 'Soy'].map((ing) {
-                                    final isSelected = _excludeIngredients.contains(ing);
-                                    return FilterChip(
-                                      label: Text(ing),
-                                      selected: isSelected,
-                                      onSelected: (_) => _toggleExcludeIngredient(ing),
-                                      backgroundColor: Colors.grey[200],
-                                      selectedColor: Colors.red[100],
-                                      labelStyle: TextStyle(
-                                        color: isSelected ? Colors.red : Colors.grey[700],
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              
-              // Main Content - Show different content based on search state
-              if (_searchQuery.isEmpty) ...[
+              // Main Content - Show home page
+              ...[
                 // Wrap main content in SingleChildScrollView for scrolling
                 Expanded(
                   child: SingleChildScrollView(
@@ -730,13 +552,29 @@ class _MyHomePageState extends State<MyHomePage> {
                             builder: (context, snapshot) {
                               final data = snapshot.data;
                               final name = data?['fullName'] ?? 'User';
-                              final photoUrl = data?['photoUrl'];
+                              final photoUrl = data?['profilePhoto'] ?? data?['photoUrl'];
                               String initials = '';
                               if (name is String && name.isNotEmpty) {
                                 final parts = name.trim().split(' ');
                                 initials = parts.length > 1
                                     ? (parts[0][0] + parts[1][0]).toUpperCase()
                                     : name[0].toUpperCase();
+                              }
+                              
+                              // Handle base64 or URL images
+                              ImageProvider? profileImage;
+                              if (photoUrl != null && photoUrl.isNotEmpty) {
+                                if (photoUrl.startsWith('data:image')) {
+                                  // Base64 image
+                                  try {
+                                    profileImage = MemoryImage(base64Decode(photoUrl.split(',')[1]));
+                                  } catch (e) {
+                                    print('Error decoding base64 image: $e');
+                                  }
+                                } else {
+                                  // URL image
+                                  profileImage = NetworkImage(photoUrl);
+                                }
                               }
                               
                               return Container(
@@ -753,7 +591,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                       color: Colors.green.withOpacity(0.3),
                                       blurRadius: 20,
                                       offset: const Offset(0, 10),
-                                    ),
+                                      ),
                                   ],
                                 ),
                                 child: Row(
@@ -767,10 +605,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                       child: CircleAvatar(
                                         radius: 32,
                                         backgroundColor: Colors.white,
-                                        backgroundImage: photoUrl != null && photoUrl != ''
-                                            ? NetworkImage(photoUrl)
-                                            : null,
-                                        child: (photoUrl == null || photoUrl == '')
+                                        backgroundImage: profileImage,
+                                        child: profileImage == null
                                             ? Text(
                                                 initials,
                                                 style: const TextStyle(
@@ -1150,327 +986,6 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   ),
                 ),
-              ] else ...[
-                // Search Results - overlay the main body when searching
-                Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Search Results Header
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.1),
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(16),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.search,
-                                color: Colors.green,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Search Results for "$_searchQuery" (${_recipes.length})',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  setState(() {
-                                    _searchQuery = '';
-                                    _searchController.clear();
-                                  });
-                                  _fetchRecipes('chicken'); // Reset to default
-                                },
-                                tooltip: 'Clear search',
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Search Results Content
-                        Expanded(
-                          child: _isLoading
-                              ? const Center(child: CircularProgressIndicator())
-                              : _error != null
-                              ? Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.error_outline,
-                                        size: 64,
-                                        color: Colors.red[300],
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        _error!,
-                                        style: TextStyle(
-                                          color: Colors.red[700],
-                                          fontSize: 16,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : _recipes.isEmpty
-                              ? Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.search_off,
-                                        size: 64,
-                                        color: Colors.grey[400],
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        'No recipes found for "$_searchQuery"',
-                                        style: TextStyle(
-                                          color: Colors.grey[600],
-                                          fontSize: 16,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Try different keywords or ingredients',
-                                        style: TextStyle(
-                                          color: Colors.grey[500],
-                                          fontSize: 14,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.all(8),
-                                  itemCount: _recipes.length,
-                                  itemBuilder: (context, index) {
-                                    final recipe = _recipes[index];
-                                    return Card(
-                                      margin: const EdgeInsets.symmetric(
-                                        vertical: 4,
-                                        horizontal: 8,
-                                      ),
-                                      child: InkWell(
-                                        onTap: () async {
-                                          final result = await Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) =>
-                                                  RecipeDetailPage(
-                                                    recipe: recipe,
-                                                  ),
-                                            ),
-                                          );
-                                          
-                                          // If a meal was added, navigate to meal planner
-                                          if (result == true) {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) => const MealPlannerPage(),
-                                              ),
-                                            );
-                                          }
-                                        },
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(12),
-                                          child: Row(
-                                            children: [
-                                              // Recipe image
-                                              ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                child:
-                                                    recipe['image'] != null &&
-                                                        recipe['image']
-                                                            .toString()
-                                                            .isNotEmpty
-                                                    ? recipe['image'].toString().startsWith('assets/')
-                                                        ? Image.asset(
-                                                            recipe['image'],
-                                                            width: 60,
-                                                            height: 60,
-                                                            fit: BoxFit.cover,
-                                                            errorBuilder: (context, error, stackTrace) {
-                                                              return Container(
-                                                                width: 60,
-                                                                height: 60,
-                                                                decoration: BoxDecoration(
-                                                                  gradient: LinearGradient(
-                                                                    colors: [
-                                                                      Colors.green[50]!,
-                                                                      Colors.green[100]!,
-                                                                    ],
-                                                                    begin: Alignment.topLeft,
-                                                                    end: Alignment.bottomRight,
-                                                                  ),
-                                                                ),
-                                                                child: const Icon(
-                                                                  Icons.restaurant_menu,
-                                                                  color: Colors.green,
-                                                                ),
-                                                              );
-                                                            },
-                                                          )
-                                                        : Image.network(
-                                                        recipe['image'],
-                                                        width: 60,
-                                                        height: 60,
-                                                        fit: BoxFit.cover,
-                                                        errorBuilder:
-                                                            (
-                                                              context,
-                                                              error,
-                                                              stackTrace,
-                                                            ) {
-                                                              return Container(
-                                                                width: 60,
-                                                                height: 60,
-                                                                decoration: BoxDecoration(
-                                                                  gradient: LinearGradient(
-                                                                    colors: [
-                                                                      Colors
-                                                                          .green[50]!,
-                                                                      Colors
-                                                                          .green[100]!,
-                                                                    ],
-                                                                    begin: Alignment
-                                                                        .topLeft,
-                                                                    end: Alignment
-                                                                        .bottomRight,
-                                                                  ),
-                                                                ),
-                                                                child: const Icon(
-                                                                  Icons
-                                                                      .restaurant_menu,
-                                                                  color: Colors
-                                                                      .green,
-                                                                ),
-                                                              );
-                                                            },
-                                                        loadingBuilder:
-                                                            (
-                                                              context,
-                                                              child,
-                                                              loadingProgress,
-                                                            ) {
-                                                              if (loadingProgress ==
-                                                                  null) {
-                                                                return child;
-                                                              }
-                                                              return Container(
-                                                                width: 60,
-                                                                height: 60,
-                                                                decoration: BoxDecoration(
-                                                                  gradient: LinearGradient(
-                                                                    colors: [
-                                                                      Colors
-                                                                          .green[50]!,
-                                                                      Colors
-                                                                          .green[100]!,
-                                                                    ],
-                                                                    begin: Alignment
-                                                                        .topLeft,
-                                                                    end: Alignment
-                                                                        .bottomRight,
-                                                                  ),
-                                                                ),
-                                                                child: const Center(
-                                                                  child: SizedBox(
-                                                                    width: 16,
-                                                                    height: 16,
-                                                                    child: CircularProgressIndicator(
-                                                                      color: Colors
-                                                                          .green,
-                                                                      strokeWidth:
-                                                                          2,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                              );
-                                                            },
-                                                      )
-                                                    : Container(
-                                                        width: 60,
-                                                        height: 60,
-                                                        decoration: BoxDecoration(
-                                                          gradient: LinearGradient(
-                                                            colors: [
-                                                              Colors.green[50]!,
-                                                              Colors
-                                                                  .green[100]!,
-                                                            ],
-                                                            begin: Alignment
-                                                                .topLeft,
-                                                            end: Alignment
-                                                                .bottomRight,
-                                                          ),
-                                                        ),
-                                                        child: const Icon(
-                                                          Icons.restaurant_menu,
-                                                          color: Colors.green,
-                                                        ),
-                                                      ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              // Recipe title
-                                              Expanded(
-                                                child: Text(
-                                                  recipe['title'] ?? '',
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w500,
-                                                    fontSize: 16,
-                                                  ),
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              const Icon(
-                                                Icons.arrow_forward_ios,
-                                                size: 16,
-                                                color: Colors.grey,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ],
           ),
@@ -1516,13 +1031,12 @@ class _MyHomePageState extends State<MyHomePage> {
               // Navigate to different pages based on selected tab
               switch (index) {
                 case 0:
-                  // Reset to home page - clear search and show main content
+                  // Reset to home page - reload default recipes
                   setState(() {
-                    _searchQuery = '';
-                    _searchController.clear();
                     _isLoading = false;
                     _error = null;
                   });
+                  _fetchRecipes('chicken'); // Reload default recipes
                   break;
                 case 1:
                   Navigator.push(
@@ -1540,7 +1054,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 case 3:
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ShoppingListGeneratorPage()),
+                    MaterialPageRoute(builder: (context) => const CommunityRecipesPage()),
                   );
                   break;
                 case 4:
@@ -1575,8 +1089,8 @@ class _MyHomePageState extends State<MyHomePage> {
                 label: 'My Recipes',
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.shopping_cart, size: 24),
-                label: 'Shopping',
+                icon: Icon(Icons.people, size: 24),
+                label: 'Community',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.account_circle, size: 24),
@@ -1839,8 +1353,13 @@ class _MyHomePageState extends State<MyHomePage> {
               MaterialPageRoute(builder: (context) => const MealSuggestionsPage()),
             );
           } else if (number == 2) {
-            _showAppSettingsDialog();
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ShoppingListGeneratorPage()),
+            );
           } else if (number == 3) {
+            _showAppSettingsDialog();
+          } else if (number == 4) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const AboutSmartDietPage()),

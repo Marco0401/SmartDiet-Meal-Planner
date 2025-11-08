@@ -17,6 +17,7 @@ import 'manual_meal_entry_page.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
 import 'widgets/edit_meal_dialog.dart';
+import 'services/recipe_sharing_service.dart';
 
 class RecipeDetailPage extends StatefulWidget {
   final Map<String, dynamic> recipe;
@@ -135,6 +136,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       if (recipeId.toString().startsWith('local_') || 
           recipeId.toString().startsWith('admin_filipino_') ||
           recipeId.toString().startsWith('firestore_filipino_') ||
+          source == 'favorite' ||
+          source == 'community' ||
           source == 'manual_entry' ||
           source == 'manual entry' ||
           source == 'meal_planner' ||
@@ -149,7 +152,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'admin' ||
           substituted == true ||
           isFromMealPlanner) { // Also use data directly for planned meals
-        // This is a local recipe, manually entered meal, substituted recipe, expert plan meal, meal from planner, or scanned product - use the data directly
+        // This is a local recipe, community recipe, manually entered meal, substituted recipe, expert plan meal, meal from planner, or scanned product - use the data directly
         print('DEBUG: Local/manual/substituted/expert_plan/meal_planner/scanned recipe, using data directly');
         print('DEBUG: Using meal data directly - summary: ${widget.recipe['summary']}, description: ${widget.recipe['description']}');
         
@@ -373,6 +376,108 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       setState(() {
         _isFavorited = true;
       });
+    }
+  }
+
+  Future<void> _shareToCommunity() async {
+    try {
+      // Show dialog to get share message
+      final TextEditingController messageController = TextEditingController();
+      
+      final shouldShare = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Share to Community'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Share "${widget.recipe['title']}" with the community?',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: messageController,
+                decoration: const InputDecoration(
+                  labelText: 'Add a message (optional)',
+                  hintText: 'Share your thoughts about this recipe...',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                maxLength: 200,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(Icons.share),
+              label: const Text('Share'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldShare == true) {
+        // Show loading
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(color: Colors.white),
+                  SizedBox(width: 16),
+                  Text('Sharing recipe...'),
+                ],
+              ),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
+        // Share the recipe
+        await RecipeSharingService.shareRecipe(
+          recipe: widget.recipe,
+          shareMessage: messageController.text.trim().isEmpty 
+              ? null 
+              : messageController.text.trim(),
+        );
+
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 16),
+                  Text('Recipe shared successfully!'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sharing recipe: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -878,6 +983,14 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         actions: [
+          // Share to Community button (only for user's own manual recipes, not community recipes)
+          if ((widget.recipe['source'] == 'manual_entry' || widget.recipe['source'] == 'favorite') && 
+              widget.recipe['source'] != 'community')
+            IconButton(
+              onPressed: _shareToCommunity,
+              icon: const Icon(Icons.share),
+              tooltip: 'Share to Community',
+            ),
           if (!_isCheckingFavorite && widget.recipe['id'] != null)
             IconButton(
               onPressed: _toggleFavorite,

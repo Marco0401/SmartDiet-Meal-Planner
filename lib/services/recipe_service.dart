@@ -13,7 +13,16 @@ class RecipeService {
   static Future<List<dynamic>> fetchRecipes(String query) async {
     List<dynamic> allRecipes = [];
     
-    print('DEBUG: fetchRecipes called with query: "$query"');
+    // If query is empty, use random popular terms for variety
+    String searchQuery = query;
+    if (searchQuery.isEmpty) {
+      final randomTerms = ['chicken', 'pasta', 'beef', 'fish', 'vegetable', 'rice', 'soup'];
+      randomTerms.shuffle();
+      searchQuery = randomTerms.first;
+      print('DEBUG: Empty query, using random term: "$searchQuery"');
+    }
+    
+    print('DEBUG: fetchRecipes called with query: "$query" -> using: "$searchQuery"');
     print('DEBUG: API key configured: $isApiKeyConfigured');
     print('DEBUG: API key: ${_apiKey.substring(0, 8)}...');
     
@@ -21,7 +30,7 @@ class RecipeService {
       // 1. Try Spoonacular first (only if API key is available)
       if (isApiKeyConfigured) {
         try {
-          final url = '$_baseUrl/complexSearch?query=$query&number=10&apiKey=$_apiKey';
+          final url = '$_baseUrl/complexSearch?query=$searchQuery&number=10&apiKey=$_apiKey';
           print('DEBUG: Spoonacular URL: $url');
           final response = await http.get(Uri.parse(url));
           print('DEBUG: Spoonacular response status: ${response.statusCode}');
@@ -61,44 +70,38 @@ class RecipeService {
           print('Spoonacular API error: $e');
         }
       } else {
-        print('Spoonacular API key not configured, using fallback APIs');
+        print('Spoonacular API key not configured, using other APIs');
       }
       
-      // 2. Try TheMealDB only if we don't have enough recipes yet (always available, no API key required)
-      if (allRecipes.length < 10) {
-        try {
-          final themealdbRecipes = await _fetchRecipesFallback(query);
-          allRecipes.addAll(themealdbRecipes);
-          print('DEBUG: TheMealDB: Successfully fetched ${themealdbRecipes.length} recipes');
-        } catch (e) {
-          print('TheMealDB error: $e');
-        }
+      // 2. ALWAYS try TheMealDB (always available, no API key required)
+      try {
+        final themealdbRecipes = await _fetchRecipesFallback(searchQuery);
+        allRecipes.addAll(themealdbRecipes);
+        print('DEBUG: TheMealDB: Successfully fetched ${themealdbRecipes.length} recipes');
+      } catch (e) {
+        print('TheMealDB error: $e');
       }
       
-      // 3. Try Filipino Recipe Service only if we still need more recipes
-      if (allRecipes.length < 10) {
-        try {
-          final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(query);
-          allRecipes.addAll(filipinoRecipes);
-          print('Filipino Recipe Service: Successfully fetched ${filipinoRecipes.length} recipes');
-        } catch (e) {
-          print('Filipino Recipe Service error: $e');
-        }
+      // 3. ALWAYS try Filipino Recipe Service
+      try {
+        final filipinoRecipes = await FilipinoRecipeService.fetchFilipinoRecipes(searchQuery);
+        allRecipes.addAll(filipinoRecipes);
+        print('Filipino Recipe Service: Successfully fetched ${filipinoRecipes.length} recipes');
+      } catch (e) {
+        print('Filipino Recipe Service error: $e');
       }
       
-      // 4. Try Admin Recipes only if we still need more
-      if (allRecipes.length < 15) {
-        try {
-          final adminRecipes = await _fetchAdminRecipes(query);
-          allRecipes.addAll(adminRecipes);
-          print('Admin Recipes: Successfully fetched ${adminRecipes.length} recipes');
-        } catch (e) {
-          print('Admin Recipes error: $e');
-        }
+      // 4. Try Admin Recipes
+      try {
+        final adminRecipes = await _fetchAdminRecipes(searchQuery);
+        allRecipes.addAll(adminRecipes);
+        print('Admin Recipes: Successfully fetched ${adminRecipes.length} recipes');
+      } catch (e) {
+        print('Admin Recipes error: $e');
       }
       
-      // Limit total results to 20 for better performance
-      final limitedRecipes = allRecipes.take(20).toList();
+      // Limit total results to 50 for better variety from all sources
+      final limitedRecipes = allRecipes.take(50).toList();
       print('Total recipes fetched: ${allRecipes.length} (limited to ${limitedRecipes.length})');
       return limitedRecipes;
     } catch (e) {
@@ -162,6 +165,9 @@ class RecipeService {
           'image': mealMap['strMealThumb'],
           'sourceUrl': mealMap['strSource'],
           'ingredients': ingredients, // Add ingredients for filtering
+          'nutrition': _generateEstimatedNutrition(mealMap), // Add nutrition data
+          'cuisine': mealMap['strArea'] ?? 'International',
+          'category': mealMap['strCategory'] ?? 'Main Course',
         };
       }).toList();
     } else {

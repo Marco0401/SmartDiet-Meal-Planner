@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -37,6 +41,11 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
   // Notifications
   List<String> _notifications = [];
+
+  // Profile Picture
+  String? _profilePhotoUrl;
+  File? _profileImage;
+  bool _uploadingImage = false;
 
   bool _loading = true;
   bool _saving = false;
@@ -135,6 +144,9 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
         if (doc.exists) {
           final data = doc.data()!;
           setState(() {
+            // Profile Photo
+            _profilePhotoUrl = data['profilePhoto'] ?? data['photoUrl'];
+            
             // Basic Information
       _fullNameController.text = data['fullName'] ?? '';
             _email = data['email'] ?? user.email;
@@ -149,24 +161,23 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             // Health Information
       _healthConditions = List<String>.from(data['healthConditions'] ?? []);
       _allergies = List<String>.from(data['allergies'] ?? []);
-      _otherConditionController.text = data['otherCondition'] ?? '';
+            _otherConditionController.text = data['otherCondition'] ?? '';
             _medicationController.text = data['medication'] ?? '';
 
             // Dietary Preferences
-      _dietaryPreferences = List<String>.from(data['dietaryPreferences'] ?? []);
-      _otherDietController.text = data['otherDiet'] ?? '';
+            _dietaryPreferences = List<String>.from(data['dietaryPreferences'] ?? []);
+            _otherDietController.text = data['otherDiet'] ?? '';
 
             // Body Goals
             _goal = data['goal'];
             _activityLevel = data['activityLevel'];
 
             // Notifications
-      _notifications = List<String>.from(data['notifications'] ?? []);
+            _notifications = List<String>.from(data['notifications'] ?? []);
 
             _loading = false;
           });
         } else {
-          // Document doesn't exist, use Firebase Auth email
           setState(() {
             _email = user.email;
             _emailController.text = user.email ?? '';
@@ -205,8 +216,8 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             'goal': _goal,
             'activityLevel': _activityLevel,
             'notifications': _notifications,
-          'notificationPreferences': _notifications, // Also save to the field used by NotificationService
-          'email': user.email, // Preserve the email from Firebase Auth
+          'notificationPreferences': _notifications,
+          'email': user.email,
           'lastUpdated': FieldValue.serverTimestamp(),
         };
 
@@ -271,663 +282,531 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-    return Scaffold(
-        body: Stack(
-          children: [
-            // Background gradient
-            Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-                  colors: [
-                    Color(0xFF2E7D32),
-                    Color(0xFF388E3C),
-                    Color(0xFF4CAF50),
-                    Color(0xFF66BB6A),
-                  ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-                  stops: [0.0, 0.3, 0.7, 1.0],
-                ),
-              ),
-            ),
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
-          ],
-        ),
+  Future<void> _pickProfileImage() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 75,
       );
+
+      if (image != null) {
+        setState(() {
+          _profileImage = File(image.path);
+        });
+        await _uploadProfileImage();
+      }
+    } catch (e) {
+      print('Error picking image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting image: $e')),
+        );
+      }
     }
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80),
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-            colors: [
-                Color(0xFF2E7D32),
-                Color(0xFF388E3C),
-              Color(0xFF4CAF50),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(25),
-              bottomRight: Radius.circular(25),
-            ),
-          ),
-          child: AppBar(
-                      backgroundColor: Colors.transparent,
-                      elevation: 0,
-                        title: const Text(
-                          'Account Settings',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                fontSize: 22,
-                color: Colors.white,
-                            shadows: [
-                              Shadow(
-                    offset: Offset(0, 2),
-                    blurRadius: 4,
-                                color: Colors.black26,
-                              ),
-                            ],
-                          ),
-                        ),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-                            ),
-                          ),
-                        ),
-                      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFF8FFF4), Color(0xFFE8F5E9)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-                          child: Column(
-                            children: [
-                // Basic Information Section
-                _buildSectionCard(
-                  title: '👤 Basic Information',
-                  icon: Icons.person,
-                  children: [
-                    TextField(
-                      controller: _fullNameController,
-                      decoration: InputDecoration(
-                        labelText: 'Full Name',
-                        prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF4CAF50)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _emailController,
-                      enabled: false,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[100],
-                        helperText: 'Email cannot be changed',
-                        helperStyle: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: _pickBirthday,
-                      child: AbsorbPointer(
-                        child: TextField(
-                          decoration: InputDecoration(
-                            labelText: 'Birthday',
-                            hintText: 'Select your birthday',
-                            prefixIcon: const Icon(Icons.calendar_today, color: Color(0xFF4CAF50)),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey[50],
-                          ),
-                          controller: TextEditingController(
-                            text: _birthday != null
-                                ? DateFormat('yyyy-MM-dd').format(_birthday!)
-                                : '',
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (age != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Text('Age: $age', style: const TextStyle(fontSize: 16)),
-                      ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _gender,
-                      items: const [
-                        DropdownMenuItem(value: 'Male', child: Text('Male')),
-                        DropdownMenuItem(value: 'Female', child: Text('Female')),
-                        DropdownMenuItem(value: 'Other', child: Text('Other')),
-                      ],
-                      onChanged: (v) => setState(() => _gender = v),
-                      decoration: InputDecoration(
-                        labelText: 'Sex/Gender',
-                        prefixIcon: const Icon(Icons.wc, color: Color(0xFF4CAF50)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                                  ),
-                                  const SizedBox(height: 16),
-                    TextField(
-                                          controller: _heightController,
-                      decoration: InputDecoration(
-                        labelText: 'Height (cm)',
-                        prefixIcon: const Icon(Icons.height, color: Color(0xFF4CAF50)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                                          keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _weightController,
-                      decoration: InputDecoration(
-                        labelText: 'Weight (kg)',
-                        prefixIcon: const Icon(Icons.monitor_weight, color: Color(0xFF4CAF50)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                      keyboardType: TextInputType.number,
-                                  ),
-                                ],
-                              ),
-                              
-                              // Health Information Section
-                              _buildSectionCard(
-                  title: '💪 Health Information',
-                  icon: Icons.health_and_safety,
-                                children: [
-                    const Text('Do you have any of the following conditions?'),
-                    const SizedBox(height: 8),
-                    ...conditionsList.map((c) => CheckboxListTile(
-                          value: _healthConditions.contains(c),
-                          title: Text(c),
-                          onChanged: (v) {
-                            setState(() {
-                              if (c == 'None') {
-                                if (v == true) {
-                                  _healthConditions.clear();
-                                  _healthConditions.add('None');
-                                } else {
-                                  _healthConditions.remove('None');
-                                }
-                              } else {
-                                if (v == true) {
-                                  _healthConditions.remove('None');
-                                  _healthConditions.add(c);
-                                } else {
-                                  _healthConditions.remove(c);
-                                }
-                              }
-                            });
-                          },
-                        )),
-                    CheckboxListTile(
-                      value: _otherConditionController.text.isNotEmpty,
-                      title: const Text('Other'),
-                      onChanged: (v) {},
-                      secondary: SizedBox(
-                        width: 180,
-                        child: TextField(
-                          controller: _otherConditionController,
-                          decoration: InputDecoration(
-                            hintText: 'Specify',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey[50],
-                          ),
-                          onChanged: (val) => setState(() {}),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('Known Food Allergies?'),
-                    const SizedBox(height: 8),
-                    ...allergiesList.map((a) => CheckboxListTile(
-                          value: _allergies.contains(a),
-                          title: Text(a),
-                          onChanged: (v) {
-                            setState(() {
-                              if (a == 'None') {
-                                if (v == true) {
-                                  _allergies.clear();
-                                  _allergies.add('None');
-                                } else {
-                                  _allergies.remove('None');
-                                }
-                              } else {
-                                if (v == true) {
-                                  _allergies.remove('None');
-                                  _allergies.add(a);
-                                } else {
-                                  _allergies.remove(a);
-                                }
-                              }
-                            });
-                          },
-                        )),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _customAllergyController,
-                            decoration: InputDecoration(
-                              hintText: 'Add your own',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: Colors.grey[300]!),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                              ),
-                              filled: true,
-                              fillColor: Colors.grey[50],
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add),
-                          onPressed: () {
-                            if (_customAllergyController.text.isNotEmpty) {
-                              setState(() {
-                                _allergies.add(_customAllergyController.text);
-                                _customAllergyController.clear();
-                              });
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('Are you taking any medication that affects your diet?'),
-                    const SizedBox(height: 8),
-                    TextField(
-                                    controller: _medicationController,
-                      decoration: InputDecoration(
-                        labelText: 'Medication (optional)',
-                        prefixIcon: const Icon(Icons.medication, color: Color(0xFF4CAF50)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                                  ),
-                                ],
-                              ),
-                              
-                              // Dietary Preferences Section
-                              _buildSectionCard(
-                  title: '🥗 Dietary Preferences',
-                                    icon: Icons.restaurant,
-                  children: [
-                    const Text('Are you following a specific diet?'),
-                    const SizedBox(height: 8),
-                    ...dietList.map((d) => CheckboxListTile(
-                          value: _dietaryPreferences.contains(d),
-                          title: Text(d),
-                          onChanged: (v) {
-                            setState(() {
-                              if (d == 'None') {
-                                if (v == true) {
-                                  _dietaryPreferences.clear();
-                                  _dietaryPreferences.add('None');
-                                } else {
-                                  _dietaryPreferences.remove('None');
-                                }
-                              } else {
-                                if (v == true) {
-                                  _dietaryPreferences.remove('None');
-                                  _dietaryPreferences.add(d);
-                                } else {
-                                  _dietaryPreferences.remove(d);
-                                }
-                              }
-                            });
-                          },
-                        )),
-                    CheckboxListTile(
-                      value: _otherDietController.text.isNotEmpty,
-                      title: const Text('Other'),
-                      onChanged: (v) {},
-                      secondary: SizedBox(
-                        width: 180,
-                        child: TextField(
-                          controller: _otherDietController,
-                          decoration: InputDecoration(
-                            hintText: 'Specify',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey[50],
-                          ),
-                        ),
-                      ),
-                                  ),
-                                ],
-                              ),
-                              
-                              // Body Goals Section
-                              _buildSectionCard(
-                  title: '🎯 Body Goals',
-                  icon: Icons.fitness_center,
-                                children: [
-                    const Text('What is your goal?'),
-                    const SizedBox(height: 8),
-                    ...goals.map((g) => RadioListTile<String>(
-                          value: g,
-                          groupValue: _goal,
-                          title: Text(g),
-                                    onChanged: (v) => setState(() => _goal = v),
-                        )),
-                    const SizedBox(height: 16),
-                    const Text('Activity Level'),
-                    const SizedBox(height: 8),
-                    ...activityLevels.map((a) => RadioListTile<String>(
-                          value: a,
-                          groupValue: _activityLevel,
-                          title: Text(a),
-                                    onChanged: (v) => setState(() => _activityLevel = v),
-                        )),
-                                ],
-                              ),
-                              
-                              // Notifications Section
-                              _buildSectionCard(
-                  title: '🔔 Push Notifications',
-                                    icon: Icons.notifications,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue[50],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue[200]!),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue[600], size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'These settings control push notifications. In-app notifications are always shown.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.blue[700],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ...notificationTypes.map((n) => CheckboxListTile(
-                          value: _notifications.contains(n),
-                          title: Text(n),
-                          onChanged: (v) {
-                            setState(() {
-                              if (n == 'None') {
-                                if (v == true) {
-                                  _notifications.clear();
-                                  _notifications.add('None');
-                                } else {
-                                  _notifications.remove('None');
-                                }
-                              } else {
-                                if (v == true) {
-                                  _notifications.remove('None');
-                                  _notifications.add(n);
-                                } else {
-                                  _notifications.remove(n);
-                                }
-                              }
-                            });
-                          },
-                        )),
-                  ],
-                ),
-
-                const SizedBox(height: 32),
-                              
-                              // Save Button
-                              Container(
-                                width: double.infinity,
-                  height: 60,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                      colors: [
-                        Color(0xFF4CAF50),
-                        Color(0xFF66BB6A),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.green.withOpacity(0.3),
-                        blurRadius: 15,
-                        offset: const Offset(0, 5),
-                        spreadRadius: 2,
-                                    ),
-                                  ],
-                                ),
-                  child: ElevatedButton(
-                                  onPressed: _saving ? null : _saveProfile,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.transparent,
-                                    shadowColor: Colors.transparent,
-                                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: _saving
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.save, color: Colors.white, size: 24),
-                              SizedBox(width: 12),
-                              Text(
-                                'Save Changes',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  shadows: [
-                                    Shadow(
-                                      offset: Offset(0, 1),
-                                      blurRadius: 2,
-                                      color: Colors.black26,
-                                    ),
-                            ],
-                          ),
-                        ),
-                            ],
-                      ),
-                    ),
-                ),
-
-                const SizedBox(height: 32),
-                  ],
-            ),
-                ),
-              ),
-        ),
-      );
   }
-  
-  Widget _buildSectionCard({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
+
+  Future<void> _uploadProfileImage() async {
+    if (_profileImage == null) return;
+
+    setState(() {
+      _uploadingImage = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+
+      // Convert image to base64
+      final bytes = await _profileImage!.readAsBytes();
+      final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+
+      // Update Firestore with base64 string
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update({'profilePhoto': base64String});
+
+      setState(() {
+        _profilePhotoUrl = base64String;
+        _uploadingImage = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile picture updated!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _uploadingImage = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error uploading image: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildProfileHeader() {
+    final user = FirebaseAuth.instance.currentUser;
+    final displayName = _fullNameController.text.isEmpty 
+        ? (user?.displayName ?? 'User') 
+        : _fullNameController.text;
+        
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.white,
-            Colors.green[50]!,
-          ],
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2E7D32), Color(0xFF4CAF50)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.1),
+            color: Colors.green.withOpacity(0.3),
             blurRadius: 15,
-            offset: const Offset(0, 5),
-            spreadRadius: 2,
-          ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(
-          color: Colors.green.withOpacity(0.1),
-          width: 1,
-        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-              padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFF4CAF50),
-                    Color(0xFF66BB6A),
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              // Profile Picture
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 4),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
                   ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-                    color: Colors.green.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-      children: [
-                  Icon(icon, color: Colors.white, size: 24),
-                  const SizedBox(width: 12),
-            Text(
-                    title,
-              style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                child: CircleAvatar(
+                  radius: 60,
+                  backgroundColor: Colors.white,
+                  backgroundImage: _profileImage != null
+                      ? FileImage(_profileImage!)
+                      : (_profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty
+                          ? (_profilePhotoUrl!.startsWith('data:image')
+                              ? MemoryImage(base64Decode(_profilePhotoUrl!.split(',')[1]))
+                              : NetworkImage(_profilePhotoUrl!)) as ImageProvider
+                          : null),
+                  child: (_profileImage == null && 
+                          (_profilePhotoUrl == null || _profilePhotoUrl!.isEmpty))
+                      ? Text(
+                          displayName[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 48,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF4CAF50),
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+              // Upload Button
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: _uploadingImage ? null : _pickProfileImage,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
                       color: Colors.white,
-                      shadows: [
-                        Shadow(
-                          offset: Offset(0, 1),
-                          blurRadius: 2,
-                          color: Colors.black26,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
                         ),
                       ],
+                    ),
+                    child: _uploadingImage
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFF4CAF50),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.camera_alt,
+                            color: Color(0xFF4CAF50),
+                            size: 20,
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Name
+          Text(
+            displayName,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Email
+          Text(
+            _email ?? user?.email ?? '',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.white.withOpacity(0.9),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+    return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: Colors.green)),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5),
+      appBar: AppBar(
+        title: const Text('Account Settings'),
+        backgroundColor: const Color(0xFF4CAF50),
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Profile Header
+            _buildProfileHeader(),
+            const SizedBox(height: 20),
+
+            // Basic Information (Collapsible)
+            _buildExpansionTile(
+              title: 'Basic Information',
+              icon: Icons.person,
+              children: [
+                _buildTextField(
+                  controller: _fullNameController,
+                  label: 'Full Name',
+                  icon: Icons.person_outline,
+                ),
+                const SizedBox(height: 12),
+                _buildTextField(
+                  controller: _emailController,
+                  label: 'Email',
+                  icon: Icons.email,
+                  enabled: false,
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: _pickBirthday,
+                  child: AbsorbPointer(
+                    child: _buildTextField(
+                      controller: TextEditingController(
+                        text: _birthday != null
+                            ? DateFormat('yyyy-MM-dd').format(_birthday!)
+                            : '',
+                      ),
+                      label: 'Birthday',
+                      icon: Icons.calendar_today,
+                    ),
+                  ),
+                ),
+                if (age != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, left: 12),
+                    child: Text('Age: $age years old'),
+                  ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _gender,
+                  items: const [
+                    DropdownMenuItem(value: 'Male', child: Text('Male')),
+                    DropdownMenuItem(value: 'Female', child: Text('Female')),
+                    DropdownMenuItem(value: 'Other', child: Text('Other')),
+                  ],
+                  onChanged: (v) => setState(() => _gender = v),
+                  decoration: const InputDecoration(
+                    labelText: 'Gender',
+                    prefixIcon: Icon(Icons.wc, color: Color(0xFF4CAF50)),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        controller: _heightController,
+                        label: 'Height (cm)',
+                        icon: Icons.height,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildTextField(
+                        controller: _weightController,
+                        label: 'Weight (kg)',
+                        icon: Icons.monitor_weight,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Health Information (Collapsible)
+            _buildExpansionTile(
+              title: 'Health Information',
+              icon: Icons.health_and_safety,
+              children: [
+                const Text('Health Conditions:', style: TextStyle(fontWeight: FontWeight.bold)),
+                ...conditionsList.map((c) => CheckboxListTile(
+                      dense: true,
+                      value: _healthConditions.contains(c),
+                      title: Text(c, style: const TextStyle(fontSize: 14)),
+                      onChanged: (v) {
+                        setState(() {
+                          if (c == 'None') {
+                            if (v == true) {
+                              _healthConditions.clear();
+                              _healthConditions.add('None');
+                            }
+                          } else {
+                            _healthConditions.remove('None');
+                            if (v == true) {
+                              _healthConditions.add(c);
+                            } else {
+                              _healthConditions.remove(c);
+                            }
+                          }
+                        });
+                      },
+                    )),
+                const SizedBox(height: 8),
+                const Text('Allergies:', style: TextStyle(fontWeight: FontWeight.bold)),
+                ...allergiesList.map((a) => CheckboxListTile(
+                      dense: true,
+                      value: _allergies.contains(a),
+                      title: Text(a, style: const TextStyle(fontSize: 14)),
+                      onChanged: (v) {
+                        setState(() {
+                          if (a == 'None') {
+                            if (v == true) {
+                              _allergies.clear();
+                              _allergies.add('None');
+                            }
+                          } else {
+                            _allergies.remove('None');
+                            if (v == true) {
+                              _allergies.add(a);
+                            } else {
+                              _allergies.remove(a);
+                            }
+                          }
+                        });
+                      },
+                    )),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Dietary Preferences (Collapsible)
+            _buildExpansionTile(
+              title: 'Dietary Preferences',
+              icon: Icons.restaurant_menu,
+              children: [
+                ...dietList.map((d) => CheckboxListTile(
+                      dense: true,
+                      value: _dietaryPreferences.contains(d),
+                      title: Text(d, style: const TextStyle(fontSize: 14)),
+                      onChanged: (v) {
+                        setState(() {
+                          if (d == 'None') {
+                            if (v == true) {
+                              _dietaryPreferences.clear();
+                              _dietaryPreferences.add('None');
+                            }
+                          } else {
+                            _dietaryPreferences.remove('None');
+                            if (v == true) {
+                              _dietaryPreferences.add(d);
+                            } else {
+                              _dietaryPreferences.remove(d);
+                            }
+                          }
+                        });
+                      },
+                    )),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Goals & Activity (Collapsible)
+            _buildExpansionTile(
+              title: 'Goals & Activity',
+              icon: Icons.flag,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: _goal,
+                  items: goals.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                  onChanged: (v) => setState(() => _goal = v),
+                  decoration: const InputDecoration(
+                    labelText: 'Goal',
+                    prefixIcon: Icon(Icons.flag, color: Color(0xFF4CAF50)),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _activityLevel,
+                  items: activityLevels.map((a) => DropdownMenuItem(value: a, child: Text(a, style: const TextStyle(fontSize: 13)))).toList(),
+                  onChanged: (v) => setState(() => _activityLevel = v),
+                  decoration: const InputDecoration(
+                    labelText: 'Activity Level',
+                    prefixIcon: Icon(Icons.directions_run, color: Color(0xFF4CAF50)),
+                    border: OutlineInputBorder(),
                   ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 12),
+
+            // Notifications (Collapsible)
+            _buildExpansionTile(
+              title: 'Notifications',
+              icon: Icons.notifications,
+              children: [
+                ...notificationTypes.map((n) => CheckboxListTile(
+                      dense: true,
+                      value: _notifications.contains(n),
+                      title: Text(n, style: const TextStyle(fontSize: 14)),
+                      onChanged: (v) {
+                        setState(() {
+                          if (n == 'None') {
+                            if (v == true) {
+                              _notifications.clear();
+                              _notifications.add('None');
+                            }
+                          } else {
+                            _notifications.remove('None');
+                            if (v == true) {
+                              _notifications.add(n);
+                            } else {
+                              _notifications.remove(n);
+                            }
+                          }
+                        });
+                      },
+                    )),
+              ],
+            ),
+
             const SizedBox(height: 24),
-            ...children,
+
+            // Save Button
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _saving ? null : _saveProfile,
+                icon: _saving 
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(_saving ? 'Saving...' : 'Save Changes'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4CAF50),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildExpansionTile({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          leading: Icon(icon, color: const Color(0xFF4CAF50)),
+          title: Text(
+            title,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool enabled = true,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: const Color(0xFF4CAF50)),
+        border: const OutlineInputBorder(),
+        filled: true,
+        fillColor: enabled ? Colors.white : Colors.grey[100],
       ),
     );
   }

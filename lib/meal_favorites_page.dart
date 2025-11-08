@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
+import 'package:intl/intl.dart';
 import 'recipe_detail_page.dart';
+import 'recipe_search_page.dart';
+import 'manual_meal_entry_page.dart';
 import 'services/recipe_service.dart';
 import 'services/allergen_service.dart';
 import 'services/allergen_detection_service.dart';
@@ -16,15 +19,25 @@ class MealFavoritesPage extends StatefulWidget {
   State<MealFavoritesPage> createState() => _MealFavoritesPageState();
 }
 
-class _MealFavoritesPageState extends State<MealFavoritesPage> {
+class _MealFavoritesPageState extends State<MealFavoritesPage> with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _favorites = [];
+  List<Map<String, dynamic>> _manualEntries = [];
+  List<Map<String, dynamic>> _favoriteRecipes = [];
   bool _isLoading = true;
   String? _error;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadFavorites();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadFavorites() async {
@@ -50,6 +63,18 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
           data['docId'] = doc.id;
           return data;
         }).toList();
+        
+        // Separate manual entries from other favorites
+        _manualEntries = _favorites.where((fav) {
+          final recipe = fav['recipe'] as Map<String, dynamic>? ?? {};
+          return recipe['source'] == 'manual_entry';
+        }).toList();
+        
+        _favoriteRecipes = _favorites.where((fav) {
+          final recipe = fav['recipe'] as Map<String, dynamic>? ?? {};
+          return recipe['source'] != 'manual_entry';
+        }).toList();
+        
         _isLoading = false;
       });
     } catch (e) {
@@ -102,6 +127,8 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
 
       setState(() {
         _favorites.removeWhere((favorite) => favorite['docId'] == docId);
+        _manualEntries.removeWhere((favorite) => favorite['docId'] == docId);
+        _favoriteRecipes.removeWhere((favorite) => favorite['docId'] == docId);
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,7 +191,7 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80),
+        preferredSize: const Size.fromHeight(130),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -186,7 +213,7 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
             elevation: 0,
             centerTitle: true,
             title: const Text(
-              'Favorite Meals',
+              'My Recipes',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 22,
@@ -199,6 +226,31 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                   ),
                 ],
               ),
+            ),
+            bottom: TabBar(
+              controller: _tabController,
+              indicatorColor: Colors.white,
+              indicatorWeight: 3,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              labelStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.normal,
+              ),
+              tabs: const [
+                Tab(
+                  icon: Icon(Icons.edit_note),
+                  text: 'Manual Entries',
+                ),
+                Tab(
+                  icon: Icon(Icons.favorite),
+                  text: 'Favorites',
+                ),
+              ],
             ),
           ),
         ),
@@ -214,7 +266,7 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Loading your favorite meals...',
+                    'Loading your recipes...',
                     style: TextStyle(
                       color: Colors.grey[600],
                       fontSize: 16,
@@ -275,75 +327,112 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> {
                     ],
                   ),
                 )
-              : _favorites.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Colors.green[50],
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                            Icons.favorite_border,
-                              size: 80,
-                              color: Colors.green[300],
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-                          Text(
-                            'No favorite meals yet',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Start adding meals to your favorites\nand they\'ll appear here!',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 16,
-                              height: 1.5,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 32),
-                          ElevatedButton.icon(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add Some Meals'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[600],
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(25),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadFavorites,
-                      color: Colors.green[600],
-                      child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _favorites.length,
-                      itemBuilder: (context, index) {
-                        final favorite = _favorites[index];
-                          return AnimatedContainer(
-                            duration: Duration(milliseconds: 300 + (index * 100)),
-                            curve: Curves.easeOutBack,
-                            child: _buildFavoriteCard(favorite, index),
-                          );
-                        },
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Manual Entries Tab
+                    _buildRecipeList(_manualEntries, 'Manual Entries', Icons.edit_note),
+                    // Favorites Tab
+                    _buildRecipeList(_favoriteRecipes, 'Favorites', Icons.favorite),
+                  ],
+                ),
+    );
+  }
+
+  Widget _buildRecipeList(List<Map<String, dynamic>> recipes, String emptyTitle, IconData emptyIcon) {
+    if (recipes.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                emptyIcon,
+                size: 80,
+                color: Colors.green[300],
+              ),
+            ),
+            const SizedBox(height: 32),
+            Text(
+              'No $emptyTitle yet',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[800],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              emptyTitle == 'Manual Entries' 
+                  ? 'Create manual meal entries\nand they\'ll appear here!'
+                  : 'Start adding meals to your favorites\nand they\'ll appear here!',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 16,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: () {
+                if (emptyTitle == 'Manual Entries') {
+                  // Navigate to Manual Meal Entry Page
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManualMealEntryPage(
+                        selectedDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                        saveToFavoritesOnly: true,
                       ),
                     ),
+                  ).then((_) => _loadFavorites());
+                } else {
+                  // Navigate to Recipe Search Page
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RecipeSearchPage(),
+                    ),
+                  ).then((_) => _loadFavorites());
+                }
+              },
+              icon: const Icon(Icons.add),
+              label: Text(emptyTitle == 'Manual Entries' ? 'Create Manual Entry' : 'Add Favorites'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[600],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadFavorites,
+      color: Colors.green[600],
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: recipes.length,
+        itemBuilder: (context, index) {
+          final favorite = recipes[index];
+          return AnimatedContainer(
+            duration: Duration(milliseconds: 300 + (index * 100)),
+            curve: Curves.easeOutBack,
+            child: _buildFavoriteCard(favorite, index),
+          );
+        },
+      ),
     );
   }
 
@@ -779,12 +868,17 @@ class FavoriteService {
       Map<String, dynamic> fullRecipe = Map<String, dynamic>.from(recipe);
       
       // Check if this is a basic search result (missing extendedIngredients/analyzedInstructions)
-      final needsFullDetails = fullRecipe['extendedIngredients'] == null || 
+      // Skip fetching for community recipes and manual entries - they're already complete
+      final isCommunityOrManual = fullRecipe['source'] == 'community' || 
+                                   fullRecipe['source'] == 'manual_entry';
+      
+      final needsFullDetails = !isCommunityOrManual &&
+                                (fullRecipe['extendedIngredients'] == null || 
                                 fullRecipe['analyzedInstructions'] == null ||
                                 (fullRecipe['extendedIngredients'] is List && 
-                                 (fullRecipe['extendedIngredients'] as List).isEmpty);
+                                 (fullRecipe['extendedIngredients'] as List).isEmpty));
       
-      // Fetch full recipe details if needed
+      // Fetch full recipe details if needed (not for community or manual recipes)
       if (needsFullDetails && fullRecipe['id'] != null) {
         print('DEBUG: Fetching full recipe details for: ${fullRecipe['title']}');
         try {

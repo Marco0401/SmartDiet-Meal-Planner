@@ -15,12 +15,14 @@ class ManualMealEntryPage extends StatefulWidget {
   final String? selectedDate;
   final String? mealType;
   final Map<String, dynamic>? prefilledData;
+  final bool saveToFavoritesOnly;
 
   const ManualMealEntryPage({
     super.key,
     this.selectedDate,
     this.mealType,
     this.prefilledData,
+    this.saveToFavoritesOnly = false,
   });
 
   @override
@@ -69,6 +71,36 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
     'Lunch',
     'Dinner',
     'Snack',
+  ];
+
+  // Goal and Diet Type options
+  String? _selectedGoal;
+  String? _selectedDietType;
+
+  final List<String> _goals = [
+    'Weight Loss',
+    'Weight Gain',
+    'Muscle Building',
+    'Diabetes Management',
+    'Heart Health',
+    'General Health',
+    'Athletic Performance',
+    'Pregnancy',
+    'Elderly Care',
+    'Child Nutrition'
+  ];
+
+  final List<String> _dietTypes = [
+    'General',
+    'Vegetarian',
+    'Vegan',
+    'Keto',
+    'Paleo',
+    'Mediterranean',
+    'Low-Carb',
+    'High-Protein',
+    'Gluten-Free',
+    'Dairy-Free'
   ];
 
   @override
@@ -1315,8 +1347,8 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
       
       if (_isEditMode) {
         // UPDATE EXISTING RECIPE
-        if (_editingMealId != null) {
-          // Update meal planner entry
+        if (_editingMealId != null && !_editingMealId!.startsWith('manual_')) {
+          // Only update meal planner if it's not a manual entry (manual entries are in favorites only)
           print('DEBUG: Updating meal planner entry: $_editingMealId');
           await FirebaseFirestore.instance
               .collection('users')
@@ -1331,6 +1363,8 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             'image': _selectedImage?.path,
             'updated_at': FieldValue.serverTimestamp(),
           });
+        } else if (_editingMealId != null && _editingMealId!.startsWith('manual_')) {
+          print('DEBUG: Skipping meal_plans update for manual entry: $_editingMealId');
         }
         
         if (_editingFavoriteId != null) {
@@ -1347,23 +1381,42 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             'recipe.instructions': instructionsText,
             'recipe.nutrition': nutritionData, // Direct nutrition, no scaling
             'recipe.image': _selectedImage?.path,
+            'recipe.goal': _selectedGoal,
+            'recipe.dietType': _selectedDietType,
             'updatedAt': FieldValue.serverTimestamp(),
           });
+          
+          // Also update in community_recipes if this recipe was shared
+          if (_editingMealId != null) {
+            try {
+              final communityRecipes = await FirebaseFirestore.instance
+                  .collection('community_recipes')
+                  .where('userId', isEqualTo: user.uid)
+                  .where('recipeData.id', isEqualTo: _editingMealId)
+                  .get();
+              
+              for (var doc in communityRecipes.docs) {
+                await doc.reference.update({
+                  'recipeData.title': _foodNameController.text.trim(),
+                  'recipeData.ingredients': ingredientsList,
+                  'recipeData.instructions': instructionsText,
+                  'recipeData.nutrition': nutritionData,
+                  'recipeData.image': _selectedImage?.path,
+                  'recipeData.goal': _selectedGoal,
+                  'recipeData.dietType': _selectedDietType,
+                });
+                print('DEBUG: Updated community recipe: ${doc.id}');
+              }
+            } catch (e) {
+              print('DEBUG: Error updating community recipe: $e');
+            }
+          }
         }
       } else {
         // CREATE NEW RECIPE
-        print('DEBUG: Creating new meal');
-        await NutritionService.saveMealWithNutrition(
-          title: _foodNameController.text.trim(),
-          date: dateString,
-          mealType: _selectedMealType.toLowerCase(),
-          ingredients: ingredientsList,
-          instructions: instructionsText,
-          customNutrition: nutritionData,
-          image: _selectedImage?.path,
-        );
-
-        // Also save to favorites
+        print('DEBUG: Creating new meal, saveToFavoritesOnly: ${widget.saveToFavoritesOnly}');
+        
+        // Prepare custom recipe for favorites
         final customRecipe = <String, dynamic>{
           'id': 'manual_${DateTime.now().millisecondsSinceEpoch}',
           'title': _foodNameController.text.trim(),
@@ -1377,25 +1430,55 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
           'readyInMinutes': int.tryParse(_cookingTimeController.text.trim()) ?? 30,
           'cookingTime': int.tryParse(_cookingTimeController.text.trim()) ?? 30,
           'mealType': _selectedMealType.toLowerCase(),
+          'goal': _selectedGoal,
+          'dietType': _selectedDietType,
         };
+        
+        if (!widget.saveToFavoritesOnly) {
+          // Save to meal planner
+          await NutritionService.saveMealWithNutrition(
+            title: _foodNameController.text.trim(),
+            date: dateString,
+            mealType: _selectedMealType.toLowerCase(),
+            ingredients: ingredientsList,
+            instructions: instructionsText,
+            customNutrition: nutritionData,
+            image: _selectedImage?.path,
+          );
+        }
 
+        // Always save to favorites
         await FavoriteService.addToFavorites(
           context,
           customRecipe,
-          notes: 'Custom recipe created on ${DateFormat('MMM dd, yyyy').format(_selectedDate)}',
+          notes: widget.saveToFavoritesOnly 
+              ? 'Manual entry recipe created on ${DateFormat('MMM dd, yyyy').format(DateTime.now())}'
+              : 'Custom recipe created on ${DateFormat('MMM dd, yyyy').format(_selectedDate)}',
         );
       }
 
       if (mounted) {
-        // Show motivational progress notification
-        await NutritionProgressNotifier.showProgressNotification(
-          context,
-          nutritionData,
-          mealDate: _selectedDate,
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.saveToFavoritesOnly 
+                ? 'Recipe saved to favorites!' 
+                : _isEditMode 
+                    ? 'Meal updated successfully!' 
+                    : 'Meal added successfully!'),
+            backgroundColor: Colors.green,
+          ),
         );
         
-        // Small delay to let user see the notification
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Show progress notification only when adding to meal planner
+        if (!widget.saveToFavoritesOnly && !_isEditMode) {
+          await NutritionProgressNotifier.showProgressNotification(
+            context,
+            nutritionData,
+            mealDate: _selectedDate,
+          );
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
         
         Navigator.pop(context, true);
       }
@@ -1490,9 +1573,11 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Add Manual Entry'),
+            Text(widget.saveToFavoritesOnly ? 'Create Recipe' : 'Add Manual Entry'),
             Text(
-              _smartEntryMode ? 'Smart Mode' : 'Manual Mode',
+              widget.saveToFavoritesOnly 
+                  ? 'Save to Favorites'
+                  : (_smartEntryMode ? 'Smart Mode' : 'Manual Mode'),
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
             ),
           ],
@@ -1913,6 +1998,85 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
                     if (value != null) {
                       setState(() => _selectedMealType = value);
                     }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Goal and Diet Type
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _selectedGoal,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Goal',
+                    labelStyle: const TextStyle(fontSize: 12),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.flag, size: 18),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                    suffixIcon: _selectedGoal != null
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () {
+                              setState(() => _selectedGoal = null);
+                            },
+                          )
+                        : null,
+                  ),
+                  items: _goals.map((goal) {
+                    return DropdownMenuItem(
+                      value: goal,
+                      child: Text(
+                        goal,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() => _selectedGoal = value);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _selectedDietType,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Diet',
+                    labelStyle: const TextStyle(fontSize: 12),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.restaurant_menu, size: 18),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                    suffixIcon: _selectedDietType != null
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () {
+                              setState(() => _selectedDietType = null);
+                            },
+                          )
+                        : null,
+                  ),
+                  items: _dietTypes.map((diet) {
+                    return DropdownMenuItem(
+                      value: diet,
+                      child: Text(
+                        diet,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() => _selectedDietType = value);
                   },
                 ),
               ),
