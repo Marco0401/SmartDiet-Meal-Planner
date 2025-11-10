@@ -7,6 +7,7 @@ import 'recipe_detail_page.dart';
 import 'chat_page.dart';
 import 'services/message_service.dart';
 import 'services/fcm_service.dart';
+import 'services/notification_service.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String userId;
@@ -162,7 +163,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
           'followedAt': FieldValue.serverTimestamp(),
         });
 
-        // Send push notification to followed user
+        // Send notifications to followed user
         final currentUserDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(currentUserId)
@@ -171,6 +172,18 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
                             currentUserDoc.data()?['name'] ?? 
                             'Someone';
         
+        // Send in-app notification
+        await NotificationService.createNotification(
+          userId: widget.userId,
+          title: '👥 New Follower!',
+          message: '$followerName started following you',
+          type: 'follow',
+          actionData: currentUserId,
+          icon: Icons.person_add,
+          color: Colors.blue,
+        );
+        
+        // Send push notification
         await FCMService.sendNewFollowerNotification(
           followedUserId: widget.userId,
           followerName: followerName,

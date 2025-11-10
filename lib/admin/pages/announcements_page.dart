@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import '../../services/fcm_service.dart';
 
 class AnnouncementsPage extends StatefulWidget {
   const AnnouncementsPage({super.key});
@@ -450,6 +451,13 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
           'icon': _getTypeIcon(type),
           'color': _getTypeColor(type).value,
         });
+        
+        // Send push notification via FCM
+        await FCMService.sendAdminAnnouncementNotification(
+          userId: userDoc.id,
+          title: title,
+          message: message,
+        );
         
         notificationCount++;
       }

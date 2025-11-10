@@ -8,6 +8,7 @@ class NotificationService {
   
   /// Create a new notification
   static Future<void> createNotification({
+    String? userId, // Optional: if null, uses current user
     required String title,
     required String message,
     required String type,
@@ -15,13 +16,14 @@ class NotificationService {
     IconData? icon,
     Color? color,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
     try {
+      // Use provided userId or current user
+      final targetUserId = userId ?? FirebaseAuth.instance.currentUser?.uid;
+      if (targetUserId == null) return;
+
       await FirebaseFirestore.instance
           .collection('users')
-          .doc(user.uid)
+          .doc(targetUserId)
           .collection(_collectionName)
           .add({
         'title': title,
