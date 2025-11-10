@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'services/allergen_ml_service.dart';
 import 'services/allergen_service.dart';
 import 'services/allergen_detection_service.dart';
@@ -2019,29 +2020,31 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   }
 
   Widget _buildRecipeImage(String imagePath) {
-    if (imagePath.startsWith('assets/')) {
+    // Check if it's a base64 image
+    if (imagePath.startsWith('data:image')) {
+      try {
+        final base64Data = imagePath.split(',')[1];
+        final bytes = base64Decode(base64Data);
+        return Image.memory(
+          bytes,
+          height: 250,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildImagePlaceholder();
+          },
+        );
+      } catch (e) {
+        print('ERROR decoding base64 image: $e');
+        return _buildImagePlaceholder();
+      }
+    } else if (imagePath.startsWith('assets/')) {
       // Local asset image
       return Image.asset(
         imagePath,
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
-          return Container(
-            height: 250,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.green[50]!, Colors.green[100]!],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.restaurant_menu,
-                size: 48,
-                color: Colors.green,
-              ),
-            ),
-          );
+          return _buildImagePlaceholder();
         },
       );
     } else if (imagePath.startsWith('/') || imagePath.startsWith('file://') || imagePath.contains('/storage/') || imagePath.contains('/data/')) {
@@ -2050,23 +2053,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         File(imagePath),
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
-          return Container(
-            height: 250,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.green[50]!, Colors.green[100]!],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.restaurant_menu,
-                size: 48,
-                color: Colors.green,
-              ),
-            ),
-          );
+          return _buildImagePlaceholder();
         },
       );
     } else {
@@ -2079,23 +2066,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         cacheWidth: 500, // Limit cache size to reduce memory usage
         cacheHeight: 500,
         errorBuilder: (context, error, stackTrace) {
-          return Container(
-            height: 250,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.green[50]!, Colors.green[100]!],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.restaurant_menu,
-                size: 48,
-                color: Colors.green,
-              ),
-            ),
-          );
+          return _buildImagePlaceholder();
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
@@ -2108,6 +2079,26 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         },
       );
     }
+  }
+
+  Widget _buildImagePlaceholder() {
+    return Container(
+      height: 250,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.green[50]!, Colors.green[100]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.restaurant_menu,
+          size: 48,
+          color: Colors.green,
+        ),
+      ),
+    );
   }
 
   String _formatAmount(dynamic amount) {

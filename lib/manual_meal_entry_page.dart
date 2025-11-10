@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'services/nutrition_service.dart';
 import 'services/nutrition_progress_notifier.dart';
 import 'services/allergen_detection_service.dart';
@@ -1282,6 +1283,18 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
       return;
     }
 
+    // Convert image to base64 if exists
+    String? imageBase64;
+    if (_selectedImage != null) {
+      try {
+        final bytes = await _selectedImage!.readAsBytes();
+        imageBase64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        print('DEBUG: Converted image to base64 (${bytes.length} bytes)');
+      } catch (e) {
+        print('ERROR converting image to base64: $e');
+      }
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -1360,7 +1373,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             'ingredients': ingredientsList,
             'instructions': instructionsText,
             'nutrition': nutritionData, // Direct nutrition, no scaling
-            'image': _selectedImage?.path,
+            'image': imageBase64,
             'updated_at': FieldValue.serverTimestamp(),
           });
         } else if (_editingMealId != null && _editingMealId!.startsWith('manual_')) {
@@ -1380,7 +1393,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             'recipe.ingredients': ingredientsList,
             'recipe.instructions': instructionsText,
             'recipe.nutrition': nutritionData, // Direct nutrition, no scaling
-            'recipe.image': _selectedImage?.path,
+            'recipe.image': imageBase64,
             'recipe.goal': _selectedGoal,
             'recipe.dietType': _selectedDietType,
             'updatedAt': FieldValue.serverTimestamp(),
@@ -1401,7 +1414,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
                   'recipeData.ingredients': ingredientsList,
                   'recipeData.instructions': instructionsText,
                   'recipeData.nutrition': nutritionData,
-                  'recipeData.image': _selectedImage?.path,
+                  'recipeData.image': imageBase64,
                   'recipeData.goal': _selectedGoal,
                   'recipeData.dietType': _selectedDietType,
                 });
@@ -1420,7 +1433,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         final customRecipe = <String, dynamic>{
           'id': 'manual_${DateTime.now().millisecondsSinceEpoch}',
           'title': _foodNameController.text.trim(),
-          'image': _selectedImage?.path,
+          'image': imageBase64,
           'source': 'manual_entry',
           'cuisine': 'Custom',
           'ingredients': List<String>.from(ingredientsList),
@@ -1443,7 +1456,7 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             ingredients: ingredientsList,
             instructions: instructionsText,
             customNutrition: nutritionData,
-            image: _selectedImage?.path,
+            image: imageBase64,
           );
         }
 

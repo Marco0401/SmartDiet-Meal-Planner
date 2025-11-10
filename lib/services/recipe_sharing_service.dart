@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io';
+import 'dart:convert';
 
 class RecipeSharingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -22,8 +24,35 @@ class RecipeSharingService {
       final userName = userData['fullName'] ?? userData['name'] ?? userData['displayName'] ?? user.displayName ?? 'Anonymous User';
       final userPhoto = userData['profilePhoto'] ?? userData['photoUrl'] ?? user.photoURL;
 
+      // Convert local file path images to base64 before sharing
+      final recipeToShare = Map<String, dynamic>.from(recipe);
+      if (recipeToShare['image'] != null) {
+        final imagePath = recipeToShare['image'].toString();
+        // Check if it's a local file path (not already base64 or network URL)
+        if ((imagePath.startsWith('/') || imagePath.startsWith('file://')) && 
+            !imagePath.startsWith('data:image') &&
+            !imagePath.startsWith('http')) {
+          try {
+            final cleanPath = imagePath.replaceFirst('file://', '');
+            final imageFile = File(cleanPath);
+            if (await imageFile.exists()) {
+              final bytes = await imageFile.readAsBytes();
+              final base64String = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+              recipeToShare['image'] = base64String;
+              print('DEBUG: Converted local image to base64 for sharing (${bytes.length} bytes)');
+            } else {
+              print('WARNING: Image file does not exist: $cleanPath');
+              recipeToShare['image'] = null; // Remove invalid path
+            }
+          } catch (e) {
+            print('ERROR converting image to base64 for sharing: $e');
+            recipeToShare['image'] = null; // Remove invalid image
+          }
+        }
+      }
+
       final sharedRecipe = {
-        'recipeData': recipe,
+        'recipeData': recipeToShare,
         'userId': user.uid,
         'userName': userName,
         'userEmail': user.email,

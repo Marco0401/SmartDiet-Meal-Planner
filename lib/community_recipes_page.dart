@@ -2,8 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/recipe_sharing_service.dart';
+import 'services/allergen_detection_service.dart';
+import 'services/allergen_service.dart';
+import 'services/message_service.dart';
 import 'recipe_detail_page.dart';
+import 'user_profile_page.dart';
+import 'messages_page.dart';
+import 'chat_page.dart';
+import 'user_search_page.dart';
+import 'widgets/allergen_warning_dialog.dart';
 
 class CommunityRecipesPage extends StatefulWidget {
   const CommunityRecipesPage({super.key});
@@ -110,6 +119,69 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
                 ],
               ),
             ),
+            actions: [
+              // Search Users Button
+              IconButton(
+                icon: const Icon(Icons.search, color: Colors.white),
+                tooltip: 'Search Users',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const UserSearchPage(),
+                    ),
+                  );
+                },
+              ),
+              // Messages Button with Badge
+              StreamBuilder<int>(
+                stream: MessageService.getUnreadMessageCount(),
+                builder: (context, snapshot) {
+                  final unreadCount = snapshot.data ?? 0;
+                  return Stack(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const MessagesPage(),
+                            ),
+                          );
+                        },
+                      ),
+                      if (unreadCount > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            child: Text(
+                              unreadCount > 9 ? '9+' : unreadCount.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
             bottom: TabBar(
               controller: _tabController,
               labelColor: Colors.white,
@@ -378,65 +450,109 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Colors.green,
-                  backgroundImage: userProfileImage,
-                  child: userProfileImage == null
-                      ? Text(
-                          userName[0].toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        )
-                      : null,
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => UserProfilePage(
+                          userId: userId,
+                          isOwnProfile: userId == currentUserId,
+                        ),
+                      ),
+                    );
+                  },
+                  child: CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Colors.green,
+                    backgroundImage: userProfileImage,
+                    child: userProfileImage == null
+                        ? Text(
+                            userName[0].toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          )
+                        : null,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                      if (shareMessage != null && shareMessage.isNotEmpty)
-                        Text(
-                          shareMessage,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                            fontStyle: FontStyle.italic,
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => UserProfilePage(
+                            userId: userId,
+                            isOwnProfile: userId == currentUserId,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                    ],
-                  ),
-                ),
-                // Only show Follow button if not own recipe
-                if (userId != currentUserId)
-                  TextButton(
-                    onPressed: () {
-                      // TODO: Implement follow functionality
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Follow feature coming soon!')),
                       );
                     },
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          userName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (shareMessage != null && shareMessage.isNotEmpty)
+                          Text(
+                            shareMessage,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
                     ),
-                    child: const Text('Follow', style: TextStyle(fontSize: 13)),
                   ),
+                ),
+                // Show message and follow buttons if not own recipe
+                if (userId != currentUserId) ...[
+                  IconButton(
+                    icon: const Icon(Icons.message_outlined, size: 20),
+                    color: const Color(0xFF4CAF50),
+                    tooltip: 'Send Message',
+                    onPressed: () async {
+                      try {
+                        final conversationId = await MessageService.getOrCreateConversation(userId);
+                        if (mounted) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ChatPage(
+                                conversationId: conversationId,
+                                otherUserId: userId,
+                                otherUserName: userName,
+                                otherUserPhoto: userPhoto,
+                              ),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error opening chat: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                  _FollowButton(userId: userId),
+                ],
               ],
             ),
           ),
@@ -573,8 +689,8 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
                   count: saves,
                   color: Colors.green,
                   onTap: () async {
-                    await RecipeSharingService.toggleSave(recipeId, recipeData);
-                    setState(() {});
+                    // Check for allergens before saving
+                    await _saveRecipeWithAllergenCheck(recipeId, recipeData);
                   },
                 ),
                 const SizedBox(width: 16),
@@ -1013,6 +1129,111 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
     );
   }
 
+  Future<void> _saveRecipeWithAllergenCheck(String recipeId, Map<String, dynamic> recipeData) async {
+    try {
+      // Check for user allergens
+      final userAllergens = await AllergenDetectionService.getUserAllergens();
+      bool hasAllergens = false;
+      List<String> detectedAllergens = [];
+      
+      if (userAllergens.isNotEmpty) {
+        // Extract ingredients for allergen checking
+        List<dynamic> ingredients = [];
+        if (recipeData['extendedIngredients'] != null) {
+          ingredients = recipeData['extendedIngredients'];
+        } else if (recipeData['ingredients'] != null) {
+          ingredients = recipeData['ingredients'];
+        }
+        
+        if (ingredients.isNotEmpty) {
+          final allergenResult = AllergenService.checkAllergens(ingredients);
+          
+          // Check if any detected allergens match user allergens
+          for (final userAllergen in userAllergens) {
+            if (allergenResult.containsKey(userAllergen.toLowerCase())) {
+              hasAllergens = true;
+              detectedAllergens.add(userAllergen);
+            }
+          }
+          
+          // If allergens detected, show warning dialog
+          if (hasAllergens) {
+            bool shouldProceed = false;
+            
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => AllergenWarningDialog(
+                recipe: recipeData,
+                detectedAllergens: detectedAllergens,
+                substitutionSuggestions: AllergenDetectionService.getSubstitutionSuggestions(detectedAllergens),
+                riskLevel: detectedAllergens.length > 2 ? 'high' : detectedAllergens.length > 1 ? 'medium' : 'low',
+                onContinue: () {
+                  shouldProceed = true;
+                  Navigator.of(context).pop();
+                },
+                onSubstitute: () async {
+                  // For community recipes, we don't offer substitution - just warning
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Substitution not available for community recipes. Please contact the recipe creator.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  Navigator.of(context).pop();
+                },
+              ),
+            );
+            
+            if (!shouldProceed) {
+              // User cancelled
+              return;
+            }
+          }
+        }
+      }
+      
+      // Save to favorites collection
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('favorites')
+            .add({
+          ...recipeData,
+          'recipeId': recipeId,
+          'source': 'community',
+          'hasAllergens': hasAllergens,
+          'detectedAllergens': detectedAllergens,
+          'savedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      
+      // Also increment save count in community recipe
+      await RecipeSharingService.toggleSave(recipeId, recipeData);
+      
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(hasAllergens 
+                ? 'Recipe saved to favorites (contains allergens: ${detectedAllergens.join(", ")})'
+                : 'Recipe saved to favorites!'),
+            backgroundColor: hasAllergens ? Colors.orange : Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving recipe: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving recipe: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
   void _showCommentsSheet(String recipeId) {
     final commentController = TextEditingController();
 
@@ -1224,6 +1445,135 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
           ),
         ),
       ),
+    );
+  }
+}
+
+// Follow Button Widget
+class _FollowButton extends StatefulWidget {
+  final String userId;
+
+  const _FollowButton({required this.userId});
+
+  @override
+  State<_FollowButton> createState() => _FollowButtonState();
+}
+
+class _FollowButtonState extends State<_FollowButton> {
+  bool _isFollowing = false;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFollowStatus();
+  }
+
+  Future<void> _checkFollowStatus() async {
+    try {
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUserId == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUserId)
+          .collection('following')
+          .doc(widget.userId)
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _isFollowing = doc.exists;
+        });
+      }
+    } catch (e) {
+      print('Error checking follow status: $e');
+    }
+  }
+
+  Future<void> _toggleFollow() async {
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUserId == null) return;
+
+      if (_isFollowing) {
+        // Unfollow
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUserId)
+            .collection('following')
+            .doc(widget.userId)
+            .delete();
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.userId)
+            .collection('followers')
+            .doc(currentUserId)
+            .delete();
+
+        if (mounted) {
+          setState(() => _isFollowing = false);
+        }
+      } else {
+        // Follow
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUserId)
+            .collection('following')
+            .doc(widget.userId)
+            .set({'followedAt': FieldValue.serverTimestamp()});
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.userId)
+            .collection('followers')
+            .doc(currentUserId)
+            .set({'followedAt': FieldValue.serverTimestamp()});
+
+        if (mounted) {
+          setState(() => _isFollowing = true);
+        }
+      }
+    } catch (e) {
+      print('Error toggling follow: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: _isLoading ? null : _toggleFollow,
+      style: TextButton.styleFrom(
+        backgroundColor: _isFollowing ? Colors.grey[300] : Colors.green,
+        foregroundColor: _isFollowing ? Colors.black : Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: _isLoading
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Text(
+              _isFollowing ? 'Following' : 'Follow',
+              style: const TextStyle(fontSize: 13),
+            ),
     );
   }
 }

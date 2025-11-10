@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'user_profile_page.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -474,6 +475,36 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
               color: Colors.white.withOpacity(0.9),
             ),
           ),
+          const SizedBox(height: 16),
+          // View Public Profile Button
+          OutlinedButton.icon(
+            onPressed: () {
+              final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+              if (currentUserId != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => UserProfilePage(
+                      userId: currentUserId,
+                      isOwnProfile: true,
+                    ),
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.person, color: Colors.white),
+            label: const Text(
+              'View Public Profile',
+              style: TextStyle(color: Colors.white),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.white, width: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -489,10 +520,44 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        title: const Text('Account Settings'),
-        backgroundColor: const Color(0xFF4CAF50),
-        elevation: 0,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(80),
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF2E7D32),
+                Color(0xFF388E3C),
+                Color(0xFF4CAF50),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(25),
+              bottomRight: Radius.circular(25),
+            ),
+          ),
+          child: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            title: const Text(
+              'Account Settings',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 22,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    offset: Offset(0, 2),
+                    blurRadius: 4,
+                    color: Colors.black26,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
