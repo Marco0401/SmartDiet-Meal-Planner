@@ -24,11 +24,17 @@ import 'about_smartdiet_page.dart';
 import 'community_recipes_page.dart';
 import 'utils/initialize_substitution_nutrition.dart';
 import 'utils/migrate_substitution_nutrition.dart';
+import 'services/fcm_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load();
   await Firebase.initializeApp();
+  
+  // Initialize FCM for push notifications
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  await FCMService.initialize();
   
   // Initialize substitution nutrition data
   await InitializeSubstitutionNutrition.initialize();

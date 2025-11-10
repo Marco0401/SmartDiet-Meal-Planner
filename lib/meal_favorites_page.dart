@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'recipe_detail_page.dart';
 import 'recipe_search_page.dart';
@@ -31,6 +32,9 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> with SingleTicker
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      setState(() {}); // Rebuild to show/hide FAB based on tab
+    });
     _loadFavorites();
   }
 
@@ -336,6 +340,25 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> with SingleTicker
                     _buildRecipeList(_favoriteRecipes, 'Favorites', Icons.favorite),
                   ],
                 ),
+      floatingActionButton: _tabController.index == 0
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ManualMealEntryPage(
+                      selectedDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                      saveToFavoritesOnly: true,
+                    ),
+                  ),
+                ).then((_) => _loadFavorites());
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Create Manual Entry'),
+              backgroundColor: Colors.green[600],
+              foregroundColor: Colors.white,
+            )
+          : null,
     );
   }
 
@@ -755,7 +778,24 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> with SingleTicker
   }
 
   Widget _buildRecipeImage(String imagePath) {
-    if (imagePath.startsWith('assets/')) {
+    if (imagePath.startsWith('data:image')) {
+      // Base64 encoded image
+      try {
+        final base64String = imagePath.split(',')[1];
+        return Image.memory(
+          base64Decode(base64String),
+          height: 160,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildPlaceholderImage();
+          },
+        );
+      } catch (e) {
+        print('Error decoding base64 image: $e');
+        return _buildPlaceholderImage();
+      }
+    } else if (imagePath.startsWith('assets/')) {
       // Local asset image
       return Image.asset(
         imagePath,

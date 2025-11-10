@@ -108,6 +108,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
   static const List<String> notificationTypes = [
     'None',
+    'Messages',
     'Meal reminders',
     'Tips',
     'Updates',

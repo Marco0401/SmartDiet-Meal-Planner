@@ -4,6 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'recipe_detail_page.dart';
+import 'chat_page.dart';
+import 'services/message_service.dart';
+import 'services/fcm_service.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String userId;
@@ -158,6 +161,20 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
             .set({
           'followedAt': FieldValue.serverTimestamp(),
         });
+
+        // Send push notification to followed user
+        final currentUserDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUserId)
+            .get();
+        final followerName = currentUserDoc.data()?['fullName'] ?? 
+                            currentUserDoc.data()?['name'] ?? 
+                            'Someone';
+        
+        await FCMService.sendNewFollowerNotification(
+          followedUserId: widget.userId,
+          followerName: followerName,
+        );
 
         setState(() {
           _isFollowing = true;
@@ -346,7 +363,33 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
                       const SizedBox(width: 8),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () {},
+                          onPressed: () async {
+                            try {
+                              final conversationId = await MessageService.getOrCreateConversation(widget.userId);
+                              if (mounted) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ChatPage(
+                                      conversationId: conversationId,
+                                      otherUserId: widget.userId,
+                                      otherUserName: _userData?['fullName'] ?? _userData?['name'] ?? 'User',
+                                      otherUserPhoto: _userData?['profilePhoto'] ?? _userData?['photoUrl'],
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Error opening chat: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          },
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF4CAF50),
                             side: const BorderSide(color: Color(0xFF4CAF50), width: 2),

@@ -990,6 +990,46 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
 
     final imageStr = imagePath.toString();
     
+    // Check if it's a base64 encoded image (starts with data:image)
+    if (imageStr.startsWith('data:image')) {
+      try {
+        final base64String = imageStr.split(',')[1];
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          child: Image.memory(
+            base64Decode(base64String),
+            height: 200,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Container(
+              height: 200,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.green[100]!, Colors.green[200]!],
+                ),
+              ),
+              child: const Center(
+                child: Icon(Icons.restaurant_menu, size: 64, color: Colors.green),
+              ),
+            ),
+          ),
+        );
+      } catch (e) {
+        print('Error decoding base64 image: $e');
+        return Container(
+          height: 200,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.green[100]!, Colors.green[200]!],
+            ),
+          ),
+          child: const Center(
+            child: Icon(Icons.restaurant_menu, size: 64, color: Colors.green),
+          ),
+        );
+      }
+    }
+    
     // Check if it's a URL (starts with http)
     if (imageStr.startsWith('http')) {
       return ClipRRect(

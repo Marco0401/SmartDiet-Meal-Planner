@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'fcm_service.dart';
 
 class RecipeSharingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -158,6 +159,26 @@ class RecipeSharingService {
         await _firestore.collection('community_recipes').doc(recipeId).update({
           'likes': FieldValue.increment(1),
         });
+
+        // Send push notification to recipe owner
+        final recipeDoc = await _firestore.collection('community_recipes').doc(recipeId).get();
+        if (recipeDoc.exists) {
+          final recipeData = recipeDoc.data()!;
+          final recipeOwnerId = recipeData['userId'] as String?;
+          final recipeTitle = recipeData['title'] as String? ?? 'your recipe';
+          
+          // Don't send notification if user likes their own recipe
+          if (recipeOwnerId != null && recipeOwnerId != user.uid) {
+            final userDoc = await _firestore.collection('users').doc(user.uid).get();
+            final userName = userDoc.data()?['fullName'] ?? userDoc.data()?['name'] ?? 'Someone';
+            
+            await FCMService.sendNewLikeNotification(
+              recipeOwnerUserId: recipeOwnerId,
+              likerName: userName,
+              recipeTitle: recipeTitle,
+            );
+          }
+        }
       }
     } catch (e) {
       print('Error toggling like: $e');
@@ -443,6 +464,26 @@ class RecipeSharingService {
           .update({
         'commentCount': FieldValue.increment(1),
       });
+
+      // Send push notification to recipe owner
+      final recipeDoc = await _firestore.collection('community_recipes').doc(recipeId).get();
+      if (recipeDoc.exists) {
+        final recipeData = recipeDoc.data()!;
+        final recipeOwnerId = recipeData['userId'] as String?;
+        final recipeTitle = recipeData['title'] as String? ?? 'your recipe';
+        
+        // Don't send notification if user comments on their own recipe
+        if (recipeOwnerId != null && recipeOwnerId != user.uid) {
+          await FCMService.sendNewCommentNotification(
+            recipeOwnerUserId: recipeOwnerId,
+            commenterName: userName,
+            recipeTitle: recipeTitle,
+            commentPreview: comment.trim().length > 50 
+                ? '${comment.trim().substring(0, 50)}...' 
+                : comment.trim(),
+          );
+        }
+      }
 
       print('Comment added successfully');
     } catch (e) {

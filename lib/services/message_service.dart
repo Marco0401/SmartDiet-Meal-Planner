@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'fcm_service.dart';
 
 class MessageService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -95,6 +96,19 @@ class MessageService {
         'lastMessageSenderId': userId,
         'unreadCount.$recipientId': FieldValue.increment(1),
       });
+
+      // Get sender name for push notification
+      final senderDoc = await _firestore.collection('users').doc(userId).get();
+      final senderName = senderDoc.data()?['fullName'] ?? 
+                        senderDoc.data()?['name'] ?? 
+                        'Someone';
+
+      // Send push notification to recipient
+      await FCMService.sendNewMessageNotification(
+        recipientUserId: recipientId,
+        senderName: senderName,
+        messagePreview: message.length > 50 ? '${message.substring(0, 50)}...' : message,
+      );
 
       print('Message sent successfully');
     } catch (e) {
