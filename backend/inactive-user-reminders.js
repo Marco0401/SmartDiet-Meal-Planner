@@ -1,10 +1,8 @@
-const admin = require('firebase-admin');
-
 /**
  * Send reminders to inactive users
  * Run this as a cron job (e.g., daily at 10 AM)
  */
-async function sendInactiveUserReminders() {
+async function sendInactiveUserReminders(admin) {
   try {
     const db = admin.firestore();
     const now = new Date();
@@ -100,7 +98,7 @@ function getReminderMessage(type) {
  * Send daily hydration reminders to all active users
  * Run at specific times (e.g., 8 AM, 12 PM, 4 PM, 8 PM)
  */
-async function sendDailyHydrationReminders() {
+async function sendDailyHydrationReminders(admin) {
   try {
     const db = admin.firestore();
     console.log('💧 Sending daily hydration reminders...');

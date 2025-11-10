@@ -100,7 +100,7 @@ startListener();
 // Schedule inactive user reminders (daily at 10 AM)
 cron.schedule('0 10 * * *', async () => {
   console.log('⏰ Running inactive user reminder job...');
-  await sendInactiveUserReminders();
+  await sendInactiveUserReminders(admin);
 }, {
   timezone: 'Asia/Manila' // Adjust to your timezone
 });
@@ -108,7 +108,7 @@ cron.schedule('0 10 * * *', async () => {
 // Schedule hydration reminders (4 times a day: 8 AM, 12 PM, 4 PM, 8 PM)
 cron.schedule('0 8,12,16,20 * * *', async () => {
   console.log('⏰ Running hydration reminder job...');
-  await sendDailyHydrationReminders();
+  await sendDailyHydrationReminders(admin);
 }, {
   timezone: 'Asia/Manila' // Adjust to your timezone
 });
