@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'fcm_service.dart';
+import 'notification_service.dart';
 
 class RecipeSharingService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -172,6 +174,18 @@ class RecipeSharingService {
             final userDoc = await _firestore.collection('users').doc(user.uid).get();
             final userName = userDoc.data()?['fullName'] ?? userDoc.data()?['name'] ?? 'Someone';
             
+            // Send in-app notification
+            await NotificationService.createNotification(
+              userId: recipeOwnerId,
+              title: '❤️ New Like!',
+              message: '$userName liked your recipe "$recipeTitle"',
+              type: 'like',
+              actionData: recipeId,
+              icon: Icons.favorite,
+              color: Colors.red,
+            );
+            
+            // Send push notification
             await FCMService.sendNewLikeNotification(
               recipeOwnerUserId: recipeOwnerId,
               likerName: userName,
@@ -474,13 +488,27 @@ class RecipeSharingService {
         
         // Don't send notification if user comments on their own recipe
         if (recipeOwnerId != null && recipeOwnerId != user.uid) {
+          final commentPreview = comment.trim().length > 50 
+              ? '${comment.trim().substring(0, 50)}...' 
+              : comment.trim();
+          
+          // Send in-app notification
+          await NotificationService.createNotification(
+            userId: recipeOwnerId,
+            title: '💬 New Comment!',
+            message: '$userName commented on "$recipeTitle": $commentPreview',
+            type: 'comment',
+            actionData: recipeId,
+            icon: Icons.comment,
+            color: Colors.blue,
+          );
+          
+          // Send push notification
           await FCMService.sendNewCommentNotification(
             recipeOwnerUserId: recipeOwnerId,
             commenterName: userName,
             recipeTitle: recipeTitle,
-            commentPreview: comment.trim().length > 50 
-                ? '${comment.trim().substring(0, 50)}...' 
-                : comment.trim(),
+            commentPreview: commentPreview,
           );
         }
       }

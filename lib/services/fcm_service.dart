@@ -418,6 +418,137 @@ class FCMService {
     }
   }
 
+  /// Send push notification for admin announcement
+  static Future<void> sendAdminAnnouncementNotification({
+    required String userId,
+    required String title,
+    required String message,
+  }) async {
+    try {
+      // Check if user wants news/announcements
+      if (!await _shouldSendPushNotification(userId, 'News')) {
+        print('FCM: User disabled news notifications');
+        return;
+      }
+
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final fcmToken = userDoc.data()?['fcmToken'] as String?;
+      
+      if (fcmToken == null) return;
+
+      await _firestore.collection('fcm_notifications').add({
+        'token': fcmToken,
+        'title': title,
+        'body': message,
+        'type': 'admin_announcement',
+        'recipientId': userId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+        'priority': 'high',
+      });
+      
+      print('FCM: Admin announcement notification queued');
+    } catch (e) {
+      print('FCM: Error sending admin announcement: $e');
+    }
+  }
+
+  /// Send push notification for nutritionist content
+  static Future<void> sendNutritionistContentNotification({
+    required String userId,
+    required String title,
+    required String message,
+    String? contentType,
+  }) async {
+    try {
+      // Check if user wants tips (nutritionist content uses Tips category)
+      if (!await _shouldSendPushNotification(userId, 'Tips')) {
+        print('FCM: User disabled nutritionist content notifications');
+        return;
+      }
+
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final fcmToken = userDoc.data()?['fcmToken'] as String?;
+      
+      if (fcmToken == null) return;
+
+      await _firestore.collection('fcm_notifications').add({
+        'token': fcmToken,
+        'title': title,
+        'body': message,
+        'type': 'nutritionist_content',
+        'contentType': contentType ?? 'general',
+        'recipientId': userId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+      
+      print('FCM: Nutritionist content notification queued');
+    } catch (e) {
+      print('FCM: Error sending nutritionist content: $e');
+    }
+  }
+
+  /// Send push notification for inactive user reminder
+  static Future<void> sendInactiveUserReminder({
+    required String userId,
+    required String reminderType,
+  }) async {
+    try {
+      // Check if user wants tips/reminders
+      if (!await _shouldSendPushNotification(userId, 'Tips')) {
+        print('FCM: User disabled reminder notifications');
+        return;
+      }
+
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final fcmToken = userDoc.data()?['fcmToken'] as String?;
+      
+      if (fcmToken == null) return;
+
+      // Different reminder messages based on type
+      String title = '';
+      String body = '';
+      
+      switch (reminderType) {
+        case 'hydration':
+          title = '💧 Stay Hydrated!';
+          body = 'Don\'t forget to drink water! Your body needs hydration.';
+          break;
+        case 'healthy_eating':
+          title = '🥗 Eat Healthy Today!';
+          body = 'Remember to make healthy food choices. Your body will thank you!';
+          break;
+        case 'meal_tracking':
+          title = '📝 Track Your Meals';
+          body = 'Keep track of your meals to reach your health goals!';
+          break;
+        case 'exercise':
+          title = '💪 Stay Active!';
+          body = 'A little movement goes a long way. Try to stay active today!';
+          break;
+        default:
+          title = '🌟 SmartDiet Reminder';
+          body = 'We miss you! Come back and continue your healthy journey.';
+      }
+
+      await _firestore.collection('fcm_notifications').add({
+        'token': fcmToken,
+        'title': title,
+        'body': body,
+        'type': 'inactive_reminder',
+        'reminderType': reminderType,
+        'recipientId': userId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+      
+      print('FCM: Inactive user reminder queued: $reminderType');
+    } catch (e) {
+      print('FCM: Error sending inactive reminder: $e');
+    }
+  }
+
   /// Clear FCM token on logout
   static Future<void> clearFCMToken() async {
     try {

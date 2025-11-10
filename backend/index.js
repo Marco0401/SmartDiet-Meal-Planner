@@ -1,6 +1,8 @@
 const express = require('express');
 const admin = require('firebase-admin');
 const cors = require('cors');
+const cron = require('node-cron');
+const { sendInactiveUserReminders, sendDailyHydrationReminders } = require('./inactive-user-reminders');
 
 const app = express();
 app.use(cors());
@@ -94,6 +96,26 @@ const startListener = () => {
 
 // Start the listener
 startListener();
+
+// Schedule inactive user reminders (daily at 10 AM)
+cron.schedule('0 10 * * *', async () => {
+  console.log('⏰ Running inactive user reminder job...');
+  await sendInactiveUserReminders();
+}, {
+  timezone: 'Asia/Manila' // Adjust to your timezone
+});
+
+// Schedule hydration reminders (4 times a day: 8 AM, 12 PM, 4 PM, 8 PM)
+cron.schedule('0 8,12,16,20 * * *', async () => {
+  console.log('⏰ Running hydration reminder job...');
+  await sendDailyHydrationReminders();
+}, {
+  timezone: 'Asia/Manila' // Adjust to your timezone
+});
+
+console.log('⏰ Scheduled jobs configured:');
+console.log('   - Inactive user reminders: Daily at 10 AM');
+console.log('   - Hydration reminders: 8 AM, 12 PM, 4 PM, 8 PM');
 
 // Start server
 const PORT = process.env.PORT || 3000;
