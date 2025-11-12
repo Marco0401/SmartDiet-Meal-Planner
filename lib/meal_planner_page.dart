@@ -2543,7 +2543,7 @@ class _AddMealDialogState extends State<AddMealDialog> {
           mealTitle: fullRecipe['title'] ?? 'Unknown Recipe',
         );
         
-        if (!shouldContinue) {
+        if (shouldContinue != true) {
           print('DEBUG: User cancelled due to health warnings');
           return; // User chose to cancel
         }

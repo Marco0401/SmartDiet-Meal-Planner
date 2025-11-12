@@ -923,7 +923,7 @@ class FavoriteService {
           mealTitle: recipe['title'] ?? 'Unknown Recipe',
         );
         
-        if (!shouldContinue) {
+        if (shouldContinue != true) {
           print('DEBUG: User cancelled adding to favorites due to health warnings');
           return; // User chose to cancel
         }
@@ -974,14 +974,12 @@ class FavoriteService {
         }
         
         if (ingredients.isNotEmpty) {
-          final allergenResult = AllergenService.checkAllergens(ingredients);
+          final allergenResult = await AllergenDetectionService.getDetailedAnalysis({'ingredients': ingredients});
           
           // Check if any detected allergens match user allergens
-          for (final userAllergen in userAllergens) {
-            if (allergenResult.containsKey(userAllergen.toLowerCase())) {
-              hasAllergens = true;
-              detectedAllergens.add(userAllergen);
-            }
+          hasAllergens = allergenResult['hasAllergens'] == true;
+          if (hasAllergens) {
+            detectedAllergens = List<String>.from(allergenResult['detectedAllergens'] ?? []);
           }
           
           // If allergens detected, show warning dialog
