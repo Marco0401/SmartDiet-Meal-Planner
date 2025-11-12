@@ -654,7 +654,32 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         
         // Check if this is a substituted meal
         if (result['substituted'] == true) {
-          print('DEBUG: Adding substituted meal directly');
+          print('DEBUG: Adding substituted meal - checking health warnings first');
+          
+          // Even substituted meals need health warnings check
+          final healthWarnings = await HealthWarningService.checkMealHealth(
+            mealData: result,
+            customTitle: result['title'],
+          );
+          
+          if (healthWarnings.isNotEmpty) {
+            print('DEBUG: Health/dietary warnings detected in substituted meal: ${healthWarnings.length} warnings');
+            
+            // Show health warning dialog
+            final shouldContinue = await showHealthWarningDialog(
+              context: context,
+              warnings: healthWarnings,
+              mealTitle: result['title'] ?? 'Unknown Recipe',
+            );
+            
+            if (shouldContinue != true) {
+              print('DEBUG: User cancelled substituted meal addition due to health/dietary warnings');
+              return; // User chose to cancel
+            }
+            
+            print('DEBUG: User chose to continue with substituted meal despite health/dietary warnings');
+          }
+          
           // Create the meal object for substituted meal
           final newMeal = {
             ...result,
@@ -679,6 +704,31 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           await _saveMealsToFirestore(dateKey);
           print('DEBUG: Substituted meal saved successfully');
           return;
+        }
+        
+        // Check for health warnings and dietary preferences FIRST
+        print('DEBUG: Checking health warnings for meal planner meal: ${result['title']}');
+        final healthWarnings = await HealthWarningService.checkMealHealth(
+          mealData: result,
+          customTitle: result['title'],
+        );
+        
+        if (healthWarnings.isNotEmpty) {
+          print('DEBUG: Health/dietary warnings detected in meal planner: ${healthWarnings.length} warnings');
+          
+          // Show health warning dialog
+          final shouldContinue = await showHealthWarningDialog(
+            context: context,
+            warnings: healthWarnings,
+            mealTitle: result['title'] ?? 'Unknown Recipe',
+          );
+          
+          if (shouldContinue != true) {
+            print('DEBUG: User cancelled meal addition due to health/dietary warnings');
+            return; // User chose to cancel
+          }
+          
+          print('DEBUG: User chose to continue despite health/dietary warnings');
         }
         
         // Check for allergens in the meal
