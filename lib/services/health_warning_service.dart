@@ -54,12 +54,19 @@ class HealthWarningService {
       print('DEBUG HealthWarning: Health conditions: $healthConditions');
       print('DEBUG HealthWarning: Allergies: $allergies');
       print('DEBUG HealthWarning: Medications: $medications');
+      print('DEBUG HealthWarning: Meal title: "$customTitle"');
+      print('DEBUG HealthWarning: Meal ingredients: ${mealData['ingredients']}');
 
       List<HealthWarning> warnings = [];
 
       // Check each health condition
+      print('DEBUG HealthWarning: Processing ${healthConditions.length} health conditions');
       for (String condition in healthConditions) {
-        if (condition == 'None') continue;
+        if (condition == 'None') {
+          print('DEBUG HealthWarning: Skipping "None" condition');
+          continue;
+        }
+        print('DEBUG HealthWarning: Checking condition: "$condition"');
         
         final conditionWarnings = await _checkConditionConflicts(
           condition, 
@@ -139,7 +146,7 @@ class HealthWarningService {
     const highSugarKeywords = [
       'sugar', 'honey', 'syrup', 'candy', 'chocolate', 'cake', 'cookies',
       'ice cream', 'soda', 'juice', 'jam', 'jelly', 'frosting', 'caramel',
-      'molasses', 'agave', 'corn syrup', 'fructose', 'glucose', 'sucrose'
+      'molasses', 'agave', 'corn syrup', 'cocoa', 'fructose', 'glucose', 'sucrose'
     ];
     
     // Medium sugar ingredients (WARNING)
@@ -158,6 +165,11 @@ class HealthWarningService {
     final foundHighSugar = highSugarKeywords.where((keyword) => allText.contains(keyword)).toList();
     final foundMediumSugar = mediumSugarKeywords.where((keyword) => allText.contains(keyword)).toList();
     final foundHighCarb = highCarbKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    print('DEBUG Diabetes: Analyzing text: "$allText"');
+    print('DEBUG Diabetes: Found high sugar: $foundHighSugar');
+    print('DEBUG Diabetes: Found medium sugar: $foundMediumSugar');
+    print('DEBUG Diabetes: Found high carb: $foundHighCarb');
     
     // CRITICAL: High sugar content
     if (foundHighSugar.isNotEmpty) {
