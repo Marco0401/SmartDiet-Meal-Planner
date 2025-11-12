@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
 import 'services/allergen_detection_service.dart';
@@ -493,9 +494,52 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     print('DEBUG: Path starts with file://: ${imagePath.startsWith('file://')}');
     print('DEBUG: Path contains /storage/: ${imagePath.contains('/storage/')}');
     print('DEBUG: Path contains /data/: ${imagePath.contains('/data/')}');
+    print('DEBUG: Path starts with data:image: ${imagePath.startsWith('data:image')}');
     
+    // Check if it's a base64 data URI (from manual meal entries)
+    if (imagePath.startsWith('data:image')) {
+      try {
+        final base64String = imagePath.split(',')[1];
+        final bytes = base64Decode(base64String);
+        return Image.memory(
+          bytes,
+          width: 50,
+          height: 50,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            print('DEBUG: Error loading base64 image: $error');
+            return Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: Colors.green[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.restaurant,
+                color: Colors.green,
+              ),
+            );
+          },
+        );
+      } catch (e) {
+        print('DEBUG: Error parsing base64 image: $e');
+        return Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: Colors.green[100],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(
+            Icons.restaurant,
+            color: Colors.green,
+          ),
+        );
+      }
+    }
     // Check if it's a local asset image
-    if (imagePath.startsWith('assets/')) {
+    else if (imagePath.startsWith('assets/')) {
       return Image.asset(
         imagePath,
         width: 50,
