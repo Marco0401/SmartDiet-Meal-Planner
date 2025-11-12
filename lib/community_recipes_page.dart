@@ -1525,12 +1525,46 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
         'timestamp': FieldValue.serverTimestamp(),
         'type': 'recipe_share',
         'recipeData': {
+          // Basic info
           'id': recipeData['id'],
           'title': recipeData['title'],
           'image': recipeData['image'],
-          'description': recipeData['description'] ?? '',
-          'authorName': recipeData['authorName'] ?? 'Unknown',
+          'description': recipeData['description'] ?? recipeData['summary'] ?? '',
+          'authorName': recipeData['authorName'] ?? recipeData['sourceName'] ?? 'Unknown',
           'authorId': recipeData['authorId'],
+          
+          // Essential recipe data
+          'ingredients': recipeData['ingredients'] ?? [],
+          'extendedIngredients': recipeData['extendedIngredients'] ?? [],
+          'instructions': recipeData['instructions'] ?? recipeData['analyzedInstructions'] ?? '',
+          'analyzedInstructions': recipeData['analyzedInstructions'] ?? [],
+          
+          // Nutrition info
+          'nutrition': recipeData['nutrition'] ?? {},
+          'calories': recipeData['calories'] ?? 0,
+          'protein': recipeData['protein'] ?? 0,
+          'carbs': recipeData['carbs'] ?? recipeData['carbohydrates'] ?? 0,
+          'fat': recipeData['fat'] ?? 0,
+          'fiber': recipeData['fiber'] ?? 0,
+          'sugar': recipeData['sugar'] ?? 0,
+          'sodium': recipeData['sodium'] ?? 0,
+          
+          // Additional info
+          'servings': recipeData['servings'] ?? 1,
+          'readyInMinutes': recipeData['readyInMinutes'] ?? recipeData['cookingTime'] ?? 0,
+          'cookingTime': recipeData['cookingTime'] ?? recipeData['readyInMinutes'] ?? 0,
+          'preparationTime': recipeData['preparationTime'] ?? 0,
+          'cuisine': recipeData['cuisine'] ?? '',
+          'dishTypes': recipeData['dishTypes'] ?? [],
+          'diets': recipeData['diets'] ?? [],
+          'sourceUrl': recipeData['sourceUrl'] ?? '',
+          'sourceName': recipeData['sourceName'] ?? '',
+          'summary': recipeData['summary'] ?? '',
+          
+          // Recipe sharing specific
+          'originalRecipeId': recipeData['id'],
+          'sharedBy': currentUser.uid,
+          'sharedAt': FieldValue.serverTimestamp(),
         },
         'isRead': false,
       };
@@ -1541,6 +1575,17 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
           .doc(conversationId)
           .collection('messages')
           .add(messageData);
+
+      // Update conversation's last message info so it appears in Messages page
+      await FirebaseFirestore.instance
+          .collection('conversations')
+          .doc(conversationId)
+          .update({
+        'lastMessage': '🍽️ Shared a recipe: ${recipeData['title']}',
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'lastMessageSenderId': currentUser.uid,
+        'unreadCount.${targetUser['uid']}': FieldValue.increment(1),
+      });
 
       print('DEBUG: Recipe forwarded to ${targetUser['name']} in conversation $conversationId');
     } catch (e) {
@@ -1714,7 +1759,7 @@ class _ForwardRecipeDialogState extends State<_ForwardRecipeDialog> {
         _availableUsers = usersSnapshot.docs.map((doc) {
           final data = doc.data();
           // Try multiple fields for name
-          String displayName = data['name'] ?? 
+          String displayName = data['fullName'] ?? 
                               data['username'] ?? 
                               data['displayName'] ?? 
                               data['firstName'] ?? 
