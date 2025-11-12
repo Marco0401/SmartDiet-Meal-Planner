@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'services/message_service.dart';
 import 'user_profile_page.dart';
+import 'recipe_detail_page.dart';
 
 class ChatPage extends StatefulWidget {
   final String conversationId;
@@ -294,6 +295,8 @@ class _ChatPageState extends State<ChatPage> {
     final senderId = message['senderId'] as String;
     final messageText = message['message'] as String;
     final timestamp = message['timestamp'] as Timestamp?;
+    final messageType = message['type'] as String?;
+    final recipeData = message['recipeData'] as Map<String, dynamic>?;
     final isMe = senderId == currentUserId;
 
     String timeText = '';
@@ -372,13 +375,16 @@ class _ChatPageState extends State<ChatPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  messageText,
-                  style: TextStyle(
-                    color: isMe ? Colors.white : Colors.black87,
-                    fontSize: 15,
-                  ),
-                ),
+                // Show recipe card if it's a recipe share, otherwise show regular text
+                messageType == 'recipe_share' && recipeData != null
+                    ? _buildRecipeCard(recipeData, isMe)
+                    : Text(
+                        messageText,
+                        style: TextStyle(
+                          color: isMe ? Colors.white : Colors.black87,
+                          fontSize: 15,
+                        ),
+                      ),
                 const SizedBox(height: 4),
                 Text(
                   timeText,
@@ -525,6 +531,284 @@ class _ChatPageState extends State<ChatPage> {
       return 'active ${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
     } else {
       return 'active ${(difference.inDays / 7).floor()} week${(difference.inDays / 7).floor() == 1 ? '' : 's'} ago';
+    }
+  }
+
+  Widget _buildRecipeCard(Map<String, dynamic> recipeData, bool isMe) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 280),
+      decoration: BoxDecoration(
+        color: isMe ? Colors.white.withOpacity(0.2) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isMe ? Colors.white.withOpacity(0.3) : Colors.grey[300]!,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Recipe image
+          if (recipeData['image'] != null && recipeData['image'].toString().isNotEmpty)
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+              child: _buildRecipeImage(recipeData['image']),
+            ),
+          
+          // Recipe details
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Recipe title
+                Text(
+                  recipeData['title'] ?? 'Unknown Recipe',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: isMe ? Colors.white : Colors.black87,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                
+                // Author
+                Text(
+                  'by ${recipeData['fullName'] ?? 'Unknown'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isMe ? Colors.white70 : Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                
+                // Action buttons
+                Row(
+                  children: [
+                    // View Recipe button
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _viewSharedRecipe(recipeData),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isMe ? Colors.white : const Color(0xFF4CAF50),
+                          foregroundColor: isMe ? const Color(0xFF4CAF50) : Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        child: const Text('View Recipe'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    
+                    // Add to Meal Plan button
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _addSharedRecipeToMealPlan(recipeData),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isMe ? Colors.white.withOpacity(0.2) : Colors.grey[200],
+                          foregroundColor: isMe ? Colors.white : Colors.black87,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        child: const Text('Add to Plan'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecipeImage(String imagePath) {
+    if (imagePath.startsWith('data:image')) {
+      try {
+        final base64String = imagePath.split(',')[1];
+        final bytes = base64Decode(base64String);
+        return Image.memory(
+          bytes,
+          width: double.infinity,
+          height: 120,
+          fit: BoxFit.cover,
+        );
+      } catch (e) {
+        return _buildPlaceholderImage();
+      }
+    } else {
+      return Image.network(
+        imagePath,
+        width: double.infinity,
+        height: 120,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
+      );
+    }
+  }
+
+  Widget _buildPlaceholderImage() {
+    return Container(
+      width: double.infinity,
+      height: 120,
+      color: Colors.grey[300],
+      child: const Icon(
+        Icons.restaurant,
+        color: Colors.grey,
+        size: 40,
+      ),
+    );
+  }
+
+  void _viewSharedRecipe(Map<String, dynamic> recipeData) {
+    // Navigate to recipe detail page
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RecipeDetailPage(
+          recipe: recipeData,
+        ),
+      ),
+    );
+  }
+
+  void _addSharedRecipeToMealPlan(Map<String, dynamic> recipeData) {
+    // Show dialog to select date and meal type for adding to meal plan
+    showDialog(
+      context: context,
+      builder: (context) => _AddToMealPlanDialog(recipe: recipeData),
+    );
+  }
+}
+
+class _AddToMealPlanDialog extends StatefulWidget {
+  final Map<String, dynamic> recipe;
+  
+  const _AddToMealPlanDialog({required this.recipe});
+  
+  @override
+  State<_AddToMealPlanDialog> createState() => _AddToMealPlanDialogState();
+}
+
+class _AddToMealPlanDialogState extends State<_AddToMealPlanDialog> {
+  DateTime _selectedDate = DateTime.now();
+  String _selectedMealType = 'breakfast';
+  
+  final List<String> _mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+  
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add to Meal Plan'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Add "${widget.recipe['title']}" to your meal plan:'),
+          const SizedBox(height: 16),
+          
+          // Date picker
+          ListTile(
+            leading: const Icon(Icons.calendar_today),
+            title: Text(
+              '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+            ),
+            onTap: () async {
+              final date = await showDatePicker(
+                context: context,
+                initialDate: _selectedDate,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (date != null) {
+                setState(() => _selectedDate = date);
+              }
+            },
+          ),
+          
+          // Meal type dropdown
+          DropdownButtonFormField<String>(
+            value: _selectedMealType,
+            decoration: const InputDecoration(
+              labelText: 'Meal Type',
+              prefixIcon: Icon(Icons.restaurant),
+            ),
+            items: _mealTypes.map((type) => DropdownMenuItem(
+              value: type,
+              child: Text(type.toUpperCase()),
+            )).toList(),
+            onChanged: (value) => setState(() => _selectedMealType = value!),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            await _addRecipeToMealPlan();
+            Navigator.of(context).pop();
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF4CAF50),
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+  
+  Future<void> _addRecipeToMealPlan() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      
+      final dateKey = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      
+      // Add recipe to user's meal plan
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('meal_plans')
+          .add({
+        ...widget.recipe,
+        'mealType': _selectedMealType,
+        'date': dateKey,
+        'addedAt': FieldValue.serverTimestamp(),
+        'mealTime': _getDefaultTimeForMealType(_selectedMealType),
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Recipe added to meal plan!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error adding recipe: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  String _getDefaultTimeForMealType(String mealType) {
+    switch (mealType) {
+      case 'breakfast': return '07:00';
+      case 'lunch': return '12:00';
+      case 'dinner': return '18:00';
+      case 'snack': return '15:00';
+      default: return '12:00';
     }
   }
 }
