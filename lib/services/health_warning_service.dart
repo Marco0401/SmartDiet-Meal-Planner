@@ -38,13 +38,22 @@ class HealthWarningService {
       if (user == null) return [];
 
       // Get user health profile
+      print('DEBUG HealthWarning: Fetching user data for ${user.uid}');
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (!userDoc.exists) return [];
+      if (!userDoc.exists) {
+        print('DEBUG HealthWarning: User document does not exist!');
+        return [];
+      }
 
       final userData = userDoc.data()!;
       final healthConditions = List<String>.from(userData['healthConditions'] ?? []);
       final allergies = List<String>.from(userData['allergies'] ?? []);
       final medications = userData['medication'] as String?;
+      
+      print('DEBUG HealthWarning: User data keys: ${userData.keys}');
+      print('DEBUG HealthWarning: Health conditions: $healthConditions');
+      print('DEBUG HealthWarning: Allergies: $allergies');
+      print('DEBUG HealthWarning: Medications: $medications');
 
       List<HealthWarning> warnings = [];
 

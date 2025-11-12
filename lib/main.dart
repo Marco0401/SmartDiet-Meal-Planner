@@ -148,7 +148,13 @@ class _MyHomePageState extends State<MyHomePage> {
               .doc(user.uid)
               .get();
           if (userDoc.exists) {
-            dietaryPreferences = List<String>.from(userDoc.data()?['dietaryPreferences'] ?? []);
+            final userData = userDoc.data();
+            dietaryPreferences = List<String>.from(userData?['dietaryPreferences'] ?? []);
+            print('DEBUG: User document exists: ${userData?.keys}');
+            print('DEBUG: Raw dietary preferences: ${userData?['dietaryPreferences']}');
+            print('DEBUG: Parsed dietary preferences: $dietaryPreferences');
+          } else {
+            print('DEBUG: User document does not exist!');
           }
         } catch (e) {
           print('Error fetching user dietary preferences: $e');

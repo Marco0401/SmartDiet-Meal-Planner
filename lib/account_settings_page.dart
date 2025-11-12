@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'user_profile_page.dart';
 import 'health_insights_page.dart';
+import 'debug_user_data_page.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -238,13 +239,21 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .update(profileData);
+            .set(profileData, SetOptions(merge: true));
+      
+      print('DEBUG: User settings saved successfully');
+      print('DEBUG: Health conditions saved: $_healthConditions');
+      print('DEBUG: Dietary preferences saved: $_dietaryPreferences');
 
       if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile updated successfully!')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Settings saved successfully!\nHealth conditions: ${_healthConditions.join(", ")}\nDietary preferences: ${_dietaryPreferences.join(", ")}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
       }
     } catch (e) {
       if (mounted) {
@@ -522,6 +531,32 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             icon: const Icon(Icons.psychology, color: Colors.white),
             label: const Text(
               '🤖 Health Insights',
+              style: TextStyle(color: Colors.white),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.white, width: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Debug User Data Button
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const DebugUserDataPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.bug_report, color: Colors.white),
+            label: const Text(
+              '🔧 Debug User Data',
               style: TextStyle(color: Colors.white),
             ),
             style: OutlinedButton.styleFrom(
