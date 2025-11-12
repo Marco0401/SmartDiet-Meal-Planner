@@ -48,11 +48,13 @@ class HealthWarningService {
       final userData = userDoc.data()!;
       final healthConditions = List<String>.from(userData['healthConditions'] ?? []);
       final allergies = List<String>.from(userData['allergies'] ?? []);
+      final dietaryPreferences = List<String>.from(userData['dietaryPreferences'] ?? []);
       final medications = userData['medication'] as String?;
       
       print('DEBUG HealthWarning: User data keys: ${userData.keys}');
       print('DEBUG HealthWarning: Health conditions: $healthConditions');
       print('DEBUG HealthWarning: Allergies: $allergies');
+      print('DEBUG HealthWarning: Dietary preferences: $dietaryPreferences');
       print('DEBUG HealthWarning: Medications: $medications');
       print('DEBUG HealthWarning: Meal title: "$customTitle"');
       print('DEBUG HealthWarning: Meal ingredients: ${mealData['ingredients']}');
@@ -76,9 +78,17 @@ class HealthWarningService {
         warnings.addAll(conditionWarnings);
       }
 
+      // Check dietary preferences
+      if (dietaryPreferences.isNotEmpty && !dietaryPreferences.contains('None')) {
+        final dietaryWarnings = await _checkDietaryPreferenceConflicts(dietaryPreferences, mealData, customTitle ?? mealData['title'] ?? 'Unknown');
+        warnings.addAll(dietaryWarnings);
+      }
+      
       // Check allergies
-      final allergyWarnings = await _checkAllergyConflicts(allergies, mealData);
-      warnings.addAll(allergyWarnings);
+      if (allergies.isNotEmpty && !allergies.contains('None')) {
+        final allergyWarnings = await _checkAllergyConflicts(allergies, mealData);
+        warnings.addAll(allergyWarnings);
+      }
 
       // Check medication interactions
       if (medications != null && medications.isNotEmpty) {
@@ -857,6 +867,361 @@ class HealthWarningService {
         ],
         icon: Icons.dangerous,
         color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check dietary preference conflicts with keyword-based analysis
+  static Future<List<HealthWarning>> _checkDietaryPreferenceConflicts(
+    List<String> dietaryPreferences,
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) async {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    print('DEBUG DietaryWarning: Analyzing meal "$title" for preferences: $dietaryPreferences');
+    print('DEBUG DietaryWarning: Checking ingredients: ${ingredients.join(", ")}');
+    
+    for (String preference in dietaryPreferences) {
+      if (preference == 'None' || preference == 'No Preference') continue;
+      
+      print('DEBUG DietaryWarning: Checking dietary preference: "$preference"');
+      
+      switch (preference) {
+        case 'Halal':
+          warnings.addAll(_checkHalalConflicts(allText, title, ingredients));
+          break;
+        case 'Kosher':
+          warnings.addAll(_checkKosherConflicts(allText, title, ingredients));
+          break;
+        case 'Vegetarian':
+          warnings.addAll(_checkVegetarianConflicts(allText, title, ingredients));
+          break;
+        case 'Vegan':
+          warnings.addAll(_checkVeganConflicts(allText, title, ingredients));
+          break;
+        case 'Pescatarian':
+          warnings.addAll(_checkPescatarianConflicts(allText, title, ingredients));
+          break;
+        case 'Keto':
+          warnings.addAll(_checkKetoConflicts(allText, title, ingredients));
+          break;
+        case 'Low Carb':
+          warnings.addAll(_checkLowCarbConflicts(allText, title, ingredients));
+          break;
+        case 'Low Sodium':
+          warnings.addAll(_checkLowSodiumConflicts(allText, title, ingredients));
+          break;
+      }
+    }
+    
+    print('DEBUG DietaryWarning: Found ${warnings.length} dietary preference warnings');
+    return warnings;
+  }
+
+  /// Check Halal dietary conflicts
+  static List<HealthWarning> _checkHalalConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // Haram (forbidden) ingredients
+    const haramKeywords = [
+      'pork', 'bacon', 'ham', 'sausage', 'pepperoni', 'prosciutto', 'chorizo',
+      'wine', 'beer', 'alcohol', 'rum', 'vodka', 'whiskey', 'brandy',
+      'gelatin', 'lard', 'pancetta', 'salami', 'mortadella'
+    ];
+    
+    final foundHaram = haramKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundHaram.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 HALAL ALERT: Haram Ingredients Detected',
+        message: 'This meal contains ingredients that are not Halal: ${foundHaram.join(", ")}. These are forbidden in Islamic dietary law.',
+        condition: 'Halal Diet',
+        risks: [
+          'Violates Islamic dietary laws (Haram)',
+          'Contains pork or alcohol derivatives',
+          'May compromise religious observance',
+        ],
+        alternatives: [
+          'Choose Halal-certified alternatives',
+          'Replace pork with Halal beef or chicken',
+          'Use alcohol-free cooking methods',
+          'Look for explicitly Halal recipes',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Kosher dietary conflicts  
+  static List<HealthWarning> _checkKosherConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // Non-kosher ingredients
+    const nonKosherKeywords = [
+      'pork', 'bacon', 'ham', 'shellfish', 'shrimp', 'lobster', 'crab', 'oyster',
+      'clam', 'scallop', 'squid', 'eel', 'rabbit', 'mixing meat and dairy',
+      'cheeseburger', 'meat with cream', 'beef with cheese'
+    ];
+    
+    final foundNonKosher = nonKosherKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundNonKosher.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 KOSHER ALERT: Non-Kosher Ingredients Detected',
+        message: 'This meal contains ingredients that are not Kosher: ${foundNonKosher.join(", ")}. These violate Jewish dietary laws.',
+        condition: 'Kosher Diet',
+        risks: [
+          'Violates Jewish dietary laws (Kashrut)',
+          'Contains forbidden animals or combinations',
+          'May compromise religious observance',
+        ],
+        alternatives: [
+          'Choose Kosher-certified alternatives',
+          'Avoid mixing meat and dairy',
+          'Replace shellfish with kosher fish',
+          'Look for rabbinically supervised recipes',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Vegetarian dietary conflicts
+  static List<HealthWarning> _checkVegetarianConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // Meat and fish ingredients
+    const meatKeywords = [
+      'beef', 'pork', 'chicken', 'turkey', 'lamb', 'fish', 'salmon', 'tuna',
+      'bacon', 'ham', 'sausage', 'meat', 'steak', 'ground beef', 'chicken breast',
+      'seafood', 'shrimp', 'lobster', 'crab', 'anchovies', 'gelatin'
+    ];
+    
+    final foundMeat = meatKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundMeat.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 VEGETARIAN ALERT: Meat/Fish Ingredients Detected',
+        message: 'This meal contains meat or fish ingredients: ${foundMeat.join(", ")}. These conflict with your vegetarian diet.',
+        condition: 'Vegetarian Diet',
+        risks: [
+          'Violates vegetarian dietary principles',
+          'Contains animal flesh or fish',
+          'May cause digestive discomfort if avoided long-term',
+        ],
+        alternatives: [
+          'Replace meat with plant-based proteins',
+          'Use tofu, tempeh, or legumes instead',
+          'Try vegetarian meat substitutes',
+          'Choose plant-based recipes',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Vegan dietary conflicts
+  static List<HealthWarning> _checkVeganConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // All animal products
+    const animalProductKeywords = [
+      'beef', 'pork', 'chicken', 'turkey', 'lamb', 'fish', 'salmon', 'tuna',
+      'bacon', 'ham', 'sausage', 'meat', 'dairy', 'milk', 'cheese', 'butter',
+      'cream', 'yogurt', 'eggs', 'honey', 'gelatin', 'whey', 'casein'
+    ];
+    
+    final foundAnimalProducts = animalProductKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundAnimalProducts.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 VEGAN ALERT: Animal Products Detected',
+        message: 'This meal contains animal products: ${foundAnimalProducts.join(", ")}. These conflict with your vegan lifestyle.',
+        condition: 'Vegan Diet',
+        risks: [
+          'Violates vegan dietary principles',
+          'Contains animal-derived ingredients',
+          'May cause ethical concerns',
+          'Possible digestive issues if avoided long-term',
+        ],
+        alternatives: [
+          'Use plant-based milk alternatives',
+          'Replace eggs with flax or chia eggs',
+          'Try vegan cheese substitutes',
+          'Choose fully plant-based recipes',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Pescatarian dietary conflicts
+  static List<HealthWarning> _checkPescatarianConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // Land animal meat (but fish is allowed)
+    const landMeatKeywords = [
+      'beef', 'pork', 'chicken', 'turkey', 'lamb', 'bacon', 'ham', 'sausage',
+      'steak', 'ground beef', 'chicken breast', 'duck', 'goose', 'venison'
+    ];
+    
+    final foundLandMeat = landMeatKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundLandMeat.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 PESCATARIAN ALERT: Land Animal Meat Detected',
+        message: 'This meal contains land animal meat: ${foundLandMeat.join(", ")}. Pescatarian diet allows fish but not land animals.',
+        condition: 'Pescatarian Diet',
+        risks: [
+          'Violates pescatarian dietary principles',
+          'Contains forbidden land animal meat',
+          'May cause digestive discomfort',
+        ],
+        alternatives: [
+          'Replace meat with fish or seafood',
+          'Use plant-based protein sources',
+          'Try fish-based recipes instead',
+          'Choose vegetarian options with fish',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Keto dietary conflicts
+  static List<HealthWarning> _checkKetoConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // High carb ingredients
+    const highCarbKeywords = [
+      'bread', 'pasta', 'rice', 'potato', 'sugar', 'flour', 'oats', 'quinoa',
+      'beans', 'lentils', 'chickpeas', 'banana', 'apple', 'orange', 'cereal',
+      'crackers', 'cookies', 'cake', 'candy', 'honey', 'syrup'
+    ];
+    
+    final foundHighCarb = highCarbKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundHighCarb.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ KETO WARNING: High Carb Ingredients Detected',
+        message: 'This meal contains high-carb ingredients: ${foundHighCarb.join(", ")}. These may kick you out of ketosis.',
+        condition: 'Keto Diet',
+        risks: [
+          'May break ketosis state',
+          'Can spike blood sugar levels',
+          'Interferes with fat burning',
+          'May cause keto flu symptoms',
+        ],
+        alternatives: [
+          'Replace with keto-friendly alternatives',
+          'Use cauliflower rice instead of regular rice',
+          'Choose low-carb vegetables',
+          'Focus on high-fat, low-carb options',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Low Carb dietary conflicts
+  static List<HealthWarning> _checkLowCarbConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // High carb ingredients (similar to keto but less strict)
+    const highCarbKeywords = [
+      'bread', 'pasta', 'rice', 'potato', 'sugar', 'flour', 'cereal',
+      'crackers', 'cookies', 'cake', 'candy', 'honey', 'syrup', 'bagel'
+    ];
+    
+    final foundHighCarb = highCarbKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundHighCarb.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ LOW CARB WARNING: High Carb Ingredients Detected',
+        message: 'This meal contains high-carb ingredients: ${foundHighCarb.join(", ")}. These exceed typical low-carb limits.',
+        condition: 'Low Carb Diet',
+        risks: [
+          'Exceeds daily carb targets',
+          'May hinder weight loss goals',
+          'Can cause blood sugar spikes',
+        ],
+        alternatives: [
+          'Choose whole grain alternatives',
+          'Reduce portion sizes',
+          'Replace with low-carb vegetables',
+          'Focus on protein and healthy fats',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check Low Sodium dietary conflicts
+  static List<HealthWarning> _checkLowSodiumConflicts(String allText, String title, List<dynamic> ingredients) {
+    List<HealthWarning> warnings = [];
+    
+    // High sodium ingredients (similar to hypertension but for dietary preference)
+    const highSodiumKeywords = [
+      'soy sauce', 'salt', 'bacon', 'ham', 'cheese', 'pickles', 'olives',
+      'canned soup', 'instant noodles', 'processed meat', 'chips', 'crackers'
+    ];
+    
+    final foundHighSodium = highSodiumKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    if (foundHighSodium.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ LOW SODIUM WARNING: High Sodium Ingredients Detected',
+        message: 'This meal contains high-sodium ingredients: ${foundHighSodium.join(", ")}. These exceed low-sodium dietary goals.',
+        condition: 'Low Sodium Diet',
+        risks: [
+          'Exceeds daily sodium targets',
+          'May cause water retention',
+          'Can affect blood pressure',
+        ],
+        alternatives: [
+          'Use herbs and spices for flavor',
+          'Choose fresh ingredients over processed',
+          'Use low-sodium alternatives',
+          'Rinse canned foods before use',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
       ));
     }
     
