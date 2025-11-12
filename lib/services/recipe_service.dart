@@ -10,7 +10,7 @@ class RecipeService {
   static bool get isApiKeyConfigured => _apiKey.isNotEmpty && _apiKey != 'your_api_key_here';
   static const String _baseUrl = 'https://api.spoonacular.com/recipes';
 
-  static Future<List<dynamic>> fetchRecipes(String query) async {
+  static Future<List<dynamic>> fetchRecipes(String query, {List<String>? dietaryPreferences}) async {
     List<dynamic> allRecipes = [];
     
     // If query is empty, use random popular terms for variety
@@ -23,6 +23,7 @@ class RecipeService {
     }
     
     print('DEBUG: fetchRecipes called with query: "$query" -> using: "$searchQuery"');
+    print('DEBUG: Dietary preferences: $dietaryPreferences');
     print('DEBUG: API key configured: $isApiKeyConfigured');
     print('DEBUG: API key: ${_apiKey.substring(0, 8)}...');
     
@@ -30,7 +31,31 @@ class RecipeService {
       // 1. Try Spoonacular first (only if API key is available)
       if (isApiKeyConfigured) {
         try {
-          final url = '$_baseUrl/complexSearch?query=$searchQuery&number=10&apiKey=$_apiKey';
+          // Build dietary preference filters for Spoonacular
+          String dietFilter = '';
+          if (dietaryPreferences != null && dietaryPreferences.isNotEmpty) {
+            final validPrefs = dietaryPreferences.where((pref) => pref != 'None' && pref != 'No Preference').toList();
+            if (validPrefs.isNotEmpty) {
+              // Map dietary preferences to Spoonacular diet parameters
+              final spoonacularDiets = validPrefs.map((pref) {
+                switch (pref.toLowerCase()) {
+                  case 'vegetarian': return 'vegetarian';
+                  case 'vegan': return 'vegan';
+                  case 'pescatarian': return 'pescatarian';
+                  case 'keto': return 'ketogenic';
+                  case 'low carb': return 'ketogenic';
+                  case 'halal': return 'halal';
+                  default: return null;
+                }
+              }).where((diet) => diet != null).toList();
+              
+              if (spoonacularDiets.isNotEmpty) {
+                dietFilter = '&diet=${spoonacularDiets.join(',')}';
+              }
+            }
+          }
+          
+          final url = '$_baseUrl/complexSearch?query=$searchQuery&number=10$dietFilter&apiKey=$_apiKey';
           print('DEBUG: Spoonacular URL: $url');
           final response = await http.get(Uri.parse(url));
           print('DEBUG: Spoonacular response status: ${response.statusCode}');
@@ -100,9 +125,20 @@ class RecipeService {
         print('Admin Recipes error: $e');
       }
       
+      // Apply dietary preference filtering to all recipes
+      List<dynamic> filteredRecipes = allRecipes;
+      if (dietaryPreferences != null && dietaryPreferences.isNotEmpty) {
+        filteredRecipes = _filterRecipesByDietaryPreferences(allRecipes, dietaryPreferences);
+        print('DEBUG: Filtered ${allRecipes.length} recipes to ${filteredRecipes.length} based on dietary preferences');
+      }
+      
       // Limit total results to 50 for better variety from all sources
-      final limitedRecipes = allRecipes.take(50).toList();
-      print('Total recipes fetched: ${allRecipes.length} (limited to ${limitedRecipes.length})');
+      final limitedRecipes = filteredRecipes.take(50).toList();
+      
+      print('DEBUG: Total recipes from all sources: ${allRecipes.length}');
+      print('DEBUG: After dietary filtering: ${filteredRecipes.length}');
+      print('DEBUG: Limited recipes returned: ${limitedRecipes.length}');
+      
       return limitedRecipes;
     } catch (e) {
       print('Error in fetchRecipes: $e');
@@ -967,5 +1003,103 @@ class RecipeService {
     } catch (e) {
       print('Error sending admin recipe update notifications: $e');
     }
+  }
+
+  /// Filter recipes based on dietary preferences
+  static List<dynamic> _filterRecipesByDietaryPreferences(List<dynamic> recipes, List<String> dietaryPreferences) {
+    if (dietaryPreferences.isEmpty || dietaryPreferences.contains('None') || dietaryPreferences.contains('No Preference')) {
+      return recipes;
+    }
+
+    return recipes.where((recipe) {
+      final title = (recipe['title'] as String? ?? '').toLowerCase();
+      final ingredients = recipe['ingredients'] as List<dynamic>? ?? [];
+      final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+
+      // Check each dietary preference
+      for (String preference in dietaryPreferences) {
+        switch (preference.toLowerCase()) {
+          case 'vegetarian':
+            // Exclude meat and fish
+            if (_containsMeat(allText) || _containsFish(allText)) {
+              return false;
+            }
+            break;
+          case 'vegan':
+            // Exclude all animal products
+            if (_containsMeat(allText) || _containsFish(allText) || _containsDairy(allText) || _containsEggs(allText)) {
+              return false;
+            }
+            break;
+          case 'pescatarian':
+            // Exclude meat but allow fish
+            if (_containsMeat(allText)) {
+              return false;
+            }
+            break;
+          case 'keto':
+          case 'low carb':
+            // Exclude high-carb foods
+            if (_containsHighCarbs(allText)) {
+              return false;
+            }
+            break;
+          case 'low sodium':
+            // Exclude high-sodium foods
+            if (_containsHighSodium(allText)) {
+              return false;
+            }
+            break;
+          case 'halal':
+            // Exclude pork and alcohol
+            if (_containsPork(allText) || _containsAlcohol(allText)) {
+              return false;
+            }
+            break;
+        }
+      }
+      return true;
+    }).toList();
+  }
+
+  // Helper methods for dietary filtering
+  static bool _containsMeat(String text) {
+    const meatKeywords = ['beef', 'pork', 'chicken', 'turkey', 'lamb', 'duck', 'bacon', 'ham', 'sausage', 'meat'];
+    return meatKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsFish(String text) {
+    const fishKeywords = ['fish', 'salmon', 'tuna', 'cod', 'shrimp', 'crab', 'lobster', 'seafood'];
+    return fishKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsDairy(String text) {
+    const dairyKeywords = ['milk', 'cheese', 'butter', 'cream', 'yogurt', 'dairy'];
+    return dairyKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsEggs(String text) {
+    const eggKeywords = ['egg', 'eggs'];
+    return eggKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsHighCarbs(String text) {
+    const highCarbKeywords = ['bread', 'pasta', 'rice', 'potato', 'sugar', 'flour', 'noodles'];
+    return highCarbKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsHighSodium(String text) {
+    const highSodiumKeywords = ['soy sauce', 'salt', 'canned', 'processed', 'pickled'];
+    return highSodiumKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsPork(String text) {
+    const porkKeywords = ['pork', 'bacon', 'ham', 'pepperoni', 'prosciutto'];
+    return porkKeywords.any((keyword) => text.contains(keyword));
+  }
+
+  static bool _containsAlcohol(String text) {
+    const alcoholKeywords = ['wine', 'beer', 'alcohol', 'rum', 'vodka', 'whiskey'];
+    return alcoholKeywords.any((keyword) => text.contains(keyword));
   }
 } 

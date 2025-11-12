@@ -137,8 +137,26 @@ class _MyHomePageState extends State<MyHomePage> {
       _error = null;
     });
     try {
+      // Get user's dietary preferences for filtering
+      final user = FirebaseAuth.instance.currentUser;
+      List<String> dietaryPreferences = [];
+      
+      if (user != null) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get();
+          if (userDoc.exists) {
+            dietaryPreferences = List<String>.from(userDoc.data()?['dietaryPreferences'] ?? []);
+          }
+        } catch (e) {
+          print('Error fetching user dietary preferences: $e');
+        }
+      }
+      
       // Use comprehensive recipe service for all sources (Spoonacular + TheMealDB + Filipino)
-      final recipes = await RecipeService.fetchRecipes(query);
+      final recipes = await RecipeService.fetchRecipes(query, dietaryPreferences: dietaryPreferences);
       
       // Shuffle recipes based on current date for daily randomization
       final shuffledRecipes = _shuffleRecipesForToday(recipes);

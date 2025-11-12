@@ -36,6 +36,32 @@ class DietaryPreferencesStep extends StatelessWidget {
           const Text('🥗 Dietary Preferences', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 24),
           const Text('Are you following a specific diet?'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info, color: Colors.blue, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Note: Your dietary preferences will automatically filter recipe searches and meal suggestions throughout the app.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           ...dietList.map((d) => CheckboxListTile(
                 value: selectedDiets.contains(d),
                 title: Text(d),

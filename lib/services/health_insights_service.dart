@@ -47,23 +47,43 @@ class HealthInsightsService {
       final allergies = List<String>.from(userData['allergies'] ?? []);
       final goal = userData['goal'] as String?;
 
-      // Get recent meals (last 7 days)
-      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
+      // Get recent meals (last 30 days to ensure we have data)
+      print('DEBUG: Fetching meals for user ${user.uid}');
       final mealsSnapshot = await _firestore
           .collection('users')
           .doc(user.uid)
           .collection('meal_plans')
-          .where('date', isGreaterThan: Timestamp.fromDate(sevenDaysAgo))
+          .orderBy('created_at', descending: true)
+          .limit(50) // Get last 50 meals
           .get();
 
       final meals = mealsSnapshot.docs.map((doc) => doc.data()).toList();
+      print('DEBUG: Found ${meals.length} meals for analysis');
+      
+      // Filter to last 7 days if we have created_at timestamps
+      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
+      final recentMeals = meals.where((meal) {
+        final createdAt = meal['created_at'] as Timestamp?;
+        if (createdAt != null) {
+          return createdAt.toDate().isAfter(sevenDaysAgo);
+        }
+        return true; // Include meals without timestamp for now
+      }).toList();
+      
+      print('DEBUG: ${recentMeals.length} meals from last 7 days');
+      print('DEBUG: Health conditions: $healthConditions');
+      print('DEBUG: Allergies: $allergies');
+      print('DEBUG: Goal: $goal');
 
       List<HealthInsight> insights = [];
 
       // Generate condition-specific insights
       for (String condition in healthConditions) {
         if (condition == 'None') continue;
-        insights.addAll(await _generateConditionInsights(condition, meals, user.uid));
+        print('DEBUG: Generating insights for condition: $condition');
+        final conditionInsights = await _generateConditionInsights(condition, recentMeals, user.uid);
+        print('DEBUG: Generated ${conditionInsights.length} insights for $condition');
+        insights.addAll(conditionInsights);
       }
 
       // Generate goal-based insights
@@ -82,6 +102,14 @@ class HealthInsightsService {
         const priority = {'warning': 0, 'suggestion': 1, 'achievement': 2, 'tip': 3};
         return priority[a.type]!.compareTo(priority[b.type]!);
       });
+
+      // If no insights generated, create some basic ones
+      if (insights.isEmpty) {
+        print('DEBUG: No insights generated, creating fallback insights');
+        insights.addAll(_generateFallbackInsights(healthConditions, goal));
+      }
+      
+      print('DEBUG: Total insights generated: ${insights.length}');
 
       // Store insights in Firestore for persistence
       await _storeInsights(insights, user.uid);
@@ -765,6 +793,139 @@ class HealthInsightsService {
       }
     }
 
+    return insights;
+  }
+
+  /// Generate fallback insights when no meal data is available
+  static List<HealthInsight> _generateFallbackInsights(List<String> healthConditions, String? goal) {
+    List<HealthInsight> insights = [];
+    
+    // Welcome message
+    insights.add(HealthInsight(
+      id: 'welcome_message',
+      type: 'tip',
+      title: '👋 Welcome to Health Insights!',
+      message: 'Start logging meals to get personalized health recommendations based on your conditions.',
+      icon: Icons.lightbulb,
+      color: Colors.blue,
+      actionable: true,
+      suggestions: [
+        'Log your first meal to get started',
+        'Add ingredients for better analysis',
+        'Check back after a few meals',
+      ],
+      createdAt: DateTime.now(),
+    ));
+    
+    // Condition-specific tips
+    for (String condition in healthConditions) {
+      if (condition == 'None') continue;
+      
+      switch (condition) {
+        case 'Diabetes':
+          insights.add(HealthInsight(
+            id: 'diabetes_tip',
+            type: 'tip',
+            title: '🩺 Diabetes Management Tips',
+            message: 'Monitor your carb intake and choose low-glycemic foods for better blood sugar control.',
+            icon: Icons.medical_services,
+            color: Colors.green,
+            actionable: true,
+            suggestions: [
+              'Choose whole grains over refined carbs',
+              'Include protein with each meal',
+              'Monitor portion sizes',
+              'Stay hydrated',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Diabetes',
+          ));
+          break;
+        case 'Hypertension':
+          insights.add(HealthInsight(
+            id: 'hypertension_tip',
+            type: 'tip',
+            title: '🫀 Blood Pressure Management',
+            message: 'Reduce sodium intake and focus on fresh, whole foods to help manage blood pressure.',
+            icon: Icons.favorite,
+            color: Colors.red,
+            actionable: true,
+            suggestions: [
+              'Use herbs and spices instead of salt',
+              'Choose fresh over processed foods',
+              'Include potassium-rich foods',
+              'Limit alcohol consumption',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Hypertension',
+          ));
+          break;
+        case 'High Cholesterol':
+          insights.add(HealthInsight(
+            id: 'cholesterol_tip',
+            type: 'tip',
+            title: '🥩 Cholesterol Management',
+            message: 'Choose lean proteins and healthy fats to help manage cholesterol levels.',
+            icon: Icons.eco,
+            color: Colors.orange,
+            actionable: true,
+            suggestions: [
+              'Choose lean cuts of meat',
+              'Include omega-3 rich fish',
+              'Use olive oil for cooking',
+              'Add more fiber to your diet',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'High Cholesterol',
+          ));
+          break;
+      }
+    }
+    
+    // Goal-based tips
+    if (goal != null && goal != 'None') {
+      switch (goal) {
+        case 'Lose weight':
+          insights.add(HealthInsight(
+            id: 'weight_loss_tip',
+            type: 'tip',
+            title: '⚖️ Weight Loss Success Tips',
+            message: 'Focus on portion control and nutrient-dense foods for sustainable weight loss.',
+            icon: Icons.trending_down,
+            color: Colors.purple,
+            actionable: true,
+            suggestions: [
+              'Fill half your plate with vegetables',
+              'Choose lean proteins',
+              'Control portion sizes',
+              'Stay consistent with logging',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Weight Loss',
+          ));
+          break;
+        case 'Build muscle':
+          insights.add(HealthInsight(
+            id: 'muscle_gain_tip',
+            type: 'tip',
+            title: '💪 Muscle Building Nutrition',
+            message: 'Ensure adequate protein intake and fuel your workouts with proper nutrition.',
+            icon: Icons.fitness_center,
+            color: Colors.indigo,
+            actionable: true,
+            suggestions: [
+              'Include protein in every meal',
+              'Eat within 30 minutes post-workout',
+              'Don\'t skip carbs for energy',
+              'Stay hydrated',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Muscle Gain',
+          ));
+          break;
+      }
+    }
+    
     return insights;
   }
 
