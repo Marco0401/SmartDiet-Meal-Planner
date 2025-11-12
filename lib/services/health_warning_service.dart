@@ -292,6 +292,52 @@ class HealthWarningService {
         color: Colors.red,
       ));
     }
+    
+    // WARNING: High sodium
+    else if (foundHigh.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ HYPERTENSION WARNING: High Sodium Content',
+        message: 'This meal contains high-sodium ingredients: ${foundHigh.join(", ")}. Monitor blood pressure closely.',
+        condition: 'Hypertension',
+        risks: [
+          'Moderate blood pressure increase',
+          'Fluid retention',
+          'Increased medication needs',
+          'Long-term cardiovascular risk',
+        ],
+        alternatives: [
+          'Eat smaller portions',
+          'Drink extra water',
+          'Choose low-sodium versions',
+          'Balance with potassium-rich foods',
+          'Monitor BP after eating',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
+    // CAUTION: Medium sodium
+    else if (foundMedium.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'suggestion',
+        title: '💡 HYPERTENSION TIP: Watch Sodium Intake',
+        message: 'This meal contains moderate-sodium ingredients: ${foundMedium.join(", ")}. Consider healthier alternatives.',
+        condition: 'Hypertension',
+        risks: [
+          'Gradual sodium accumulation',
+          'Daily limit exceeded if combined with other meals',
+        ],
+        alternatives: [
+          'Choose whole grain, unsalted versions',
+          'Make homemade versions with less salt',
+          'Add fresh vegetables to dilute sodium',
+        ],
+        icon: Icons.lightbulb,
+        color: Colors.blue,
+      ));
+    }
 
     return warnings;
   }
@@ -806,8 +852,5 @@ class HealthWarningService {
   }
 
   // Placeholder for other condition checks
-  static List<HealthWarning> _checkKidneyConflicts(Map<String, dynamic> mealData, String mealTitle) => [];
-  static List<HealthWarning> _checkPCOSConflicts(Map<String, dynamic> mealData, String mealTitle) => [];
-  static List<HealthWarning> _checkObesityConflicts(Map<String, dynamic> mealData, String mealTitle) => [];
   static Future<List<HealthWarning>> _checkMedicationConflicts(String medications, Map<String, dynamic> mealData) async => [];
 }
