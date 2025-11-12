@@ -1486,6 +1486,60 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
       ),
     );
   }
+
+  Future<void> _showForwardRecipeDialog(String recipeId, Map<String, dynamic> recipeData) async {
+    // Show dialog to select users to forward the recipe to
+    final selectedUsers = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (context) => _ForwardRecipeDialog(recipeData: recipeData),
+    );
+
+    if (selectedUsers != null && selectedUsers.isNotEmpty) {
+      // Forward the recipe to selected users
+      for (final user in selectedUsers) {
+        await _forwardRecipeToUser(user, recipeData);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Recipe forwarded to ${selectedUsers.length} user(s)!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  Future<void> _forwardRecipeToUser(Map<String, dynamic> targetUser, Map<String, dynamic> recipeData) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+
+      // Create a chat message with the recipe
+      final messageData = {
+        'senderId': currentUser.uid,
+        'receiverId': targetUser['uid'],
+        'message': '🍽️ Shared a recipe: ${recipeData['title']}',
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'recipe_share',
+        'recipeData': {
+          'id': recipeData['id'],
+          'title': recipeData['title'],
+          'image': recipeData['image'],
+          'description': recipeData['description'] ?? '',
+          'authorName': recipeData['authorName'] ?? 'Unknown',
+          'authorId': recipeData['authorId'],
+        },
+        'isRead': false,
+      };
+
+      // Add to messages collection
+      await FirebaseFirestore.instance.collection('messages').add(messageData);
+
+      print('DEBUG: Recipe forwarded to ${targetUser['name']}');
+    } catch (e) {
+      print('ERROR forwarding recipe: $e');
+    }
+  }
 }
 
 // Follow Button Widget
@@ -1615,60 +1669,6 @@ class _FollowButtonState extends State<_FollowButton> {
             ),
     );
   }
-
-  Future<void> _showForwardRecipeDialog(String recipeId, Map<String, dynamic> recipeData) async {
-    // Show dialog to select users to forward the recipe to
-    final selectedUsers = await showDialog<List<Map<String, dynamic>>>(
-      context: context,
-      builder: (context) => _ForwardRecipeDialog(recipeData: recipeData),
-    );
-
-    if (selectedUsers != null && selectedUsers.isNotEmpty) {
-      // Forward the recipe to selected users
-      for (final user in selectedUsers) {
-        await _forwardRecipeToUser(user, recipeData);
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Recipe forwarded to ${selectedUsers.length} user(s)!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
-
-  Future<void> _forwardRecipeToUser(Map<String, dynamic> targetUser, Map<String, dynamic> recipeData) async {
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return;
-
-      // Create a chat message with the recipe
-      final messageData = {
-        'senderId': currentUser.uid,
-        'receiverId': targetUser['uid'],
-        'message': '🍽️ Shared a recipe: ${recipeData['title']}',
-        'timestamp': FieldValue.serverTimestamp(),
-        'type': 'recipe_share',
-        'recipeData': {
-          'id': recipeData['id'],
-          'title': recipeData['title'],
-          'image': recipeData['image'],
-          'description': recipeData['description'] ?? '',
-          'authorName': recipeData['authorName'] ?? 'Unknown',
-          'authorId': recipeData['authorId'],
-        },
-        'isRead': false,
-      };
-
-      // Add to messages collection
-      await FirebaseFirestore.instance.collection('messages').add(messageData);
-
-      print('DEBUG: Recipe forwarded to ${targetUser['name']}');
-    } catch (e) {
-      print('ERROR forwarding recipe: $e');
-    }
-  }
 }
 
 class _ForwardRecipeDialog extends StatefulWidget {
@@ -1750,7 +1750,7 @@ class _ForwardRecipeDialogState extends State<_ForwardRecipeDialog> {
                             final user = _availableUsers[index];
                             final isSelected = _selectedUsers.any((u) => u['uid'] == user['uid']);
                             
-                            return CheckboxListTile(
+                            return ListTile(
                               leading: CircleAvatar(
                                 backgroundImage: user['profileImage'] != null
                                     ? NetworkImage(user['profileImage'])
@@ -1761,13 +1761,24 @@ class _ForwardRecipeDialogState extends State<_ForwardRecipeDialog> {
                               ),
                               title: Text(user['name']),
                               subtitle: Text(user['email'] ?? ''),
-                              value: isSelected,
-                              onChanged: (bool? value) {
+                              trailing: Checkbox(
+                                value: isSelected,
+                                onChanged: (bool? value) {
+                                  setState(() {
+                                    if (value == true) {
+                                      _selectedUsers.add(user);
+                                    } else {
+                                      _selectedUsers.removeWhere((u) => u['uid'] == user['uid']);
+                                    }
+                                  });
+                                },
+                              ),
+                              onTap: () {
                                 setState(() {
-                                  if (value == true) {
-                                    _selectedUsers.add(user);
-                                  } else {
+                                  if (isSelected) {
                                     _selectedUsers.removeWhere((u) => u['uid'] == user['uid']);
+                                  } else {
+                                    _selectedUsers.add(user);
                                   }
                                 });
                               },
