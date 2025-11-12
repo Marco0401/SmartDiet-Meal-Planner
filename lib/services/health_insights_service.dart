@@ -52,7 +52,7 @@ class HealthInsightsService {
       final mealsSnapshot = await _firestore
           .collection('users')
           .doc(user.uid)
-          .collection('meals')
+          .collection('meal_plans')
           .where('date', isGreaterThan: Timestamp.fromDate(sevenDaysAgo))
           .get();
 
@@ -224,37 +224,47 @@ class HealthInsightsService {
   ) async {
     List<HealthInsight> insights = [];
 
-    // Check sodium intake
-    double totalSodium = 0;
-    int mealCount = 0;
-
-    for (var meal in meals) {
-      final nutrition = meal['nutrition'] as Map<String, dynamic>?;
-      if (nutrition != null) {
-        totalSodium += (nutrition['sodium'] as num?)?.toDouble() ?? 0;
-        mealCount++;
+    // Since sodium data is not available, provide general hypertension guidance
+    if (meals.isNotEmpty) {
+      // Check for high-sodium ingredients in meal titles/ingredients
+      int highSodiumMeals = 0;
+      for (var meal in meals) {
+        final title = (meal['title'] as String? ?? '').toLowerCase();
+        final ingredients = meal['ingredients'] as List<dynamic>? ?? [];
+        final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+        
+        if (_containsHighSodiumKeywords(allText)) {
+          highSodiumMeals++;
+        }
       }
-    }
 
-    if (mealCount > 0) {
-      final avgDailySodium = (totalSodium / 7); // Average per day
-      const targetSodium = 1500.0; // mg per day for hypertension
-
-      if (avgDailySodium > targetSodium) {
+      if (highSodiumMeals > 3) {
         insights.add(HealthInsight(
-          id: 'hypertension_high_sodium',
+          id: 'hypertension_sodium_warning',
           type: 'warning',
-          title: '🧂 High Sodium Intake Warning',
-          message: 'Your daily sodium intake averages ${avgDailySodium.toInt()}mg. Target is ${targetSodium.toInt()}mg for blood pressure control.',
+          title: '🧂 High-Sodium Foods Detected',
+          message: 'You\'ve consumed $highSodiumMeals meals with high-sodium ingredients this week. Consider low-sodium alternatives.',
           icon: Icons.warning,
-          color: Colors.red,
+          color: Colors.orange,
           actionable: true,
           suggestions: [
             'Use herbs and spices instead of salt',
             'Choose fresh foods over processed',
-            'Read nutrition labels carefully',
-            'Rinse canned foods to reduce sodium',
+            'Avoid canned soups and processed meats',
+            'Cook at home to control sodium',
           ],
+          createdAt: DateTime.now(),
+          relatedCondition: 'Hypertension',
+        ));
+      } else if (highSodiumMeals == 0) {
+        insights.add(HealthInsight(
+          id: 'hypertension_good_choices',
+          type: 'achievement',
+          title: '🎉 Great Sodium Management!',
+          message: 'You\'ve been avoiding high-sodium foods this week. Keep it up for better blood pressure control!',
+          icon: Icons.celebration,
+          color: Colors.green,
+          actionable: false,
           createdAt: DateTime.now(),
           relatedCondition: 'Hypertension',
         ));
@@ -262,6 +272,18 @@ class HealthInsightsService {
     }
 
     return insights;
+  }
+
+  /// Helper method to detect high-sodium keywords
+  static bool _containsHighSodiumKeywords(String text) {
+    const highSodiumKeywords = [
+      'soy sauce', 'salt', 'bacon', 'ham', 'cheese', 'pickles',
+      'canned soup', 'processed meat', 'instant noodles', 'chips',
+      'olives', 'anchovies', 'salami', 'pepperoni', 'sausage',
+      'canned', 'frozen dinner', 'fast food', 'restaurant'
+    ];
+    
+    return highSodiumKeywords.any((keyword) => text.contains(keyword));
   }
 
   /// Generate goal-based insights
@@ -294,43 +316,92 @@ class HealthInsightsService {
   ) async {
     List<HealthInsight> insights = [];
 
-    // Calculate average daily calories
-    double totalCalories = 0;
-    Map<String, double> dailyCalories = {};
+    if (meals.isNotEmpty) {
+      // Analyze macronutrient balance for weight loss
+      double totalCarbs = 0;
+      double totalProtein = 0;
+      double totalFat = 0;
+      double totalFiber = 0;
+      int mealCount = 0;
 
-    for (var meal in meals) {
-      final date = (meal['date'] as Timestamp).toDate();
-      final dateKey = '${date.year}-${date.month}-${date.day}';
-      final nutrition = meal['nutrition'] as Map<String, dynamic>?;
-      
-      if (nutrition != null) {
-        final calories = (nutrition['calories'] as num?)?.toDouble() ?? 0;
-        dailyCalories[dateKey] = (dailyCalories[dateKey] ?? 0) + calories;
+      for (var meal in meals) {
+        final nutrition = meal['nutrition'] as Map<String, dynamic>?;
+        if (nutrition != null) {
+          totalCarbs += (nutrition['carbs'] as num?)?.toDouble() ?? 0;
+          totalProtein += (nutrition['protein'] as num?)?.toDouble() ?? 0;
+          totalFat += (nutrition['fat'] as num?)?.toDouble() ?? 0;
+          totalFiber += (nutrition['fiber'] as num?)?.toDouble() ?? 0;
+          mealCount++;
+        }
       }
-    }
 
-    if (dailyCalories.isNotEmpty) {
-      final avgCalories = dailyCalories.values.reduce((a, b) => a + b) / dailyCalories.length;
-      const targetCalories = 1500.0; // Example target for weight loss
+      if (mealCount > 0) {
+        final avgCarbs = totalCarbs / mealCount;
+        final avgProtein = totalProtein / mealCount;
+        final avgFiber = totalFiber / mealCount;
 
-      if (avgCalories > targetCalories + 200) {
-        insights.add(HealthInsight(
-          id: 'weight_loss_high_calories',
-          type: 'suggestion',
-          title: '🎯 Calorie Adjustment Needed',
-          message: 'Your daily calories average ${avgCalories.toInt()}. Consider reducing to ${targetCalories.toInt()} for weight loss.',
-          icon: Icons.trending_down,
-          color: Colors.orange,
-          actionable: true,
-          suggestions: [
-            'Reduce portion sizes by 20%',
-            'Choose lower-calorie cooking methods',
-            'Increase vegetable portions',
-            'Drink water before meals',
-          ],
-          createdAt: DateTime.now(),
-          relatedCondition: 'Weight Loss',
-        ));
+        // High carb warning for weight loss
+        if (avgCarbs > 50) {
+          insights.add(HealthInsight(
+            id: 'weight_loss_high_carbs',
+            type: 'suggestion',
+            title: '🍞 Consider Reducing Carbs',
+            message: 'Your average carb intake is ${avgCarbs.toInt()}g per meal. Lower carbs can help with weight loss.',
+            icon: Icons.trending_down,
+            color: Colors.orange,
+            actionable: true,
+            suggestions: [
+              'Replace rice/pasta with vegetables',
+              'Choose protein-rich snacks',
+              'Try intermittent fasting',
+              'Focus on whole foods',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Weight Loss',
+          ));
+        }
+
+        // Low protein warning
+        if (avgProtein < 20) {
+          insights.add(HealthInsight(
+            id: 'weight_loss_low_protein',
+            type: 'suggestion',
+            title: '💪 Increase Protein Intake',
+            message: 'Your protein intake is ${avgProtein.toInt()}g per meal. Higher protein helps preserve muscle during weight loss.',
+            icon: Icons.fitness_center,
+            color: Colors.blue,
+            actionable: true,
+            suggestions: [
+              'Add lean meats to meals',
+              'Include eggs or Greek yogurt',
+              'Try protein smoothies',
+              'Snack on nuts or seeds',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Weight Loss',
+          ));
+        }
+
+        // Low fiber suggestion
+        if (avgFiber < 5) {
+          insights.add(HealthInsight(
+            id: 'weight_loss_low_fiber',
+            type: 'suggestion',
+            title: '🥬 Add More Fiber',
+            message: 'Your fiber intake is ${avgFiber.toInt()}g per meal. More fiber helps you feel full longer.',
+            icon: Icons.eco,
+            color: Colors.green,
+            actionable: true,
+            suggestions: [
+              'Add vegetables to every meal',
+              'Choose whole grains over refined',
+              'Snack on fruits with skin',
+              'Include beans and legumes',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Weight Loss',
+          ));
+        }
       }
     }
 
@@ -427,11 +498,277 @@ class HealthInsightsService {
     }
   }
 
-  // Placeholder methods for other conditions (implement as needed)
-  static Future<List<HealthInsight>> _generateCholesterolInsights(List<Map<String, dynamic>> meals, String userId) async => [];
-  static Future<List<HealthInsight>> _generateObesityInsights(List<Map<String, dynamic>> meals, String userId) async => [];
-  static Future<List<HealthInsight>> _generatePCOSInsights(List<Map<String, dynamic>> meals, String userId) async => [];
-  static Future<List<HealthInsight>> _generateKidneyInsights(List<Map<String, dynamic>> meals, String userId) async => [];
+  /// Generate cholesterol-specific insights
+  static Future<List<HealthInsight>> _generateCholesterolInsights(List<Map<String, dynamic>> meals, String userId) async {
+    List<HealthInsight> insights = [];
+
+    if (meals.isNotEmpty) {
+      double totalFat = 0;
+      int highFatMeals = 0;
+      int mealCount = 0;
+
+      for (var meal in meals) {
+        final nutrition = meal['nutrition'] as Map<String, dynamic>?;
+        if (nutrition != null) {
+          final fat = (nutrition['fat'] as num?)?.toDouble() ?? 0;
+          totalFat += fat;
+          if (fat > 15) highFatMeals++;
+          mealCount++;
+        }
+      }
+
+      if (mealCount > 0) {
+        final avgFat = totalFat / mealCount;
+        
+        if (avgFat > 20) {
+          insights.add(HealthInsight(
+            id: 'cholesterol_high_fat',
+            type: 'warning',
+            title: '🥩 High Fat Intake Warning',
+            message: 'Your average fat intake is ${avgFat.toInt()}g per meal. High fat can raise cholesterol levels.',
+            icon: Icons.warning,
+            color: Colors.orange,
+            actionable: true,
+            suggestions: [
+              'Choose lean cuts of meat',
+              'Remove skin from poultry',
+              'Use cooking methods that don\'t add fat',
+              'Include more plant-based proteins',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'High Cholesterol',
+          ));
+        } else if (avgFat < 10) {
+          insights.add(HealthInsight(
+            id: 'cholesterol_good_fat',
+            type: 'achievement',
+            title: '💚 Great Fat Management!',
+            message: 'You\'re keeping fat intake low at ${avgFat.toInt()}g per meal. This helps manage cholesterol.',
+            icon: Icons.celebration,
+            color: Colors.green,
+            actionable: false,
+            createdAt: DateTime.now(),
+            relatedCondition: 'High Cholesterol',
+          ));
+        }
+      }
+    }
+
+    return insights;
+  }
+
+  /// Generate obesity-specific insights
+  static Future<List<HealthInsight>> _generateObesityInsights(List<Map<String, dynamic>> meals, String userId) async {
+    List<HealthInsight> insights = [];
+
+    if (meals.isNotEmpty) {
+      double totalCarbs = 0;
+      double totalFat = 0;
+      double totalFiber = 0;
+      int mealCount = 0;
+
+      for (var meal in meals) {
+        final nutrition = meal['nutrition'] as Map<String, dynamic>?;
+        if (nutrition != null) {
+          totalCarbs += (nutrition['carbs'] as num?)?.toDouble() ?? 0;
+          totalFat += (nutrition['fat'] as num?)?.toDouble() ?? 0;
+          totalFiber += (nutrition['fiber'] as num?)?.toDouble() ?? 0;
+          mealCount++;
+        }
+      }
+
+      if (mealCount > 0) {
+        final avgCarbs = totalCarbs / mealCount;
+        final avgFiber = totalFiber / mealCount;
+        
+        if (avgCarbs > 60) {
+          insights.add(HealthInsight(
+            id: 'obesity_high_carbs',
+            type: 'suggestion',
+            title: '🍞 Consider Lower Carb Meals',
+            message: 'High carb intake (${avgCarbs.toInt()}g/meal) can make weight management challenging.',
+            icon: Icons.trending_down,
+            color: Colors.orange,
+            actionable: true,
+            suggestions: [
+              'Fill half your plate with vegetables',
+              'Choose complex carbs over simple ones',
+              'Control portion sizes',
+              'Add more protein to feel fuller',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Obesity',
+          ));
+        }
+        
+        if (avgFiber < 5) {
+          insights.add(HealthInsight(
+            id: 'obesity_low_fiber',
+            type: 'suggestion',
+            title: '🥬 Increase Fiber for Satiety',
+            message: 'More fiber (currently ${avgFiber.toInt()}g/meal) helps you feel full and manage weight.',
+            icon: Icons.eco,
+            color: Colors.green,
+            actionable: true,
+            suggestions: [
+              'Add vegetables to every meal',
+              'Choose whole grains',
+              'Include beans and legumes',
+              'Eat fruits with skin on',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Obesity',
+          ));
+        }
+      }
+    }
+
+    return insights;
+  }
+
+  /// Generate PCOS-specific insights
+  static Future<List<HealthInsight>> _generatePCOSInsights(List<Map<String, dynamic>> meals, String userId) async {
+    List<HealthInsight> insights = [];
+
+    if (meals.isNotEmpty) {
+      double totalCarbs = 0;
+      double totalSugar = 0;
+      double totalFiber = 0;
+      int mealCount = 0;
+
+      for (var meal in meals) {
+        final nutrition = meal['nutrition'] as Map<String, dynamic>?;
+        if (nutrition != null) {
+          totalCarbs += (nutrition['carbs'] as num?)?.toDouble() ?? 0;
+          totalSugar += (nutrition['sugar'] as num?)?.toDouble() ?? 0;
+          totalFiber += (nutrition['fiber'] as num?)?.toDouble() ?? 0;
+          mealCount++;
+        }
+      }
+
+      if (mealCount > 0) {
+        final avgSugar = totalSugar / mealCount;
+        final avgCarbs = totalCarbs / mealCount;
+        
+        if (avgSugar > 15) {
+          insights.add(HealthInsight(
+            id: 'pcos_high_sugar',
+            type: 'warning',
+            title: '🍯 High Sugar Intake Alert',
+            message: 'High sugar (${avgSugar.toInt()}g/meal) can worsen insulin resistance in PCOS.',
+            icon: Icons.warning,
+            color: Colors.red,
+            actionable: true,
+            suggestions: [
+              'Choose low-glycemic foods',
+              'Avoid processed sugars',
+              'Eat protein with carbs',
+              'Focus on whole foods',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'PCOS',
+          ));
+        }
+        
+        if (avgCarbs > 45) {
+          insights.add(HealthInsight(
+            id: 'pcos_high_carbs',
+            type: 'suggestion',
+            title: '🌾 Consider Lower Carb Approach',
+            message: 'Lower carb intake can help manage insulin resistance in PCOS.',
+            icon: Icons.trending_down,
+            color: Colors.orange,
+            actionable: true,
+            suggestions: [
+              'Try a lower-carb approach',
+              'Include anti-inflammatory foods',
+              'Add healthy fats like avocado',
+              'Choose lean proteins',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'PCOS',
+          ));
+        }
+      }
+    }
+
+    return insights;
+  }
+
+  /// Generate kidney disease insights
+  static Future<List<HealthInsight>> _generateKidneyInsights(List<Map<String, dynamic>> meals, String userId) async {
+    List<HealthInsight> insights = [];
+
+    if (meals.isNotEmpty) {
+      double totalProtein = 0;
+      int mealCount = 0;
+      int highSodiumMeals = 0;
+
+      for (var meal in meals) {
+        final nutrition = meal['nutrition'] as Map<String, dynamic>?;
+        if (nutrition != null) {
+          totalProtein += (nutrition['protein'] as num?)?.toDouble() ?? 0;
+          mealCount++;
+        }
+        
+        // Check for high-sodium ingredients
+        final title = (meal['title'] as String? ?? '').toLowerCase();
+        final ingredients = meal['ingredients'] as List<dynamic>? ?? [];
+        final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+        if (_containsHighSodiumKeywords(allText)) {
+          highSodiumMeals++;
+        }
+      }
+
+      if (mealCount > 0) {
+        final avgProtein = totalProtein / mealCount;
+        
+        if (avgProtein > 30) {
+          insights.add(HealthInsight(
+            id: 'kidney_high_protein',
+            type: 'warning',
+            title: '🥩 High Protein Intake Warning',
+            message: 'High protein (${avgProtein.toInt()}g/meal) may strain kidneys. Consult your doctor.',
+            icon: Icons.warning,
+            color: Colors.red,
+            actionable: true,
+            suggestions: [
+              'Consult your nephrologist',
+              'Consider protein restriction',
+              'Focus on high-quality proteins',
+              'Monitor kidney function regularly',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Kidney Disease',
+          ));
+        }
+        
+        if (highSodiumMeals > 2) {
+          insights.add(HealthInsight(
+            id: 'kidney_high_sodium',
+            type: 'warning',
+            title: '🧂 Sodium Restriction Needed',
+            message: 'Multiple high-sodium meals detected. Kidney disease requires strict sodium control.',
+            icon: Icons.warning,
+            color: Colors.orange,
+            actionable: true,
+            suggestions: [
+              'Avoid processed foods',
+              'Cook fresh meals at home',
+              'Use herbs instead of salt',
+              'Read food labels carefully',
+            ],
+            createdAt: DateTime.now(),
+            relatedCondition: 'Kidney Disease',
+          ));
+        }
+      }
+    }
+
+    return insights;
+  }
+
+  // Placeholder methods for other features
   static Future<List<HealthInsight>> _generateMuscleGainInsights(List<Map<String, dynamic>> meals, String userId) async => [];
   static Future<List<HealthInsight>> _generateHealthyEatingInsights(List<Map<String, dynamic>> meals, String userId) async => [];
   static Future<List<HealthInsight>> _generateAllergyInsights(List<String> allergies, List<Map<String, dynamic>> meals, String userId) async => [];

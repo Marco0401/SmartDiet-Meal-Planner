@@ -104,6 +104,12 @@ class HealthWarningService {
       case 'Obesity':
         warnings.addAll(_checkObesityConflicts(mealData, mealTitle));
         break;
+      case 'Lactose Intolerance':
+        warnings.addAll(_checkLactoseIntoleranceConflicts(mealData, mealTitle));
+        break;
+      case 'Gluten Sensitivity':
+        warnings.addAll(_checkGlutenSensitivityConflicts(mealData, mealTitle));
+        break;
     }
 
     return warnings;
@@ -227,76 +233,55 @@ class HealthWarningService {
     String mealTitle,
   ) {
     List<HealthWarning> warnings = [];
-    final nutrition = mealData['nutrition'] as Map<String, dynamic>?;
 
-    if (nutrition != null) {
-      final sodium = (nutrition['sodium'] as num?)?.toDouble() ?? 0;
-
-      if (sodium > 800) { // High sodium per meal
-        warnings.add(HealthWarning(
-          type: 'critical',
-          title: '🧂 Extremely High Sodium Content',
-          message: 'This meal contains ${sodium.toInt()}mg of sodium - dangerous for high blood pressure!',
-          condition: 'Hypertension',
-          risks: [
-            'Blood pressure spike',
-            'Increased stroke risk',
-            'Heart complications',
-            'Fluid retention',
-          ],
-          alternatives: [
-            'Choose low-sodium alternatives',
-            'Remove added salt',
-            'Use herbs and spices instead',
-            'Rinse canned ingredients',
-          ],
-          icon: Icons.dangerous,
-          color: Colors.red,
-        ));
-      } else if (sodium > 500) {
-        warnings.add(HealthWarning(
-          type: 'warning',
-          title: '⚠️ High Sodium Content',
-          message: 'This meal contains ${sodium.toInt()}mg of sodium. Daily limit is 1500mg for hypertension.',
-          condition: 'Hypertension',
-          risks: [
-            'Blood pressure increase',
-            'Fluid retention',
-            'Kidney strain',
-          ],
-          alternatives: [
-            'Reduce portion size',
-            'Balance with low-sodium foods today',
-            'Drink extra water',
-            'Choose fresh over processed ingredients',
-          ],
-          icon: Icons.warning,
-          color: Colors.orange,
-        ));
-      }
-    }
-
-    // Check for high-sodium ingredients
+    // Since sodium data is not available, check for high-sodium ingredients
     final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
     if (_containsHighSodiumIngredients(ingredients, mealTitle)) {
       warnings.add(HealthWarning(
-        type: 'caution',
+        type: 'warning',
         title: '🧂 High-Sodium Ingredients Detected',
-        message: 'This meal contains ingredients typically high in sodium.',
+        message: 'This meal contains ingredients that are typically high in sodium, which can raise blood pressure.',
         condition: 'Hypertension',
         risks: [
-          'Hidden sodium content',
           'Blood pressure elevation',
-          'Exceeding daily sodium limit',
+          'Fluid retention',
+          'Increased cardiovascular risk',
         ],
         alternatives: [
-          'Use fresh ingredients instead',
-          'Make homemade versions',
-          'Read nutrition labels carefully',
+          'Use fresh ingredients instead of processed',
+          'Season with herbs and spices, not salt',
           'Choose "no salt added" versions',
+          'Cook at home to control sodium',
         ],
-        icon: Icons.info,
-        color: Colors.blue,
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+
+    // Check for very high-sodium foods in title
+    const criticalSodiumFoods = ['soy sauce', 'fish sauce', 'instant noodles', 'canned soup', 'processed meat'];
+    if (criticalSodiumFoods.any((food) => allText.contains(food))) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 Very High Sodium Food Alert',
+        message: 'This meal contains extremely high-sodium ingredients that can be dangerous for hypertension!',
+        condition: 'Hypertension',
+        risks: [
+          'Severe blood pressure spike',
+          'Increased stroke risk',
+          'Heart complications',
+        ],
+        alternatives: [
+          'Skip this meal entirely',
+          'Use low-sodium alternatives',
+          'Consult your doctor first',
+          'Choose fresh, unprocessed foods',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
       ));
     }
 
@@ -311,53 +296,65 @@ class HealthWarningService {
     List<HealthWarning> warnings = [];
     final nutrition = mealData['nutrition'] as Map<String, dynamic>?;
 
+    // Check total fat content as proxy for saturated fat
     if (nutrition != null) {
-      final saturatedFat = (nutrition['saturatedFat'] as num?)?.toDouble() ?? 0;
-      final cholesterol = (nutrition['cholesterol'] as num?)?.toDouble() ?? 0;
+      final totalFat = (nutrition['fat'] as num?)?.toDouble() ?? 0;
 
-      if (saturatedFat > 10) {
+      if (totalFat > 20) { // High fat per meal
         warnings.add(HealthWarning(
           type: 'warning',
-          title: '🥩 High Saturated Fat Content',
-          message: 'This meal contains ${saturatedFat.toInt()}g of saturated fat, which can raise cholesterol.',
+          title: '🥩 High Fat Content',
+          message: 'This meal contains ${totalFat.toInt()}g of fat, which may include saturated fats that can raise cholesterol.',
           condition: 'High Cholesterol',
           risks: [
-            'LDL cholesterol increase',
-            'Arterial plaque buildup',
-            'Heart disease risk',
+            'Potential cholesterol increase',
+            'Cardiovascular risk',
+            'Arterial health concerns',
           ],
           alternatives: [
             'Choose lean protein sources',
-            'Use plant-based alternatives',
-            'Trim visible fat',
-            'Bake instead of frying',
+            'Use cooking methods that don\'t add fat',
+            'Trim visible fat from meat',
+            'Bake, grill, or steam instead of frying',
           ],
           icon: Icons.warning,
           color: Colors.orange,
         ));
       }
+    }
 
-      if (cholesterol > 200) {
-        warnings.add(HealthWarning(
-          type: 'critical',
-          title: '🚨 Very High Dietary Cholesterol',
-          message: 'This meal contains ${cholesterol.toInt()}mg of cholesterol!',
-          condition: 'High Cholesterol',
-          risks: [
-            'Blood cholesterol spike',
-            'Cardiovascular complications',
-            'Arterial damage',
-          ],
-          alternatives: [
-            'Choose plant-based proteins',
-            'Use egg whites instead of whole eggs',
-            'Select leaner cuts of meat',
-            'Consider cholesterol-free alternatives',
-          ],
-          icon: Icons.dangerous,
-          color: Colors.red,
-        ));
-      }
+    // Check for high-cholesterol ingredients
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    const highCholesterolFoods = [
+      'egg yolk', 'whole eggs', 'butter', 'cheese', 'cream', 'bacon',
+      'sausage', 'liver', 'kidney', 'brain', 'shrimp', 'lobster'
+    ];
+    
+    final foundFoods = highCholesterolFoods.where((food) => allText.contains(food)).toList();
+    
+    if (foundFoods.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: foundFoods.length > 2 ? 'critical' : 'caution',
+        title: foundFoods.length > 2 ? '🚨 Multiple High-Cholesterol Foods' : '⚠️ High-Cholesterol Ingredients',
+        message: 'This meal contains: ${foundFoods.join(", ")} - foods high in dietary cholesterol.',
+        condition: 'High Cholesterol',
+        risks: [
+          'Blood cholesterol increase',
+          'Cardiovascular complications',
+          'Arterial plaque buildup',
+        ],
+        alternatives: [
+          'Use egg whites instead of whole eggs',
+          'Choose plant-based proteins',
+          'Select lean cuts of meat',
+          'Use low-fat dairy alternatives',
+        ],
+        icon: foundFoods.length > 2 ? Icons.dangerous : Icons.info,
+        color: foundFoods.length > 2 ? Colors.red : Colors.blue,
+      ));
     }
 
     return warnings;
@@ -446,6 +443,97 @@ class HealthWarningService {
 
     final allText = (ingredients.join(' ') + ' ' + title).toLowerCase();
     return highSodiumItems.any((item) => allText.contains(item));
+  }
+
+  /// Check lactose intolerance conflicts
+  static List<HealthWarning> _checkLactoseIntoleranceConflicts(
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    const lactoseContainingFoods = [
+      'milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream',
+      'whey', 'casein', 'lactose', 'dairy', 'sour cream', 'cottage cheese',
+      'mozzarella', 'cheddar', 'parmesan', 'ricotta', 'mascarpone'
+    ];
+    
+    final foundFoods = lactoseContainingFoods.where((food) => allText.contains(food)).toList();
+    
+    if (foundFoods.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🥛 LACTOSE ALERT: Dairy Products Detected',
+        message: 'This meal contains: ${foundFoods.join(", ")} - foods containing lactose that can cause digestive issues.',
+        condition: 'Lactose Intolerance',
+        risks: [
+          'Digestive discomfort',
+          'Bloating and gas',
+          'Diarrhea',
+          'Stomach cramps',
+        ],
+        alternatives: [
+          'Use lactose-free dairy alternatives',
+          'Try plant-based milk (almond, oat, soy)',
+          'Choose lactose-free cheese options',
+          'Take lactase enzyme supplements',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check gluten sensitivity conflicts
+  static List<HealthWarning> _checkGlutenSensitivityConflicts(
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    const glutenContainingFoods = [
+      'wheat', 'flour', 'bread', 'pasta', 'noodles', 'cereal',
+      'barley', 'rye', 'bulgur', 'semolina', 'couscous', 'farro',
+      'spelt', 'kamut', 'triticale', 'malt', 'brewer\'s yeast',
+      'soy sauce', 'teriyaki', 'breadcrumbs', 'croutons'
+    ];
+    
+    final foundFoods = glutenContainingFoods.where((food) => allText.contains(food)).toList();
+    
+    if (foundFoods.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🌾 GLUTEN ALERT: Gluten-Containing Foods Detected',
+        message: 'This meal contains: ${foundFoods.join(", ")} - foods containing gluten that can trigger sensitivity.',
+        condition: 'Gluten Sensitivity',
+        risks: [
+          'Digestive inflammation',
+          'Bloating and abdominal pain',
+          'Fatigue and headaches',
+          'Skin reactions',
+        ],
+        alternatives: [
+          'Use gluten-free flour alternatives',
+          'Choose rice, quinoa, or corn-based products',
+          'Try gluten-free bread and pasta',
+          'Use tamari instead of soy sauce',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    return warnings;
   }
 
   // Placeholder for other condition checks
