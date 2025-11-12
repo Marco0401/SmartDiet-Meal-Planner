@@ -124,159 +124,158 @@ class HealthWarningService {
     return warnings;
   }
 
-  /// Check diabetes-specific conflicts
+  /// Check diabetes-specific conflicts with keyword-based analysis
   static List<HealthWarning> _checkDiabetesConflicts(
     Map<String, dynamic> mealData,
     String mealTitle,
   ) {
     List<HealthWarning> warnings = [];
-    final nutrition = mealData['nutrition'] as Map<String, dynamic>?;
-
-    if (nutrition != null) {
-      final carbs = (nutrition['carbs'] as num?)?.toDouble() ?? 0;
-      final sugar = (nutrition['sugar'] as num?)?.toDouble() ?? 0;
-      final fiber = (nutrition['fiber'] as num?)?.toDouble() ?? 0;
-
-      // High carb warning
-      if (carbs > 60) {
-        warnings.add(HealthWarning(
-          type: 'warning',
-          title: '⚠️ High Carbohydrate Content',
-          message: 'This meal contains ${carbs.toInt()}g of carbs, which may cause blood sugar spikes.',
-          condition: 'Diabetes',
-          risks: [
-            'Blood sugar spike',
-            'Increased insulin requirement',
-            'Potential hyperglycemia',
-          ],
-          alternatives: [
-            'Reduce portion size by half',
-            'Add protein or healthy fats',
-            'Choose whole grain alternatives',
-            'Pair with low-carb vegetables',
-          ],
-          icon: Icons.warning,
-          color: Colors.orange,
-        ));
-      }
-
-      // High sugar warning
-      if (sugar > 25) {
-        warnings.add(HealthWarning(
-          type: 'critical',
-          title: '🚨 Very High Sugar Content',
-          message: 'This meal contains ${sugar.toInt()}g of sugar - dangerous for diabetics!',
-          condition: 'Diabetes',
-          risks: [
-            'Severe blood sugar spike',
-            'Diabetic emergency risk',
-            'Long-term complications',
-          ],
-          alternatives: [
-            'Choose sugar-free alternatives',
-            'Skip this meal entirely',
-            'Consult your doctor first',
-            'Consider diabetic-friendly substitutes',
-          ],
-          icon: Icons.dangerous,
-          color: Colors.red,
-        ));
-      }
-
-      // Low fiber warning (for high carb meals)
-      if (carbs > 30 && fiber < 5) {
-        warnings.add(HealthWarning(
-          type: 'caution',
-          title: '📊 Low Fiber with High Carbs',
-          message: 'This meal is high in carbs but low in fiber, which may cause rapid glucose absorption.',
-          condition: 'Diabetes',
-          risks: [
-            'Rapid blood sugar rise',
-            'Poor satiety',
-            'Increased hunger later',
-          ],
-          alternatives: [
-            'Add a side salad',
-            'Include beans or legumes',
-            'Choose whole grain versions',
-            'Add chia seeds or flaxseed',
-          ],
-          icon: Icons.info,
-          color: Colors.blue,
-        ));
-      }
-    }
-
-    // Check for high-glycemic ingredients
-    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
-    final title = mealTitle.toLowerCase();
     
-    if (_containsHighGlycemicIngredients(ingredients, title)) {
-      warnings.add(HealthWarning(
-        type: 'warning',
-        title: '📈 High Glycemic Index Foods Detected',
-        message: 'This meal contains high-GI ingredients that can rapidly raise blood sugar.',
-        condition: 'Diabetes',
-        risks: [
-          'Quick blood sugar spike',
-          'Insulin resistance worsening',
-          'Energy crashes',
-        ],
-        alternatives: [
-          'Replace white rice with cauliflower rice',
-          'Use sweet potato instead of white potato',
-          'Choose steel-cut oats over instant',
-          'Add protein to slow absorption',
-        ],
-        icon: Icons.trending_up,
-        color: Colors.orange,
-      ));
-    }
-
-    return warnings;
-  }
-
-  /// Check hypertension-specific conflicts
-  static List<HealthWarning> _checkHypertensionConflicts(
-    Map<String, dynamic> mealData,
-    String mealTitle,
-  ) {
-    List<HealthWarning> warnings = [];
-
-    // Since sodium data is not available, check for high-sodium ingredients
     final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
     final title = mealTitle.toLowerCase();
     final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
     
-    if (_containsHighSodiumIngredients(ingredients, mealTitle)) {
+    // High sugar ingredients (CRITICAL)
+    const highSugarKeywords = [
+      'sugar', 'honey', 'syrup', 'candy', 'chocolate', 'cake', 'cookies',
+      'ice cream', 'soda', 'juice', 'jam', 'jelly', 'frosting', 'caramel',
+      'molasses', 'agave', 'corn syrup', 'fructose', 'glucose', 'sucrose'
+    ];
+    
+    // Medium sugar ingredients (WARNING)
+    const mediumSugarKeywords = [
+      'fruit', 'banana', 'grapes', 'mango', 'pineapple', 'dates', 'raisins',
+      'dried fruit', 'fruit juice', 'smoothie', 'yogurt', 'milk', 'bread',
+      'pasta', 'rice', 'potato', 'sweet potato'
+    ];
+    
+    // High carb ingredients (WARNING)
+    const highCarbKeywords = [
+      'bread', 'pasta', 'rice', 'noodles', 'flour', 'wheat', 'oats',
+      'cereal', 'crackers', 'chips', 'pizza', 'bagel', 'muffin'
+    ];
+    
+    final foundHighSugar = highSugarKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundMediumSugar = mediumSugarKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundHighCarb = highCarbKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    // CRITICAL: High sugar content
+    if (foundHighSugar.isNotEmpty) {
       warnings.add(HealthWarning(
-        type: 'warning',
-        title: '🧂 High-Sodium Ingredients Detected',
-        message: 'This meal contains ingredients that are typically high in sodium, which can raise blood pressure.',
-        condition: 'Hypertension',
+        type: 'critical',
+        title: '🚨 DIABETES ALERT: High Sugar Content',
+        message: 'This meal contains high-sugar ingredients: ${foundHighSugar.join(", ")}. This can cause dangerous blood sugar spikes.',
+        condition: 'Diabetes',
         risks: [
-          'Blood pressure elevation',
-          'Fluid retention',
-          'Increased cardiovascular risk',
+          'Rapid blood sugar spike (>200 mg/dL)',
+          'Potential diabetic ketoacidosis',
+          'Energy crash after spike',
+          'Increased thirst and urination',
+          'Long-term complications risk',
         ],
         alternatives: [
-          'Use fresh ingredients instead of processed',
-          'Season with herbs and spices, not salt',
-          'Choose "no salt added" versions',
-          'Cook at home to control sodium',
+          'Use sugar-free alternatives (stevia, erythritol)',
+          'Choose fresh berries instead of sweet fruits',
+          'Opt for diabetic-friendly desserts',
+          'Consider skipping this meal',
+          'Consult your doctor before consuming',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    // WARNING: Medium sugar content
+    else if (foundMediumSugar.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ DIABETES CAUTION: Moderate Sugar Content',
+        message: 'This meal contains moderate-sugar ingredients: ${foundMediumSugar.join(", ")}. Monitor blood glucose carefully.',
+        condition: 'Diabetes',
+        risks: [
+          'Moderate blood sugar elevation',
+          'Need for careful monitoring',
+          'Possible medication adjustment needed',
+        ],
+        alternatives: [
+          'Eat smaller portions',
+          'Pair with protein and fiber',
+          'Monitor blood glucose 2 hours after eating',
+          'Consider timing with medication',
         ],
         icon: Icons.warning,
         color: Colors.orange,
       ));
     }
+    
+    // WARNING: High carb content
+    if (foundHighCarb.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ DIABETES CAUTION: High Carbohydrate Content',
+        message: 'This meal contains high-carb ingredients: ${foundHighCarb.join(", ")}. May affect blood sugar levels.',
+        condition: 'Diabetes',
+        risks: [
+          'Gradual blood sugar increase',
+          'Need for carb counting',
+          'Possible insulin adjustment',
+        ],
+        alternatives: [
+          'Choose whole grain versions',
+          'Reduce portion sizes',
+          'Add vegetables to balance the meal',
+          'Count carbohydrates carefully',
+        ],
+        icon: Icons.info,
+        color: Colors.blue,
+      ));
+    }
+    
+    return warnings;
+  }
 
-    // Check for very high-sodium foods in title
-    const criticalSodiumFoods = ['soy sauce', 'fish sauce', 'instant noodles', 'canned soup', 'processed meat'];
-    if (criticalSodiumFoods.any((food) => allText.contains(food))) {
+  /// Check hypertension-specific conflicts with keyword-based analysis
+  static List<HealthWarning> _checkHypertensionConflicts(
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    // Very high sodium ingredients (CRITICAL)
+    const criticalSodiumKeywords = [
+      'soy sauce', 'fish sauce', 'oyster sauce', 'teriyaki sauce',
+      'worcestershire sauce', 'salt', 'salted', 'cured', 'smoked',
+      'bacon', 'ham', 'salami', 'pepperoni', 'hot dog', 'sausage',
+      'pickles', 'pickled', 'olives', 'anchovies', 'capers'
+    ];
+    
+    // High sodium ingredients (WARNING)
+    const highSodiumKeywords = [
+      'cheese', 'canned soup', 'instant noodles', 'ramen', 'chips',
+      'crackers', 'pretzels', 'canned vegetables', 'frozen dinner',
+      'deli meat', 'processed meat', 'bouillon', 'broth', 'stock'
+    ];
+    
+    // Medium sodium ingredients (CAUTION)
+    const mediumSodiumKeywords = [
+      'bread', 'cereal', 'pasta sauce', 'ketchup', 'mustard',
+      'salad dressing', 'mayonnaise', 'butter', 'margarine'
+    ];
+    
+    final foundCritical = criticalSodiumKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundHigh = highSodiumKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundMedium = mediumSodiumKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    // CRITICAL: Very high sodium
+    if (foundCritical.isNotEmpty) {
       warnings.add(HealthWarning(
         type: 'critical',
-        title: '🚨 Very High Sodium Food Alert',
-        message: 'This meal contains extremely high-sodium ingredients that can be dangerous for hypertension!',
+        title: '🚨 HYPERTENSION ALERT: Extremely High Sodium',
+        message: 'This meal contains very high-sodium ingredients: ${foundCritical.join(", ")}. This can cause dangerous blood pressure spikes.',
         condition: 'Hypertension',
         risks: [
           'Severe blood pressure spike',
@@ -297,75 +296,336 @@ class HealthWarningService {
     return warnings;
   }
 
-  /// Check high cholesterol conflicts
+  /// Check high cholesterol conflicts with keyword-based analysis
   static List<HealthWarning> _checkCholesterolConflicts(
     Map<String, dynamic> mealData,
     String mealTitle,
   ) {
     List<HealthWarning> warnings = [];
-    final nutrition = mealData['nutrition'] as Map<String, dynamic>?;
-
-    // Check total fat content as proxy for saturated fat
-    if (nutrition != null) {
-      final totalFat = (nutrition['fat'] as num?)?.toDouble() ?? 0;
-
-      if (totalFat > 20) { // High fat per meal
-        warnings.add(HealthWarning(
-          type: 'warning',
-          title: '🥩 High Fat Content',
-          message: 'This meal contains ${totalFat.toInt()}g of fat, which may include saturated fats that can raise cholesterol.',
-          condition: 'High Cholesterol',
-          risks: [
-            'Potential cholesterol increase',
-            'Cardiovascular risk',
-            'Arterial health concerns',
-          ],
-          alternatives: [
-            'Choose lean protein sources',
-            'Use cooking methods that don\'t add fat',
-            'Trim visible fat from meat',
-            'Bake, grill, or steam instead of frying',
-          ],
-          icon: Icons.warning,
-          color: Colors.orange,
-        ));
-      }
-    }
-
-    // Check for high-cholesterol ingredients
+    
     final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
     final title = mealTitle.toLowerCase();
     final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
     
-    const highCholesterolFoods = [
-      'egg yolk', 'whole eggs', 'butter', 'cheese', 'cream', 'bacon',
-      'sausage', 'liver', 'kidney', 'brain', 'shrimp', 'lobster'
+    // Very high cholesterol ingredients (CRITICAL)
+    const criticalCholesterolKeywords = [
+      'egg yolk', 'liver', 'kidney', 'brain', 'organ meat',
+      'caviar', 'roe', 'shrimp', 'lobster', 'crab'
     ];
     
-    final foundFoods = highCholesterolFoods.where((food) => allText.contains(food)).toList();
+    // High cholesterol/saturated fat ingredients (WARNING)
+    const highCholesterolKeywords = [
+      'butter', 'lard', 'beef fat', 'pork fat', 'coconut oil',
+      'palm oil', 'cream', 'whole milk', 'cheese', 'ice cream',
+      'red meat', 'beef', 'pork', 'lamb', 'duck', 'goose'
+    ];
     
-    if (foundFoods.isNotEmpty) {
+    // Medium cholesterol ingredients (CAUTION)
+    const mediumCholesterolKeywords = [
+      'chicken', 'turkey', 'fish', 'salmon', 'tuna',
+      'milk', 'yogurt', 'margarine', 'fried food'
+    ];
+    
+    final foundCritical = criticalCholesterolKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundHigh = highCholesterolKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundMedium = mediumCholesterolKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    // CRITICAL: Very high cholesterol
+    if (foundCritical.isNotEmpty) {
       warnings.add(HealthWarning(
-        type: foundFoods.length > 2 ? 'critical' : 'caution',
-        title: foundFoods.length > 2 ? '🚨 Multiple High-Cholesterol Foods' : '⚠️ High-Cholesterol Ingredients',
-        message: 'This meal contains: ${foundFoods.join(", ")} - foods high in dietary cholesterol.',
+        type: 'critical',
+        title: '🚨 CHOLESTEROL ALERT: Extremely High Cholesterol',
+        message: 'This meal contains very high-cholesterol ingredients: ${foundCritical.join(", ")}. This can significantly raise blood cholesterol.',
         condition: 'High Cholesterol',
         risks: [
-          'Blood cholesterol increase',
-          'Cardiovascular complications',
+          'Rapid cholesterol level increase',
+          'Increased heart attack risk',
           'Arterial plaque buildup',
+          'Stroke risk elevation',
         ],
         alternatives: [
-          'Use egg whites instead of whole eggs',
-          'Choose plant-based proteins',
-          'Select lean cuts of meat',
-          'Use low-fat dairy alternatives',
+          'Avoid this meal completely',
+          'Choose egg whites instead of whole eggs',
+          'Select lean fish over shellfish',
+          'Consult your cardiologist',
         ],
-        icon: foundFoods.length > 2 ? Icons.dangerous : Icons.info,
-        color: foundFoods.length > 2 ? Colors.red : Colors.blue,
+        icon: Icons.dangerous,
+        color: Colors.red,
       ));
     }
+    
+    // WARNING: High cholesterol/saturated fat
+    else if (foundHigh.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ CHOLESTEROL WARNING: High Saturated Fat',
+        message: 'This meal contains high-cholesterol ingredients: ${foundHigh.join(", ")}. May raise cholesterol levels.',
+        condition: 'High Cholesterol',
+        risks: [
+          'Moderate cholesterol increase',
+          'Long-term cardiovascular risk',
+          'Need for medication adjustment',
+        ],
+        alternatives: [
+          'Choose lean cuts of meat',
+          'Use olive oil instead of butter',
+          'Select low-fat dairy options',
+          'Limit portion sizes',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
+    // CAUTION: Medium cholesterol
+    else if (foundMedium.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'suggestion',
+        title: '💡 CHOLESTEROL TIP: Choose Lean Options',
+        message: 'This meal contains moderate-cholesterol ingredients: ${foundMedium.join(", ")}. Consider preparation methods.',
+        condition: 'High Cholesterol',
+        risks: [
+          'Gradual cholesterol accumulation',
+          'Daily cholesterol limit consideration',
+        ],
+        alternatives: [
+          'Remove skin from poultry',
+          'Choose grilled over fried',
+          'Use low-fat cooking methods',
+          'Add fiber-rich vegetables',
+        ],
+        icon: Icons.lightbulb,
+        color: Colors.blue,
+      ));
+    }
+    
+    return warnings;
+  }
 
+  /// Check obesity-specific conflicts with keyword-based analysis
+  static List<HealthWarning> _checkObesityConflicts(
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    // Very high calorie ingredients (CRITICAL)
+    const criticalCalorieKeywords = [
+      'deep fried', 'fried chicken', 'french fries', 'donuts', 'pizza',
+      'burger', 'fast food', 'ice cream', 'cake', 'cookies', 'chocolate',
+      'candy', 'soda', 'milkshake', 'chips', 'nachos'
+    ];
+    
+    // High calorie ingredients (WARNING)
+    const highCalorieKeywords = [
+      'butter', 'oil', 'cheese', 'nuts', 'avocado', 'bacon',
+      'sausage', 'cream', 'pasta', 'bread', 'rice'
+    ];
+    
+    final foundCritical = criticalCalorieKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundHigh = highCalorieKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    // CRITICAL: Very high calorie foods
+    if (foundCritical.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 OBESITY ALERT: Very High Calorie Food',
+        message: 'This meal contains very high-calorie ingredients: ${foundCritical.join(", ")}. This can significantly impact weight management.',
+        condition: 'Obesity',
+        risks: [
+          'Rapid weight gain',
+          'Difficulty losing weight',
+          'Increased health complications',
+          'Poor satiety despite high calories',
+        ],
+        alternatives: [
+          'Choose grilled instead of fried options',
+          'Replace with vegetable-based meals',
+          'Opt for smaller portions',
+          'Choose water instead of sugary drinks',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    // WARNING: High calorie ingredients
+    else if (foundHigh.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ OBESITY WARNING: High Calorie Content',
+        message: 'This meal contains calorie-dense ingredients: ${foundHigh.join(", ")}. Consider portion control.',
+        condition: 'Obesity',
+        risks: [
+          'Weight gain if consumed regularly',
+          'Exceeding daily calorie goals',
+        ],
+        alternatives: [
+          'Use smaller portions',
+          'Balance with low-calorie vegetables',
+          'Choose lean cooking methods',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check kidney disease-specific conflicts with keyword-based analysis
+  static List<HealthWarning> _checkKidneyConflicts(
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    // High protein ingredients (CRITICAL for kidney disease)
+    const highProteinKeywords = [
+      'steak', 'beef', 'pork', 'lamb', 'chicken breast', 'turkey',
+      'fish', 'salmon', 'tuna', 'protein powder', 'protein shake',
+      'eggs', 'cheese', 'tofu', 'beans', 'lentils'
+    ];
+    
+    // High phosphorus/potassium ingredients (WARNING)
+    const highMineralKeywords = [
+      'nuts', 'seeds', 'chocolate', 'cola', 'beer', 'dairy',
+      'banana', 'orange', 'tomato', 'potato', 'spinach'
+    ];
+    
+    final foundProtein = highProteinKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundMinerals = highMineralKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    // CRITICAL: High protein content
+    if (foundProtein.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 KIDNEY DISEASE ALERT: High Protein Content',
+        message: 'This meal contains high-protein ingredients: ${foundProtein.join(", ")}. Excess protein can strain kidneys.',
+        condition: 'Kidney Disease',
+        risks: [
+          'Increased kidney workload',
+          'Buildup of waste products',
+          'Progression of kidney damage',
+          'Electrolyte imbalances',
+        ],
+        alternatives: [
+          'Choose smaller protein portions',
+          'Focus on plant-based proteins',
+          'Consult your nephrologist',
+          'Consider protein restrictions',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    // WARNING: High mineral content
+    if (foundMinerals.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ KIDNEY DISEASE WARNING: High Mineral Content',
+        message: 'This meal contains ingredients high in phosphorus/potassium: ${foundMinerals.join(", ")}.',
+        condition: 'Kidney Disease',
+        risks: [
+          'Electrolyte imbalances',
+          'Bone health issues',
+          'Heart rhythm problems',
+        ],
+        alternatives: [
+          'Limit portion sizes',
+          'Choose low-potassium alternatives',
+          'Monitor lab values regularly',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
+    return warnings;
+  }
+
+  /// Check PCOS-specific conflicts with keyword-based analysis
+  static List<HealthWarning> _checkPCOSConflicts(
+    Map<String, dynamic> mealData,
+    String mealTitle,
+  ) {
+    List<HealthWarning> warnings = [];
+    
+    final ingredients = mealData['ingredients'] as List<dynamic>? ?? [];
+    final title = mealTitle.toLowerCase();
+    final allText = (title + ' ' + ingredients.join(' ')).toLowerCase();
+    
+    // High glycemic index ingredients (CRITICAL for PCOS)
+    const highGIKeywords = [
+      'white bread', 'white rice', 'pasta', 'potato', 'sugar',
+      'honey', 'candy', 'soda', 'juice', 'cake', 'cookies',
+      'cereal', 'crackers', 'chips'
+    ];
+    
+    // Inflammatory ingredients (WARNING)
+    const inflammatoryKeywords = [
+      'processed meat', 'fried food', 'trans fat', 'margarine',
+      'fast food', 'refined flour', 'artificial sweeteners'
+    ];
+    
+    final foundHighGI = highGIKeywords.where((keyword) => allText.contains(keyword)).toList();
+    final foundInflammatory = inflammatoryKeywords.where((keyword) => allText.contains(keyword)).toList();
+    
+    // CRITICAL: High glycemic foods
+    if (foundHighGI.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'critical',
+        title: '🚨 PCOS ALERT: High Glycemic Index Foods',
+        message: 'This meal contains high-GI ingredients: ${foundHighGI.join(", ")}. These can worsen insulin resistance.',
+        condition: 'PCOS',
+        risks: [
+          'Worsened insulin resistance',
+          'Increased androgen levels',
+          'Weight gain difficulty',
+          'Irregular menstrual cycles',
+        ],
+        alternatives: [
+          'Choose whole grain alternatives',
+          'Add protein and fiber',
+          'Use natural sweeteners sparingly',
+          'Focus on low-GI foods',
+        ],
+        icon: Icons.dangerous,
+        color: Colors.red,
+      ));
+    }
+    
+    // WARNING: Inflammatory foods
+    if (foundInflammatory.isNotEmpty) {
+      warnings.add(HealthWarning(
+        type: 'warning',
+        title: '⚠️ PCOS WARNING: Inflammatory Foods',
+        message: 'This meal contains inflammatory ingredients: ${foundInflammatory.join(", ")}. May worsen PCOS symptoms.',
+        condition: 'PCOS',
+        risks: [
+          'Increased inflammation',
+          'Hormonal imbalances',
+          'Difficulty managing symptoms',
+        ],
+        alternatives: [
+          'Choose anti-inflammatory foods',
+          'Use healthy cooking methods',
+          'Add omega-3 rich foods',
+        ],
+        icon: Icons.warning,
+        color: Colors.orange,
+      ));
+    }
+    
     return warnings;
   }
 
