@@ -1448,8 +1448,9 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
         };
         
         if (!widget.saveToFavoritesOnly) {
-          // Save to meal planner
-          await NutritionService.saveMealWithNutrition(
+          // Save to meal planner with health check
+          final saved = await NutritionService.saveMealWithNutrition(
+            context: context,
             title: _foodNameController.text.trim(),
             date: dateString,
             mealType: _selectedMealType.toLowerCase(),
@@ -1458,6 +1459,12 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
             customNutrition: nutritionData,
             image: imageBase64,
           );
+          
+          // If health warnings caused cancellation, don't continue
+          if (!saved) {
+            setState(() => _isLoading = false);
+            return;
+          }
         }
 
         // Always save to favorites

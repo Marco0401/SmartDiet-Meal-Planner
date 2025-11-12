@@ -1,5 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:math';
+import 'health_warning_service.dart';
+import '../widgets/health_warning_dialog.dart';
 
 class NutritionService {
   // Nutrition database for common ingredients
@@ -594,7 +600,9 @@ class NutritionService {
   }
 
   /// Save meal with calculated nutrition to Firestore
-  static Future<void> saveMealWithNutrition({
+  /// Returns true if saved successfully, false if cancelled due to health warnings
+  static Future<bool> saveMealWithNutrition({
+    required BuildContext? context,
     required String title,
     required String date,
     required String mealType,
@@ -606,6 +614,7 @@ class NutritionService {
     String? description,
     String? cuisine,
     String? recipeId,
+    bool skipHealthCheck = false,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User not authenticated');
@@ -614,6 +623,45 @@ class NutritionService {
     final nutrition = customNutrition ?? await calculateRecipeNutrition(ingredients);
     print('DEBUG: Saving meal "$title" with nutrition: $nutrition');
 
+    // Create meal data for health check
+    final mealData = {
+      'title': title,
+      'ingredients': ingredients,
+      'nutrition': nutrition,
+      'instructions': instructions ?? '',
+      'image': image,
+      'summary': summary,
+      'description': description,
+      'cuisine': cuisine,
+    };
+
+    // Check for health warnings (unless skipped)
+    if (!skipHealthCheck && context != null) {
+      final warnings = await HealthWarningService.checkMealHealth(
+        mealData: mealData,
+        customTitle: title,
+      );
+
+      if (warnings.isNotEmpty) {
+        print('DEBUG: Health warnings detected for meal "$title": ${warnings.length} warnings');
+        
+        // Show warning dialog
+        final shouldContinue = await showHealthWarningDialog(
+          context: context,
+          warnings: warnings,
+          mealTitle: title,
+        );
+
+        if (shouldContinue != true) {
+          print('DEBUG: User cancelled meal save due to health warnings');
+          return false; // User cancelled
+        }
+        
+        print('DEBUG: User chose to proceed despite health warnings');
+      }
+    }
+
+    // Save to Firestore
     await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
@@ -634,6 +682,9 @@ class NutritionService {
       'created_at': FieldValue.serverTimestamp(),
       'source': 'manual_entry',
     });
+
+    print('DEBUG: Meal "$title" saved successfully to Firestore');
+    return true;
   }
 
   /// Get daily nutrition for a specific date

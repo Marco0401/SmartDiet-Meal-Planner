@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'user_profile_page.dart';
+import 'health_insights_page.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -496,6 +497,31 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             icon: const Icon(Icons.person, color: Colors.white),
             label: const Text(
               'View Public Profile',
+              style: TextStyle(color: Colors.white),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.white, width: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Health Insights Button
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const HealthInsightsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.psychology, color: Colors.white),
+            label: const Text(
+              '🤖 Health Insights',
               style: TextStyle(color: Colors.white),
             ),
             style: OutlinedButton.styleFrom(
