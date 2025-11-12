@@ -1514,6 +1514,9 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return;
 
+      // Create or get conversation ID using MessageService
+      final conversationId = await MessageService.getOrCreateConversation(targetUser['uid']);
+
       // Create a chat message with the recipe
       final messageData = {
         'senderId': currentUser.uid,
@@ -1532,10 +1535,14 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
         'isRead': false,
       };
 
-      // Add to messages collection
-      await FirebaseFirestore.instance.collection('messages').add(messageData);
+      // Add to the proper conversation messages collection
+      await FirebaseFirestore.instance
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .add(messageData);
 
-      print('DEBUG: Recipe forwarded to ${targetUser['name']}');
+      print('DEBUG: Recipe forwarded to ${targetUser['name']} in conversation $conversationId');
     } catch (e) {
       print('ERROR forwarding recipe: $e');
     }
@@ -1706,10 +1713,18 @@ class _ForwardRecipeDialogState extends State<_ForwardRecipeDialog> {
       setState(() {
         _availableUsers = usersSnapshot.docs.map((doc) {
           final data = doc.data();
+          // Try multiple fields for name
+          String displayName = data['name'] ?? 
+                              data['username'] ?? 
+                              data['displayName'] ?? 
+                              data['firstName'] ?? 
+                              data['email']?.toString().split('@')[0] ??
+                              'Unknown User';
+          
           return {
             'uid': data['uid'] ?? doc.id,
-            'name': data['name'] ?? data['username'] ?? 'Unknown User',
-            'profileImage': data['profileImage'],
+            'name': displayName,
+            'profileImage': data['profileImage'] ?? data['photoURL'],
             'email': data['email'],
           };
         }).toList();

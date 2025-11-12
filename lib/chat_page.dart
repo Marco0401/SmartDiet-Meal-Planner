@@ -310,22 +310,38 @@ class _ChatPageState extends State<ChatPage> {
         children: [
           // Profile picture for other user's messages (left side)
           if (!isMe) ...[
-            CircleAvatar(
-              radius: 16,
-              backgroundImage: widget.otherUserPhoto != null
-                  ? NetworkImage(widget.otherUserPhoto!)
-                  : null,
-              backgroundColor: const Color(0xFF4CAF50),
-              child: widget.otherUserPhoto == null
-                  ? Text(
-                      widget.otherUserName[0].toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    )
-                  : null,
+            FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('users').doc(senderId).get(),
+              builder: (context, snapshot) {
+                String? profileImageUrl;
+                String userName = widget.otherUserName;
+                
+                if (snapshot.hasData && snapshot.data!.exists) {
+                  final userData = snapshot.data!.data() as Map<String, dynamic>?;
+                  profileImageUrl = userData?['profileImage'];
+                  userName = userData?['name'] ?? userData?['username'] ?? widget.otherUserName;
+                }
+
+                return CircleAvatar(
+                  radius: 16,
+                  backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
+                      ? (profileImageUrl.startsWith('data:image')
+                          ? MemoryImage(base64Decode(profileImageUrl.split(',')[1]))
+                          : NetworkImage(profileImageUrl) as ImageProvider)
+                      : null,
+                  backgroundColor: const Color(0xFF4CAF50),
+                  child: profileImageUrl == null || profileImageUrl.isEmpty
+                      ? Text(
+                          userName[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        )
+                      : null,
+                );
+              },
             ),
             const SizedBox(width: 8),
           ],
@@ -374,6 +390,44 @@ class _ChatPageState extends State<ChatPage> {
               ],
             ),
           ),
+          
+          // Profile picture for current user's messages (right side)
+          if (isMe) ...[
+            const SizedBox(width: 8),
+            FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('users').doc(currentUserId).get(),
+              builder: (context, snapshot) {
+                String? profileImageUrl;
+                String userName = 'You';
+                
+                if (snapshot.hasData && snapshot.data!.exists) {
+                  final userData = snapshot.data!.data() as Map<String, dynamic>?;
+                  profileImageUrl = userData?['profileImage'];
+                  userName = userData?['name'] ?? userData?['username'] ?? 'You';
+                }
+
+                return CircleAvatar(
+                  radius: 16,
+                  backgroundImage: profileImageUrl != null && profileImageUrl.isNotEmpty
+                      ? (profileImageUrl.startsWith('data:image')
+                          ? MemoryImage(base64Decode(profileImageUrl.split(',')[1]))
+                          : NetworkImage(profileImageUrl) as ImageProvider)
+                      : null,
+                  backgroundColor: const Color(0xFF2E7D32),
+                  child: profileImageUrl == null || profileImageUrl.isEmpty
+                      ? Text(
+                          userName[0].toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        )
+                      : null,
+                );
+              },
+            ),
+          ],
         ],
       ),
     );
