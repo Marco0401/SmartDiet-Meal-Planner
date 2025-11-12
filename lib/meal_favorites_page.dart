@@ -8,7 +8,9 @@ import 'recipe_detail_page.dart';
 import 'recipe_search_page.dart';
 import 'manual_meal_entry_page.dart';
 import 'services/recipe_service.dart';
-import 'services/allergen_service.dart';
+import 'services/filipino_recipe_service.dart';
+import 'services/health_warning_service.dart';
+import 'widgets/health_warning_dialog.dart';
 import 'services/allergen_detection_service.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
@@ -902,6 +904,31 @@ class FavoriteService {
           ),
         );
         return;
+      }
+
+      // Check for health warnings first (based on health conditions)
+      print('DEBUG: Checking health warnings for favorite recipe: ${recipe['title']}');
+      final healthWarnings = await HealthWarningService.checkMealHealth(
+        mealData: recipe,
+        customTitle: recipe['title'],
+      );
+      
+      if (healthWarnings.isNotEmpty) {
+        print('DEBUG: Health warnings detected for favorite: ${healthWarnings.length} warnings');
+        
+        // Show health warning dialog
+        final shouldContinue = await showHealthWarningDialog(
+          context: context,
+          warnings: healthWarnings,
+          mealTitle: recipe['title'] ?? 'Unknown Recipe',
+        );
+        
+        if (!shouldContinue) {
+          print('DEBUG: User cancelled adding to favorites due to health warnings');
+          return; // User chose to cancel
+        }
+        
+        print('DEBUG: User chose to continue adding to favorites despite health warnings');
       }
 
       // Create a copy of the recipe to work with

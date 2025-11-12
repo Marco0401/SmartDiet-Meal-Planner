@@ -7,6 +7,8 @@ import 'dart:convert';
 import 'services/allergen_ml_service.dart';
 import 'services/allergen_service.dart';
 import 'services/allergen_detection_service.dart';
+import 'services/health_warning_service.dart';
+import 'widgets/health_warning_dialog.dart';
 import 'services/nutrition_service.dart';
 import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
@@ -568,7 +570,32 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       final recipe = _recipeDetails ?? widget.recipe;
       print('DEBUG: Using recipe: ${recipe['title']}');
       
-      // Check for allergens first
+      // Check for health warnings first (based on health conditions)
+      print('DEBUG: Checking health warnings for recipe: ${recipe['title']}');
+      final healthWarnings = await HealthWarningService.checkMealHealth(
+        mealData: recipe,
+        customTitle: recipe['title'],
+      );
+      
+      if (healthWarnings.isNotEmpty) {
+        print('DEBUG: Health warnings detected: ${healthWarnings.length} warnings');
+        
+        // Show health warning dialog
+        final shouldContinue = await showHealthWarningDialog(
+          context: context,
+          warnings: healthWarnings,
+          mealTitle: recipe['title'] ?? 'Unknown Recipe',
+        );
+        
+        if (!shouldContinue) {
+          print('DEBUG: User cancelled due to health warnings');
+          return; // User chose to cancel
+        }
+        
+        print('DEBUG: User chose to continue despite health warnings');
+      }
+      
+      // Check for allergens next
       final allergenResult = await AllergenDetectionService.getDetailedAnalysis(recipe);
       final hasAllergens = allergenResult['hasAllergens'] == true;
       final detectedAllergens = List<String>.from(allergenResult['detectedAllergens'] ?? []);

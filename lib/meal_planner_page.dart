@@ -9,8 +9,11 @@ import 'services/filipino_recipe_service.dart';
 import 'services/allergen_detection_service.dart';
 import 'services/notification_service.dart';
 import 'services/nutrition_progress_notifier.dart';
+import 'services/allergen_detection_service.dart';
+import 'services/health_warning_service.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
+import 'widgets/health_warning_dialog.dart';
 import 'widgets/time_picker_dialog.dart' as time_picker;
 import 'widgets/edit_meal_dialog.dart';
 import 'recipe_detail_page.dart';
@@ -2521,6 +2524,31 @@ class _AddMealDialogState extends State<AddMealDialog> {
           print('DEBUG: Error fetching full recipe details: $e');
           // Continue with basic recipe data
         }
+      }
+      
+      // Check for health warnings first (based on health conditions)
+      print('DEBUG: Checking health warnings for recipe: ${fullRecipe['title']}');
+      final healthWarnings = await HealthWarningService.checkMealHealth(
+        mealData: fullRecipe,
+        customTitle: fullRecipe['title'],
+      );
+      
+      if (healthWarnings.isNotEmpty) {
+        print('DEBUG: Health warnings detected: ${healthWarnings.length} warnings');
+        
+        // Show health warning dialog
+        final shouldContinue = await showHealthWarningDialog(
+          context: context,
+          warnings: healthWarnings,
+          mealTitle: fullRecipe['title'] ?? 'Unknown Recipe',
+        );
+        
+        if (!shouldContinue) {
+          print('DEBUG: User cancelled due to health warnings');
+          return; // User chose to cancel
+        }
+        
+        print('DEBUG: User chose to continue despite health warnings');
       }
       
       // Check for allergens in the recipe (now with full details)
