@@ -684,13 +684,12 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
                 ),
                 const SizedBox(width: 16),
                 _buildEngagementButton(
-                  icon: Icons.bookmark_border,
-                  filledIcon: Icons.bookmark,
-                  count: saves,
-                  color: Colors.green,
+                  icon: Icons.send_outlined,
+                  filledIcon: Icons.send,
+                  count: 0, // Send button doesn't need a count
+                  color: Colors.purple,
                   onTap: () async {
-                    // Check for allergens before saving
-                    await _saveRecipeWithAllergenCheck(recipeId, recipeData);
+                    await _showForwardRecipeDialog(recipeId, recipeData);
                   },
                 ),
                 const SizedBox(width: 16),
@@ -1614,6 +1613,187 @@ class _FollowButtonState extends State<_FollowButton> {
               _isFollowing ? 'Following' : 'Follow',
               style: const TextStyle(fontSize: 13),
             ),
+    );
+  }
+
+  Future<void> _showForwardRecipeDialog(String recipeId, Map<String, dynamic> recipeData) async {
+    // Show dialog to select users to forward the recipe to
+    final selectedUsers = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (context) => _ForwardRecipeDialog(recipeData: recipeData),
+    );
+
+    if (selectedUsers != null && selectedUsers.isNotEmpty) {
+      // Forward the recipe to selected users
+      for (final user in selectedUsers) {
+        await _forwardRecipeToUser(user, recipeData);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Recipe forwarded to ${selectedUsers.length} user(s)!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  Future<void> _forwardRecipeToUser(Map<String, dynamic> targetUser, Map<String, dynamic> recipeData) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+
+      // Create a chat message with the recipe
+      final messageData = {
+        'senderId': currentUser.uid,
+        'receiverId': targetUser['uid'],
+        'message': '🍽️ Shared a recipe: ${recipeData['title']}',
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'recipe_share',
+        'recipeData': {
+          'id': recipeData['id'],
+          'title': recipeData['title'],
+          'image': recipeData['image'],
+          'description': recipeData['description'] ?? '',
+          'authorName': recipeData['authorName'] ?? 'Unknown',
+          'authorId': recipeData['authorId'],
+        },
+        'isRead': false,
+      };
+
+      // Add to messages collection
+      await FirebaseFirestore.instance.collection('messages').add(messageData);
+
+      print('DEBUG: Recipe forwarded to ${targetUser['name']}');
+    } catch (e) {
+      print('ERROR forwarding recipe: $e');
+    }
+  }
+}
+
+class _ForwardRecipeDialog extends StatefulWidget {
+  final Map<String, dynamic> recipeData;
+
+  const _ForwardRecipeDialog({required this.recipeData});
+
+  @override
+  State<_ForwardRecipeDialog> createState() => _ForwardRecipeDialogState();
+}
+
+class _ForwardRecipeDialogState extends State<_ForwardRecipeDialog> {
+  final List<Map<String, dynamic>> _selectedUsers = [];
+  List<Map<String, dynamic>> _availableUsers = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailableUsers();
+  }
+
+  Future<void> _loadAvailableUsers() async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+
+      // Get users that the current user has chatted with or followed
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('uid', isNotEqualTo: currentUser.uid)
+          .limit(20)
+          .get();
+
+      setState(() {
+        _availableUsers = usersSnapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'uid': data['uid'] ?? doc.id,
+            'name': data['name'] ?? data['username'] ?? 'Unknown User',
+            'profileImage': data['profileImage'],
+            'email': data['email'],
+          };
+        }).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('ERROR loading users: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Forward Recipe'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 400,
+        child: Column(
+          children: [
+            Text(
+              'Forward "${widget.recipeData['title']}" to:',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _availableUsers.isEmpty
+                      ? const Center(
+                          child: Text('No users available to forward to'),
+                        )
+                      : ListView.builder(
+                          itemCount: _availableUsers.length,
+                          itemBuilder: (context, index) {
+                            final user = _availableUsers[index];
+                            final isSelected = _selectedUsers.any((u) => u['uid'] == user['uid']);
+                            
+                            return CheckboxListTile(
+                              leading: CircleAvatar(
+                                backgroundImage: user['profileImage'] != null
+                                    ? NetworkImage(user['profileImage'])
+                                    : null,
+                                child: user['profileImage'] == null
+                                    ? Text(user['name'][0].toUpperCase())
+                                    : null,
+                              ),
+                              title: Text(user['name']),
+                              subtitle: Text(user['email'] ?? ''),
+                              value: isSelected,
+                              onChanged: (bool? value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedUsers.add(user);
+                                  } else {
+                                    _selectedUsers.removeWhere((u) => u['uid'] == user['uid']);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _selectedUsers.isEmpty
+              ? null
+              : () => Navigator.of(context).pop(_selectedUsers),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+          ),
+          child: Text('Forward (${_selectedUsers.length})'),
+        ),
+      ],
     );
   }
 }
