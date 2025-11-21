@@ -1,22 +1,32 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'ingredient_analysis_service.dart';
 
 class AllergenDetectionService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Common allergen keywords and their categories
+  // Common allergen keywords and their categories (all lowercase for case-insensitive matching)
   static const Map<String, List<String>> allergenKeywords = {
     'peanuts': ['peanut', 'peanuts', 'groundnut', 'groundnuts', 'arachis', 'peanut oil', 'peanut butter'],
-    'tree_nuts': ['almond', 'almonds', 'walnut', 'walnuts', 'cashew', 'cashews', 'pistachio', 'pistachios', 'hazelnut', 'hazelnuts', 'pecan', 'pecans', 'brazil nut', 'brazil nuts', 'macadamia', 'macadamias'],
-    'milk': ['milk', 'dairy', 'cheese', 'butter', 'cream', 'yogurt', 'yoghurt', 'lactose', 'whey', 'casein', 'ghee', 'buttermilk'],
-    'eggs': ['egg', 'eggs', 'egg white', 'egg yolk', 'albumen', 'lecithin', 'mayonnaise', 'mayo', 'egg beaters'],
-    'fish': ['fish', 'salmon', 'tuna', 'cod', 'halibut', 'sardine', 'anchovy', 'fish sauce', 'worcestershire', 'bangus', 'milkfish', 'bangus (milkfish)', 'tilapia', 'lapu-lapu', 'galunggong', 'tamban', 'tulingan'],
-    'shellfish': ['shrimp', 'prawn', 'crab', 'lobster', 'scallop', 'mussel', 'oyster', 'clam', 'shellfish', 'crustacean'],
-    'wheat_gluten': ['wheat', 'flour', 'bread', 'pasta', 'noodles', 'gluten', 'semolina', 'bulgur', 'couscous', 'seitan'],
-    'soy': ['soy', 'soya', 'soybean', 'soybeans', 'tofu', 'tempeh', 'miso', 'soy sauce', 'tamari', 'edamame'],
-    'sesame': ['sesame', 'sesame oil', 'sesame seeds', 'tahini', 'halva'],
+    'tree_nuts': ['almond', 'almonds', 'walnut', 'walnuts', 'cashew', 'cashews', 'pistachio', 'pistachios', 'hazelnut', 'hazelnuts', 'pecan', 'pecans', 'brazil nut', 'brazil nuts', 'macadamia', 'macadamias', 'pine nut', 'pine nuts'],
+    'milk': ['milk', 'dairy', 'cheese', 'butter', 'cream', 'yogurt', 'yoghurt', 'lactose', 'whey', 'casein', 'ghee', 'buttermilk', 'mozzarella', 'cheddar', 'parmesan', 'ricotta', 'cottage cheese', 'sour cream', 'heavy cream'],
+    'eggs': ['egg', 'eggs', 'egg white', 'egg yolk', 'albumen', 'lecithin', 'mayonnaise', 'mayo', 'egg beaters', 'scrambled', 'fried egg', 'boiled egg'],
+    'fish': ['fish', 'salmon', 'tuna', 'cod', 'halibut', 'sardine', 'anchovy', 'fish sauce', 'worcestershire', 'worcestershire sauce', 'bangus', 'milkfish', 'bangus (milkfish)', 'tilapia', 'lapu-lapu', 'galunggong', 'tamban', 'tulingan', 'mackerel', 'trout', 'bass'],
+    'shellfish': ['shrimp', 'prawn', 'crab', 'lobster', 'scallop', 'mussel', 'oyster', 'clam', 'shellfish', 'crustacean', 'crawfish', 'crayfish'],
+    'wheat': ['wheat', 'flour', 'bread', 'pasta', 'noodles', 'gluten', 'semolina', 'bulgur', 'couscous', 'seitan', 'all-purpose flour', 'wheat flour', 'whole wheat', 'breadcrumbs', 'croutons', 'pizza dough', 'pie crust', 'macaroni', 'spaghetti', 'linguine', 'fettuccine', 'penne', 'rigatoni', 'rotini', 'orzo', 'lasagna', 'ravioli', 'tortellini', 'gnocchi', 'biscuit', 'muffin', 'pancake', 'waffle', 'pretzel', 'crackers'],
+    'soy': ['soy', 'soya', 'soybean', 'soybeans', 'tofu', 'tempeh', 'miso', 'soy sauce', 'tamari', 'edamame', 'soy milk', 'soy protein'],
+    'sesame': ['sesame', 'sesame oil', 'sesame seeds', 'tahini', 'halva', 'sesame seed oil'],
   };
+
+  // Map user allergen names to internal keys (case-insensitive)
+  static String _normalizeAllergenKey(String allergen) {
+    final normalized = allergen.toLowerCase().trim();
+    // Map common variations to standard keys
+    if (normalized.contains('wheat') || normalized.contains('gluten')) return 'wheat';
+    if (normalized.contains('tree') && normalized.contains('nut')) return 'tree_nuts';
+    return normalized.replaceAll(' ', '_');
+  }
 
   // Ingredient substitution suggestions
   static const Map<String, List<String>> substitutions = {
@@ -26,7 +36,7 @@ class AllergenDetectionService {
     'eggs': ['flax eggs (1 tbsp ground flaxseed + 3 tbsp water)', 'chia eggs', 'applesauce', 'banana', 'commercial egg replacer'],
     'fish': ['chicken', 'tofu', 'beans', 'lentils', 'mushrooms', 'seaweed (if not allergic to iodine)'],
     'shellfish': ['chicken', 'fish (if not allergic)', 'tofu', 'mushrooms', 'jackfruit'],
-    'wheat_gluten': ['rice flour', 'almond flour', 'coconut flour', 'oat flour', 'gluten-free flour blend', 'quinoa', 'rice'],
+    'wheat': ['rice flour', 'almond flour', 'coconut flour', 'oat flour', 'gluten-free flour blend', 'quinoa', 'rice'],
     'soy': ['coconut aminos', 'tamari (wheat-free soy sauce)', 'miso alternatives', 'tofu alternatives (chickpea tofu)'],
     'sesame': ['olive oil', 'coconut oil', 'sunflower oil', 'pumpkin seeds', 'hemp seeds'],
   };
@@ -72,7 +82,19 @@ class AllergenDetectionService {
       
       // Handle both string and object ingredient formats
       List<String> ingredients = [];
-      if (recipe['ingredients'] != null) {
+      
+      // Try extendedIngredients first (API recipes), then ingredients (manual recipes)
+      if (recipe['extendedIngredients'] != null) {
+        final rawIngredients = recipe['extendedIngredients'] as List<dynamic>;
+        ingredients = rawIngredients.map((ingredient) {
+          if (ingredient is Map<String, dynamic>) {
+            return ingredient['name']?.toString() ?? ingredient['original']?.toString() ?? '';
+          } else {
+            return ingredient.toString();
+          }
+        }).where((ingredient) => ingredient.isNotEmpty).toList();
+        print('DEBUG: AllergenDetectionService - Using extendedIngredients: ${ingredients.length} items');
+      } else if (recipe['ingredients'] != null) {
         final rawIngredients = recipe['ingredients'] as List<dynamic>;
         ingredients = rawIngredients.map((ingredient) {
           if (ingredient is Map<String, dynamic>) {
@@ -83,6 +105,9 @@ class AllergenDetectionService {
             return ingredient.toString();
           }
         }).where((ingredient) => ingredient.isNotEmpty).toList();
+        print('DEBUG: AllergenDetectionService - Using ingredients: ${ingredients.length} items');
+      } else {
+        print('DEBUG: AllergenDetectionService - No ingredients found in recipe!');
       }
       
       final title = recipe['title']?.toString().toLowerCase() ?? '';
@@ -93,16 +118,63 @@ class AllergenDetectionService {
       final searchText = '$title $description $instructions ${ingredients.join(' ')}'.toLowerCase();
 
       // Check each user allergen
+      print('DEBUG: AllergenDetectionService - User allergens: $userAllergens');
       for (final userAllergen in userAllergens) {
-        final allergenKey = userAllergen.toLowerCase().replaceAll(' ', '_');
+        final allergenKey = _normalizeAllergenKey(userAllergen);
         final keywords = allergenKeywords[allergenKey] ?? [];
+        print('DEBUG: AllergenDetectionService - Checking user allergen "$userAllergen" (normalized: "$allergenKey") with ${keywords.length} keywords');
         
+        bool allergenFound = false;
         for (final keyword in keywords) {
           // Use word boundary matching to avoid false positives
-          final regex = RegExp(r'\b' + RegExp.escape(keyword.toLowerCase()) + r'\b');
+          final regex = RegExp(r'\b' + RegExp.escape(keyword) + r'\b', caseSensitive: false);
           if (regex.hasMatch(searchText) && !_isFalsePositive(searchText, keyword)) {
             detectedAllergens.add(userAllergen);
+            allergenFound = true;
+            print('DEBUG: AllergenDetectionService - ✓ Found "$userAllergen" via keyword "$keyword" in searchText');
             break; // Found this allergen, move to next
+          }
+        }
+        
+        // If not found yet, check individual ingredients more carefully
+        if (!allergenFound) {
+          for (final ingredient in ingredients) {
+            final ingredientLower = ingredient.toLowerCase();
+            for (final keyword in keywords) {
+              if (ingredientLower.contains(keyword) && !_isFalsePositive(ingredientLower, keyword)) {
+                detectedAllergens.add(userAllergen);
+                allergenFound = true;
+                print('DEBUG: AllergenDetectionService - ✓ Found "$userAllergen" via keyword "$keyword" in ingredient "$ingredient"');
+                break;
+              }
+            }
+            if (allergenFound) break;
+          }
+        }
+        
+        if (!allergenFound) {
+          print('DEBUG: AllergenDetectionService - ✗ Did NOT find "$userAllergen" in recipe');
+        }
+      }
+      
+      print('DEBUG: AllergenDetectionService - Final detectedAllergens: $detectedAllergens');
+
+      // NEW: Analyze for hidden allergens
+      final ingredientsList = recipe['extendedIngredients'] ?? recipe['ingredients'] ?? [];
+      final analysis = IngredientAnalysisService.analyzeRecipeIngredients(ingredientsList);
+      final hiddenAllergens = analysis['hiddenAllergens'] as Map<String, Map<String, double>>;
+      
+      print('DEBUG: AllergenDetectionService - Hidden allergens found: ${hiddenAllergens.keys.toList()}');
+      
+      // Check if user is allergic to any hidden allergens
+      for (final allergenType in hiddenAllergens.keys) {
+        for (final userAllergen in userAllergens) {
+          final normalizedUser = _normalizeAllergenKey(userAllergen);
+          if (normalizedUser == allergenType) {
+            if (!detectedAllergens.contains(userAllergen)) {
+              detectedAllergens.add(userAllergen);
+              print('DEBUG: AllergenDetectionService - Added hidden allergen: $userAllergen');
+            }
           }
         }
       }
@@ -111,6 +183,8 @@ class AllergenDetectionService {
         'hasAllergens': detectedAllergens.isNotEmpty,
         'detectedAllergens': detectedAllergens,
         'safeToEat': detectedAllergens.isEmpty,
+        'hiddenAllergens': hiddenAllergens,
+        'warnings': analysis['warnings'],
         'recipe': recipe,
       };
     } catch (e) {
@@ -129,7 +203,7 @@ class AllergenDetectionService {
     final suggestions = <String>[];
     
     for (final allergen in allergens) {
-      final allergenKey = allergen.toLowerCase().replaceAll(' ', '_');
+      final allergenKey = _normalizeAllergenKey(allergen);
       final subs = substitutions[allergenKey] ?? [];
       suggestions.addAll(subs);
     }
@@ -145,15 +219,32 @@ class AllergenDetectionService {
 
   // Check if a keyword match is a false positive
   static bool _isFalsePositive(String searchText, String keyword) {
-    // Common false positives that contain allergen keywords but aren't actually allergens
-    final falsePositives = [
-      'eggplant', 'egg plants', 'egg plant', 'eggplants',
-      'egg noodles', 'egg pasta', // These might actually contain eggs, but let's be conservative
-    ];
+    final searchLower = searchText.toLowerCase();
+    final keywordLower = keyword.toLowerCase();
     
-    for (final falsePositive in falsePositives) {
-      if (searchText.contains(falsePositive)) {
-        return true;
+    // Common false positives that contain allergen keywords but aren't actually allergens
+    final falsePositives = {
+      'egg': ['eggplant', 'egg plant', 'nutmeg'],
+      'nut': ['nutmeg', 'coconut', 'butternut', 'donut', 'doughnut'],
+      'milk': ['coconut milk', 'almond milk', 'oat milk', 'soy milk', 'rice milk'], // These are safe alternatives
+      'cream': ['cream of mushroom', 'cream of chicken', 'cream of celery', 'cream of potato'], // Canned soups
+      'butter': ['peanut butter', 'almond butter', 'sunflower butter', 'cashew butter'], // Nut butters (handled separately)
+    };
+    
+    // Check if this keyword has known false positives
+    if (falsePositives.containsKey(keywordLower)) {
+      for (final falsePositive in falsePositives[keywordLower]!) {
+        if (searchLower.contains(falsePositive.toLowerCase())) {
+          // Special case for milk alternatives - they're safe
+          if (keywordLower == 'milk' && !searchLower.contains('dairy')) {
+            return true; // Milk alternatives are safe
+          }
+          // Special case for cream soups - might contain dairy but often don't
+          if (keywordLower == 'cream' && searchLower.contains('cream of')) {
+            return true; // Cream soups are ambiguous, skip them
+          }
+          return true;
+        }
       }
     }
     

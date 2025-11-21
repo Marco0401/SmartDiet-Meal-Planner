@@ -9,6 +9,11 @@ import 'package:flutter/foundation.dart';
 import 'user_profile_page.dart';
 import 'health_insights_page.dart';
 import 'debug_user_data_page.dart';
+import 'widgets/app_bottom_nav.dart';
+import 'main.dart';
+import 'meal_planner_page.dart';
+import 'meal_favorites_page.dart';
+import 'community_recipes_page.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -603,6 +608,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
           child: AppBar(
             backgroundColor: Colors.transparent,
             elevation: 0,
+            centerTitle: true,
             title: const Text(
               'Account Settings',
               style: TextStyle(
@@ -765,27 +771,31 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
             // Dietary Preferences (Collapsible)
             _buildExpansionTile(
-              title: 'Dietary Preferences',
+              title: 'Dietary Preference',
               icon: Icons.restaurant_menu,
               children: [
-                ...dietList.map((d) => CheckboxListTile(
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Select ONE primary dietary preference:',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+                ...dietList.map((d) => RadioListTile<String>(
                       dense: true,
-                      value: _dietaryPreferences.contains(d),
+                      value: d,
+                      groupValue: _dietaryPreferences.isNotEmpty ? _dietaryPreferences.first : 'None',
                       title: Text(d, style: const TextStyle(fontSize: 14)),
+                      activeColor: const Color(0xFF4CAF50),
                       onChanged: (v) {
                         setState(() {
-                          if (d == 'None') {
-                            if (v == true) {
-                              _dietaryPreferences.clear();
-                              _dietaryPreferences.add('None');
-                            }
-                          } else {
-                            _dietaryPreferences.remove('None');
-                            if (v == true) {
-                              _dietaryPreferences.add(d);
-                            } else {
-                              _dietaryPreferences.remove(d);
-                            }
+                          _dietaryPreferences.clear();
+                          if (v != null) {
+                            _dietaryPreferences.add(v);
                           }
                         });
                       },
@@ -880,6 +890,44 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             const SizedBox(height: 32),
           ],
         ),
+      ),
+      bottomNavigationBar: AppBottomNav(
+        currentIndex: 4, // Account tab
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              // Home
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MyHomePage(title: 'SmartDiet')),
+              );
+              break;
+            case 1:
+              // Plan
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MealPlannerPage()),
+              );
+              break;
+            case 2:
+              // My Recipes
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
+              );
+              break;
+            case 3:
+              // Community
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const CommunityRecipesPage()),
+              );
+              break;
+            case 4:
+              // Already on Account
+              break;
+          }
+        },
       ),
     );
   }

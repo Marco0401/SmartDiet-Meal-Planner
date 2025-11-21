@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class DietaryPreferencesStep extends StatelessWidget {
+class DietaryPreferencesStep extends StatefulWidget {
   final List<String> dietaryPreferences;
   final String? otherDiet;
   final void Function(List<String>, String?) onChanged;
@@ -12,6 +12,11 @@ class DietaryPreferencesStep extends StatelessWidget {
     required this.onChanged,
   });
 
+  @override
+  State<DietaryPreferencesStep> createState() => _DietaryPreferencesStepState();
+}
+
+class _DietaryPreferencesStepState extends State<DietaryPreferencesStep> {
   static const List<String> dietList = [
     'None',
     'Vegetarian',
@@ -21,21 +26,45 @@ class DietaryPreferencesStep extends StatelessWidget {
     'Low Carb',
     'Low Sodium',
     'Halal',
-    'No Preference',
   ];
+
+  late String _selectedDiet;
+  late TextEditingController _otherDietController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with first preference or 'None'
+    _selectedDiet = widget.dietaryPreferences.isNotEmpty 
+        ? widget.dietaryPreferences.first 
+        : 'None';
+    _otherDietController = TextEditingController(text: widget.otherDiet);
+  }
+
+  @override
+  void dispose() {
+    _otherDietController.dispose();
+    super.dispose();
+  }
+
+  void _updateSelection(String diet) {
+    setState(() {
+      _selectedDiet = diet;
+    });
+    // Always pass as single-item list for consistency
+    widget.onChanged([diet], _otherDietController.text);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final otherDietController = TextEditingController(text: otherDiet);
-    List<String> selectedDiets = List.from(dietaryPreferences);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('🥗 Dietary Preferences', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text('🥗 Dietary Preference', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 24),
-          const Text('Are you following a specific diet?'),
+          const Text('Select your primary dietary preference:'),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(12),
@@ -50,7 +79,7 @@ class DietaryPreferencesStep extends StatelessWidget {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Note: Your dietary preferences will automatically filter recipe searches and meal suggestions throughout the app.',
+                    'Note: Select ONE dietary preference. This will automatically filter recipe searches and meal suggestions throughout the app.',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.blue,
@@ -62,41 +91,17 @@ class DietaryPreferencesStep extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          ...dietList.map((d) => CheckboxListTile(
-                value: selectedDiets.contains(d),
-                title: Text(d),
-                onChanged: (v) {
-                  if (d == 'None') {
-                    if (v == true) {
-                      selectedDiets.clear();
-                      selectedDiets.add('None');
-                    } else {
-                      selectedDiets.remove('None');
-                    }
-                  } else {
-                    if (v == true) {
-                      selectedDiets.remove('None');
-                      selectedDiets.add(d);
-                    } else {
-                      selectedDiets.remove(d);
-                    }
+          ...dietList.map((diet) => RadioListTile<String>(
+                value: diet,
+                groupValue: _selectedDiet,
+                title: Text(diet),
+                onChanged: (value) {
+                  if (value != null) {
+                    _updateSelection(value);
                   }
-                  onChanged(selectedDiets, otherDietController.text);
                 },
+                activeColor: Colors.green,
               )),
-          CheckboxListTile(
-            value: otherDiet != null && otherDiet!.isNotEmpty,
-            title: const Text('Other'),
-            onChanged: (v) {},
-            secondary: SizedBox(
-              width: 180,
-              child: TextField(
-                controller: otherDietController,
-                decoration: const InputDecoration(hintText: 'Specify'),
-                onChanged: (val) => onChanged(selectedDiets, val),
-              ),
-            ),
-          ),
         ],
       ),
     );

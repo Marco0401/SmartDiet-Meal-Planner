@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'services/recipe_service.dart';
+import 'services/dietary_filter_service.dart';
+import 'services/meal_time_service.dart';
 import 'recipe_detail_page.dart';
 
 class RecipeSearchPage extends StatefulWidget {
@@ -15,17 +17,28 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
   bool _isLoading = false;
   bool _hasSearched = false;
   String? _error;
+  String? _userDietaryPreference;
   
   String? _selectedCuisine;
-  String? _selectedDiet;
   String? _selectedMealType;
   int? _maxReadyTime;
+  String _currentMealPeriod = MealTimeService.getCurrentMealPeriod();
+  bool _filterByMealTime = false; // Default off for search (user controls it)
 
   @override
   void initState() {
     super.initState();
+    _loadUserPreference();
     // Load default recipes on init
     _loadDefaultRecipes();
+  }
+
+  Future<void> _loadUserPreference() async {
+    final pref = await DietaryFilterService.getUserDietaryPreference();
+    setState(() {
+      _userDietaryPreference = pref;
+    });
+    print('DEBUG: User dietary preference loaded: $_userDietaryPreference');
   }
 
   @override
@@ -72,10 +85,20 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
 
     try {
       // Fetch recipes from all sources with dynamic query
-      final allResults = await RecipeService.fetchRecipes(searchQuery);
+      // Pass user's dietary preference to RecipeService
+      final allResults = await RecipeService.fetchRecipes(
+        searchQuery,
+        dietaryPreferences: _userDietaryPreference != null ? [_userDietaryPreference!] : null,
+      );
+      
+      // Apply dietary filtering
+      List<Map<String, dynamic>> dietFiltered = DietaryFilterService.filterRecipesByDiet(
+        allResults.cast<Map<String, dynamic>>(),
+        _userDietaryPreference,
+      );
       
       // Apply additional client-side filtering (for cooking time, etc.)
-      List<Map<String, dynamic>> filteredResults = _applyFilters(allResults.cast<Map<String, dynamic>>());
+      List<Map<String, dynamic>> filteredResults = _applyFilters(dietFiltered);
 
       setState(() {
         _searchResults = filteredResults;
@@ -107,10 +130,8 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
       queryParts.add(_selectedMealType!);
     }
     
-    // Add diet to query if it makes sense
-    if (_selectedDiet != null) {
-      queryParts.add(_selectedDiet!);
-    }
+    // Note: Dietary preference is handled separately via filtering
+    // Don't add it to search query to get broader results that we can filter
     
     // If we have query parts, join them
     if (queryParts.isNotEmpty) {
@@ -122,14 +143,13 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
   }
 
   List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> recipes) {
-    // Main filtering is now done via API query building
-    // This is just for cooking time and as a backup filter
-    
+    // Apply cooking time filter
     print('DEBUG: Applying client-side filters to ${recipes.length} recipes');
     print('DEBUG: MaxTime filter: $_maxReadyTime');
+    print('DEBUG: User dietary preference: $_userDietaryPreference');
 
     final filtered = recipes.where((recipe) {
-      // Only filter by max ready time here (other filters handled by API query)
+      // Filter by max ready time
       if (_maxReadyTime != null) {
         final readyTime = recipe['readyInMinutes'] as int? ?? 
                          recipe['cookingTime'] as int? ?? 999;
@@ -143,13 +163,25 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
     }).toList();
 
     print('DEBUG: Recipes after client-side filtering: ${filtered.length}');
+    
+    // Apply meal time filtering if enabled
+    if (_filterByMealTime && filtered.isNotEmpty) {
+      print('DEBUG: Applying meal time filter for period: $_currentMealPeriod');
+      final timeFiltered = MealTimeService.filterRecipesByMealPeriod(
+        filtered,
+        _currentMealPeriod,
+        minSuitability: 0.3,
+      );
+      print('DEBUG: After meal time filtering: ${timeFiltered.length} recipes');
+      return timeFiltered;
+    }
+    
     return filtered;
   }
 
   int _getActiveFiltersCount() {
     int count = 0;
     if (_selectedCuisine != null) count++;
-    if (_selectedDiet != null) count++;
     if (_selectedMealType != null) count++;
     if (_maxReadyTime != null) count++;
     return count;
@@ -202,6 +234,75 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
       body: SafeArea(
         child: Column(
           children: [
+            // Meal Period Indicator
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.green[50]!, Colors.green[100]!],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    MealTimeService.getMealPeriodIcon(_currentMealPeriod),
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          MealTimeService.getMealPeriodDisplayName(_currentMealPeriod),
+                          style: TextStyle(
+                            color: Colors.green[800],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          MealTimeService.getMealPeriodTimeRange(_currentMealPeriod),
+                          style: TextStyle(
+                            color: Colors.green[600],
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    'Filter by time',
+                    style: TextStyle(
+                      color: Colors.green[700],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: _filterByMealTime,
+                    onChanged: (value) {
+                      setState(() {
+                        _filterByMealTime = value;
+                      });
+                      if (_hasSearched) {
+                        _performSearch();
+                      }
+                    },
+                    activeColor: Colors.green[700],
+                  ),
+                ],
+              ),
+            ),
+            
             // Search Bar
             Container(
               padding: const EdgeInsets.all(16),
@@ -596,7 +697,6 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                     onPressed: () {
                       setState(() {
                         _selectedCuisine = null;
-                        _selectedDiet = null;
                         _selectedMealType = null;
                         _maxReadyTime = null;
                       });
@@ -618,13 +718,45 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                       (value) => setState(() => _selectedCuisine = value),
                     ),
                     const SizedBox(height: 16),
-                    _buildFilterDropdown(
-                      'Diet',
-                      _selectedDiet,
-                      ['Vegetarian', 'Vegan', 'Gluten Free', 'Keto', 'Paleo', 'Low Carb'],
-                      (value) => setState(() => _selectedDiet = value),
-                    ),
-                    const SizedBox(height: 16),
+                    // Dietary preference info (read-only, set in account settings)
+                    if (_userDietaryPreference != null && _userDietaryPreference != 'None') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.restaurant, color: Colors.green.shade700, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Dietary Preference: $_userDietaryPreference',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                  Text(
+                                    DietaryFilterService.getDietaryPreferenceDescription(_userDietaryPreference),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     _buildFilterDropdown(
                       'Meal Type',
                       _selectedMealType,

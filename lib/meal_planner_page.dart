@@ -13,6 +13,7 @@ import 'services/nutrition_progress_notifier.dart';
 import 'services/allergen_detection_service.dart';
 import 'services/health_warning_service.dart';
 import 'widgets/allergen_warning_dialog.dart';
+import 'widgets/app_bottom_nav.dart';
 import 'widgets/substitution_dialog_helper.dart';
 import 'widgets/health_warning_dialog.dart';
 import 'widgets/time_picker_dialog.dart' as time_picker;
@@ -23,6 +24,10 @@ import 'nutrition_analytics_page.dart';
 import 'expert_meal_plans_page.dart';
 import 'models/user_profile.dart';
 import 'utils/error_handler.dart';
+import 'main.dart';
+import 'meal_favorites_page.dart';
+import 'community_recipes_page.dart';
+import 'account_settings_page.dart';
 import 'dart:math';
 
 class MealPlannerPage extends StatefulWidget {
@@ -37,6 +42,11 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
   final Map<String, List<Map<String, dynamic>>> _weeklyMeals = {};
   bool _isLoading = false;
   String? _error;
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _dateKeys = {};
+  
+  // View mode: 'week' or 'month'
+  String _viewMode = 'week';
   
   // Analytics integration
   final Map<String, Map<String, dynamic>> _weeklyNutrition = {};
@@ -129,6 +139,126 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     
     // Schedule periodic notifications
     _scheduleNotifications();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _ensureKeyExists(DateTime date) {
+    final dateKey = _formatDate(date);
+    if (!_dateKeys.containsKey(dateKey)) {
+      _dateKeys[dateKey] = GlobalKey();
+      print('DEBUG: Created new GlobalKey for $dateKey');
+    }
+  }
+
+  Future<void> _scrollToDate(DateTime date) async {
+    print('DEBUG: _scrollToDate called for date: $date');
+    print('DEBUG: _selectedDate is: $_selectedDate');
+    print('DEBUG: Current view mode: $_viewMode');
+    
+    // Ensure the key exists for this date
+    _ensureKeyExists(date);
+    
+    // Use WidgetsBinding to ensure scroll happens after build
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Wait longer for the list to fully render and keys to be attached
+      await Future.delayed(const Duration(milliseconds: 400));
+      
+      // Try using the GlobalKey approach first
+      final dateKey = _formatDate(date);
+      print('DEBUG: Looking for key: $dateKey');
+      final key = _dateKeys[dateKey];
+      
+      if (key != null && key.currentContext != null) {
+        print('DEBUG: Using GlobalKey scroll approach for key $dateKey');
+        try {
+          await Scrollable.ensureVisible(
+            key.currentContext!,
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeInOutCubic,
+            alignment: 0.0, // Position at the very top
+          );
+          print('DEBUG: ✓ GlobalKey scroll successful');
+          return;
+        } catch (e) {
+          print('DEBUG: ✗ GlobalKey scroll failed: $e');
+        }
+      } else {
+        print('DEBUG: GlobalKey not available (key: $key, context: ${key?.currentContext})');
+      }
+      
+      // Fallback to position-based scrolling
+      print('DEBUG: Using position-based scroll fallback');
+      
+      // Calculate index based on view mode
+      int targetIndex = -1;
+      
+      if (_viewMode == 'week') {
+        // Calculate which day of the week this date is (0 = Monday, 6 = Sunday)
+        final startOfWeek = _selectedDate.subtract(
+          Duration(days: _selectedDate.weekday - 1),
+        );
+        
+        print('DEBUG: Start of week: $startOfWeek');
+        
+        for (int i = 0; i < 7; i++) {
+          final checkDate = startOfWeek.add(Duration(days: i));
+          if (checkDate.year == date.year && 
+              checkDate.month == date.month && 
+              checkDate.day == date.day) {
+            targetIndex = i;
+            print('DEBUG: ✓ Found target date at week index $targetIndex');
+            break;
+          }
+        }
+      } else if (_viewMode == 'month') {
+        // Calculate which day of the month this date is
+        final startOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
+        targetIndex = date.day - 1; // Day 1 = index 0
+        print('DEBUG: ✓ Found target date at month index $targetIndex (day ${date.day})');
+      }
+      
+      if (targetIndex == -1) {
+        print('DEBUG: ERROR - Could not find target date!');
+        return;
+      }
+      
+      // Fallback to position-based scrolling with better calculation
+      print('DEBUG: Using position-based scroll for index $targetIndex');
+      
+      if (_scrollController.hasClients) {
+        // Calculate actual positions by measuring rendered items
+        double targetPosition = 0;
+        
+        // Each date card has variable height, but we can estimate:
+        // - Header: ~100px
+        // - Each meal type section: ~80-120px depending on meals
+        // - Margins: ~16px
+        // Average total per day: ~400-500px
+        
+        // More accurate: scroll to approximate position
+        final double avgItemHeight =635.0; // Adjusted based on actual rendering
+        targetPosition = targetIndex * avgItemHeight;
+        
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        final clampedPosition = targetPosition.clamp(0.0, maxScroll);
+        
+        print('DEBUG: Scrolling to position $clampedPosition (calculated: $targetPosition, max: $maxScroll)');
+        
+        await _scrollController.animateTo(
+          clampedPosition,
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeInOutCubic,
+        );
+        print('DEBUG: ✓ Position-based scroll complete');
+      } else {
+        print('DEBUG: ✗ ScrollController has no clients');
+      }
+    });
   }
 
   Future<void> _scheduleNotifications() async {
@@ -422,6 +552,104 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     }
   }
 
+
+  Future<void> _loadMonthlyMeals() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('No user logged in');
+      }
+
+      // Get the start of the current month
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+      final endOfMonth = DateTime(now.year, now.month + 1, 0);
+      final daysInMonth = endOfMonth.day;
+
+      // Load meals for the entire month
+      for (int i = 0; i < daysInMonth; i++) {
+        final date = startOfMonth.add(Duration(days: i));
+        final dateKey = _formatDate(date);
+
+        // Load from meal_plans collection
+        final individualMealsQuery = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('meal_plans')
+            .where('date', isEqualTo: dateKey)
+            .get();
+
+        List<Map<String, dynamic>> meals = [];
+        for (final mealDoc in individualMealsQuery.docs) {
+          final mealData = mealDoc.data();
+          
+          String normalizedMealType = mealData['mealType'] ?? mealData['meal_type'] ?? 'lunch';
+          normalizedMealType = normalizedMealType.toLowerCase();
+          switch (normalizedMealType) {
+            case 'breakfast':
+              normalizedMealType = 'Breakfast';
+              break;
+            case 'lunch':
+              normalizedMealType = 'Lunch';
+              break;
+            case 'dinner':
+              normalizedMealType = 'Dinner';
+              break;
+            case 'snack':
+              normalizedMealType = 'Snack';
+              break;
+            default:
+              normalizedMealType = 'Lunch';
+          }
+          
+          final mealTime = _normalizeMealTime(mealData['mealTime'], normalizedMealType);
+
+          final convertedMeal = {
+            'id': mealDoc.id,
+            'date': dateKey,
+            'title': mealData['title'] ?? 'Unknown Meal',
+            'mealType': normalizedMealType,
+            'mealTime': mealTime,
+            'nutrition': mealData['nutrition'] ?? {},
+            'ingredients': mealData['ingredients'] ?? [],
+            'summary': mealData['summary'],
+            'extendedIngredients': mealData['extendedIngredients'],
+            'instructions': mealData['instructions'] ?? '',
+            'image': mealData['image'],
+            'cuisine': mealData['cuisine'],
+            'description': mealData['description'],
+            'hasAllergens': mealData['hasAllergens'] ?? false,
+            'detectedAllergens': mealData['detectedAllergens'],
+            'substituted': mealData['substituted'] ?? false,
+            'originalAllergens': mealData['originalAllergens'],
+            'originalNutrition': mealData['originalNutrition'],
+            'substitutions': mealData['substitutions'],
+            'recipeId': mealData['recipeId'],
+            'source': mealData['source'] ?? 'meal_planner',
+          };
+          meals.add(convertedMeal);
+        }
+
+        _weeklyMeals[dateKey] = meals;
+      }
+    } catch (e) {
+      print('DEBUG: Error loading monthly meals: $e');
+      setState(() {
+        _error = 'Failed to load monthly meals';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   Future<void> _cleanupDuplicateMeals() async {
     try {
@@ -1344,7 +1572,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
 
     return Scaffold(
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80),
+        preferredSize: const Size.fromHeight(130),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -1361,56 +1589,97 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
               bottomRight: Radius.circular(25),
             ),
           ),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: const Text(
-              'Meal Planner',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 22,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    offset: Offset(0, 2),
-                    blurRadius: 4,
-                    color: Colors.black26,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  Center(
+                  child: const Text(
+                    'Meal Planner',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 24,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          offset: Offset(0, 2),
+                          blurRadius: 4,
+                          color: Colors.black26,
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Action buttons row
+                  // Action buttons row
+Center(
+  child: Row(
+    children: [
+      // View Mode Toggle
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            _buildViewToggleButton('Week', 'week', Icons.view_week),
+            _buildViewToggleButton('Month', 'month', Icons.calendar_view_month),
+          ],
+        ),
+      ),
+      const SizedBox(width: 8),
+      // Calendar button
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: IconButton(
+          icon: const Icon(Icons.calendar_month, color: Colors.white, size: 20),
+          onPressed: () => _showCalendarView(),
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(),
+        ),
+      ),
+      const SizedBox(width: 8),
+      // Expert Plans button
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: IconButton(
+          icon: const Icon(Icons.restaurant_menu, color: Colors.white, size: 20),
+          onPressed: () => _navigateToExpertMealPlans(),
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(),
+        ),
+      ),
+      const SizedBox(width: 8),
+      // Analytics button
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: IconButton(
+          icon: const Icon(Icons.analytics, color: Colors.white, size: 20),
+          onPressed: () => _showNutritionAnalytics(),
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(),
+        ),
+      ),
+    ],
+  ),
+),
+],
               ),
             ),
-        actions: [
-              Container(
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.restaurant_menu,
-                    color: Colors.white,
-                  ),
-                  onPressed: () => _navigateToExpertMealPlans(),
-                  tooltip: 'Expert Meal Plans',
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.only(right: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.analytics,
-                    color: Colors.white,
-                  ),
-            onPressed: () => _showNutritionAnalytics(),
-            tooltip: 'Nutrition Analytics',
-                ),
-          ),
-        ],
           ),
         ),
       ),
@@ -1494,12 +1763,18 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
               },
               child: Column(
                 children: [
-                  // Week Navigation
-                  _buildWeekNavigation(startOfWeek),
+                  // Navigation (Week or Month)
+                  if (_viewMode == 'week')
+                    _buildWeekNavigation(startOfWeek)
+                  else
+                    _buildMonthNavigation(),
 
-
-                  // Weekly Calendar
-                  Expanded(child: _buildWeeklyCalendar(startOfWeek)),
+                  // Content (Weekly or Monthly Calendar)
+                  Expanded(
+                    child: _viewMode == 'week'
+                        ? _buildWeeklyCalendar(startOfWeek)
+                        : _buildMonthlyView(),
+                  ),
                 ],
               ),
             ),
@@ -1521,6 +1796,364 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           ),
         ],
       ),
+      bottomNavigationBar: AppBottomNav(
+        currentIndex: 1, // Plan tab
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              // Home
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MyHomePage(title: 'SmartDiet')),
+              );
+              break;
+            case 1:
+              // Already on Plan
+              break;
+            case 2:
+              // My Recipes
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
+              );
+              break;
+            case 3:
+              // Community
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const CommunityRecipesPage()),
+              );
+              break;
+            case 4:
+              // Account
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
+              );
+              break;
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildViewToggleButton(String label, String mode, IconData icon) {
+    final isActive = _viewMode == mode;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _viewMode = mode;
+          if (mode == 'month') {
+            // Load meals for the entire month when switching to monthly view
+            _loadMonthlyMeals();
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.white.withOpacity(0.3) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMonthNavigation() {
+    final now = DateTime.now();
+    final monthName = DateFormat('MMMM yyyy').format(_selectedDate);
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            Colors.green[50]!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withOpacity(0.15),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+            spreadRadius: 2,
+          ),
+        ],
+        border: Border.all(
+          color: Colors.green[200]!,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.green[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: Icon(
+                Icons.chevron_left,
+                color: Colors.green[700],
+              ),
+              onPressed: () {
+                setState(() {
+                  _selectedDate = DateTime(_selectedDate.year, _selectedDate.month - 1, 1);
+                });
+                _loadMonthlyMeals();
+              },
+            ),
+          ),
+          Expanded(
+            child: Text(
+              monthName,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.green[800],
+              ),
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.green[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: Icon(
+                Icons.chevron_right,
+                color: Colors.green[700],
+              ),
+              onPressed: () {
+                setState(() {
+                  _selectedDate = DateTime(_selectedDate.year, _selectedDate.month + 1, 1);
+                });
+                _loadMonthlyMeals();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthlyView() {
+    final now = DateTime.now();
+    final startOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
+    final endOfMonth = DateTime(_selectedDate.year, _selectedDate.month + 1, 0);
+    final daysInMonth = endOfMonth.day;
+
+    // Create keys for each date in the month if they don't exist
+    for (int i = 0; i < daysInMonth; i++) {
+      final date = startOfMonth.add(Duration(days: i));
+      final dateKey = _formatDate(date);
+      if (!_dateKeys.containsKey(dateKey)) {
+        _dateKeys[dateKey] = GlobalKey();
+      }
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: daysInMonth,
+      itemBuilder: (context, index) {
+        final date = startOfMonth.add(Duration(days: index));
+        final dateKey = _formatDate(date);
+        final meals = _weeklyMeals[dateKey] ?? [];
+        final nutrition = _calculateDailyNutrition(dateKey);
+        final isToday = date.day == now.day && date.month == now.month && date.year == now.year;
+
+        return Container(
+          key: _dateKeys[dateKey],
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isToday 
+                  ? [Colors.green[50]!, Colors.green[100]!]
+                  : [Colors.white, Colors.grey[50]!],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isToday ? Colors.green[300]! : Colors.grey[200]!,
+              width: isToday ? 2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isToday ? Colors.green.withOpacity(0.15) : Colors.grey.withOpacity(0.08),
+                blurRadius: isToday ? 10 : 6,
+                offset: Offset(0, isToday ? 4 : 2),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                // Navigate to that specific date in weekly view
+                setState(() {
+                  _selectedDate = date;
+                  _viewMode = 'week';
+                });
+                _loadWeeklyMeals().then((_) => _scrollToDate(date));
+              },
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Date header
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: isToday ? Colors.green[200] : Colors.grey[200],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            isToday ? Icons.today : Icons.calendar_today,
+                            color: isToday ? Colors.green[800] : Colors.grey[700],
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _formatDisplayDate(date),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: isToday ? Colors.green[800] : Colors.grey[800],
+                                ),
+                              ),
+                              if (meals.isNotEmpty)
+                                Text(
+                                  '${meals.length} meal${meals.length > 1 ? 's' : ''} planned',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (nutrition['calories'] > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.local_fire_department,
+                                  size: 16,
+                                  color: Colors.orange[700],
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${nutrition['calories'].toInt()}',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange[800],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                    // Meals summary
+                    if (meals.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: meals.map((meal) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: _getMealTypeColor(meal['mealType'] ?? 'Lunch').withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _getMealTypeColor(meal['mealType'] ?? 'Lunch').withOpacity(0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _getMealTypeIcon(meal['mealType'] ?? 'Lunch'),
+                                  size: 14,
+                                  color: _getMealTypeColor(meal['mealType'] ?? 'Lunch'),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  meal['title'] ?? 'Unknown',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _getMealTypeColor(meal['mealType'] ?? 'Lunch'),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ] else
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'No meals planned',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[500],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1612,7 +2245,17 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
   }
 
   Widget _buildWeeklyCalendar(DateTime startOfWeek) {
+    // Create keys for each date if they don't exist
+    for (int i = 0; i < 7; i++) {
+      final date = startOfWeek.add(Duration(days: i));
+      final dateKey = _formatDate(date);
+      if (!_dateKeys.containsKey(dateKey)) {
+        _dateKeys[dateKey] = GlobalKey();
+      }
+    }
+
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: 7,
       itemBuilder: (context, index) {
@@ -1624,6 +2267,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         final isToday = date.day == now.day && date.month == now.month && date.year == now.year;
 
         return Container(
+          key: _dateKeys[dateKey],
           margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -2147,6 +2791,56 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     );
   }
 
+  void _showCalendarView() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return _CalendarViewDialog(
+          weeklyMeals: _weeklyMeals,
+          onDateSelected: (DateTime date) async {
+            print('DEBUG: Date selected from calendar: $date');
+            Navigator.of(context).pop();
+            
+            // Check if the selected date is in the same week as current _selectedDate
+            final currentWeekStart = _selectedDate.subtract(
+              Duration(days: _selectedDate.weekday - 1),
+            );
+            final currentWeekEnd = currentWeekStart.add(const Duration(days: 6));
+            
+            final isInSameWeek = date.isAfter(currentWeekStart.subtract(const Duration(days: 1))) &&
+                                 date.isBefore(currentWeekEnd.add(const Duration(days: 1)));
+            
+            print('DEBUG: Current week: $currentWeekStart to $currentWeekEnd');
+            print('DEBUG: Selected date in same week: $isInSameWeek');
+            
+            if (isInSameWeek) {
+              // Same week - just scroll, no reload needed
+              print('DEBUG: Same week detected - scrolling without reload');
+              setState(() {
+                _selectedDate = date;
+              });
+              await _scrollToDate(date);
+              print('DEBUG: Scroll complete (no reload)');
+            } else {
+              // Different week - need to reload meals
+              print('DEBUG: Different week detected - reloading meals');
+              setState(() {
+                _selectedDate = date;
+              });
+              await _loadWeeklyMeals();
+              print('DEBUG: Meals loaded, now scrolling to date...');
+              await _scrollToDate(date);
+              print('DEBUG: Scroll complete (with reload)');
+            }
+          },
+          formatDate: _formatDate,
+          calculateDailyNutrition: _calculateDailyNutrition,
+          getMealTypeColor: _getMealTypeColor,
+        );
+      },
+    );
+  }
+
 
   // Analytics Integration Methods
   double _toDouble(dynamic value) {
@@ -2537,6 +3231,318 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     );
   }
 }
+
+// Calendar View Dialog Widget
+class _CalendarViewDialog extends StatefulWidget {
+  final Map<String, List<Map<String, dynamic>>> weeklyMeals;
+  final Function(DateTime) onDateSelected;
+  final String Function(DateTime) formatDate;
+  final Map<String, dynamic> Function(String) calculateDailyNutrition;
+  final Color Function(String) getMealTypeColor;
+
+  const _CalendarViewDialog({
+    required this.weeklyMeals,
+    required this.onDateSelected,
+    required this.formatDate,
+    required this.calculateDailyNutrition,
+    required this.getMealTypeColor,
+  });
+
+  @override
+  State<_CalendarViewDialog> createState() => _CalendarViewDialogState();
+}
+
+class _CalendarViewDialogState extends State<_CalendarViewDialog> {
+  late DateTime _currentMonth;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentMonth = DateTime.now();
+  }
+
+  void _previousMonth() {
+    setState(() {
+      _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1, 1);
+    });
+  }
+
+  void _nextMonth() {
+    setState(() {
+      _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 1);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.green[400]!, Colors.green[600]!],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.calendar_month,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Calendar View',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[800],
+                      ),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Calendar content
+            Expanded(
+              child: _buildMonthlyCalendarView(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMonthlyCalendarView() {
+    final now = DateTime.now();
+    final firstDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
+    final lastDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0);
+    final daysInMonth = lastDayOfMonth.day;
+    final startWeekday = firstDayOfMonth.weekday; // 1 = Monday, 7 = Sunday
+
+    return Column(
+      children: [
+        // Month navigation
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.green[50]!, Colors.green[100]!],
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: Icon(Icons.chevron_left, color: Colors.green[700]),
+                onPressed: _previousMonth,
+              ),
+              Text(
+                DateFormat('MMMM yyyy').format(_currentMonth),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green[800],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.chevron_right, color: Colors.green[700]),
+                onPressed: _nextMonth,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Weekday headers
+        Row(
+          children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+              .map((day) => Expanded(
+                    child: Center(
+                      child: Text(
+                        day,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ))
+              .toList(),
+        ),
+        const SizedBox(height: 8),
+        // Calendar grid
+        Expanded(
+          child: GridView.builder(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 0.8,
+              crossAxisSpacing: 4,
+              mainAxisSpacing: 4,
+            ),
+            itemCount: 42, // 6 weeks max
+            itemBuilder: (context, index) {
+              final dayNumber = index - (startWeekday - 1) + 1;
+              
+              if (dayNumber < 1 || dayNumber > daysInMonth) {
+                return Container(); // Empty cell
+              }
+
+              final date = DateTime(_currentMonth.year, _currentMonth.month, dayNumber);
+              final dateKey = widget.formatDate(date);
+              final meals = widget.weeklyMeals[dateKey] ?? [];
+              final isToday = date.day == now.day && 
+                              date.month == now.month && 
+                              date.year == now.year;
+              final nutrition = widget.calculateDailyNutrition(dateKey);
+
+              return InkWell(
+                onTap: () => widget.onDateSelected(date),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isToday ? Colors.green[100] : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isToday ? Colors.green[400]! : Colors.grey[300]!,
+                      width: isToday ? 2 : 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(2.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Day number
+                        Text(
+                          '$dayNumber',
+                          style: TextStyle(
+                            fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                            color: isToday ? Colors.green[800] : Colors.grey[800],
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        // Meal indicators
+                        if (meals.isNotEmpty) ...[
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ...meals.take(3).map((meal) => Container(
+                                  margin: const EdgeInsets.symmetric(vertical: 0.5, horizontal: 3),
+                                  height: 2.5,
+                                  decoration: BoxDecoration(
+                                    color: widget.getMealTypeColor(meal['mealType'] ?? 'Lunch'),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                )),
+                                if (meals.length > 3)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 1),
+                                    child: Text(
+                                      '+${meals.length - 3}',
+                                      style: TextStyle(
+                                        fontSize: 7,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          // Calorie count
+                          if (nutrition['calories'] > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                              margin: const EdgeInsets.only(top: 1, bottom: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                '${nutrition['calories'].toInt()}',
+                                style: TextStyle(
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange[800],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Legend
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            _buildLegendItem('Breakfast', Colors.green[600]!),
+            _buildLegendItem('Lunch', Colors.green[700]!),
+            _buildLegendItem('Dinner', Colors.green[800]!),
+            _buildLegendItem('Snack', Colors.green[500]!),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLegendItem(String label, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey[700],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class AddMealDialog extends StatefulWidget {
   final String dateKey;
   final String mealType;

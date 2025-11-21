@@ -14,6 +14,11 @@ import 'widgets/health_warning_dialog.dart';
 import 'services/allergen_detection_service.dart';
 import 'widgets/allergen_warning_dialog.dart';
 import 'widgets/substitution_dialog_helper.dart';
+import 'widgets/app_bottom_nav.dart';
+import 'main.dart';
+import 'meal_planner_page.dart';
+import 'community_recipes_page.dart';
+import 'account_settings_page.dart';
 
 class MealFavoritesPage extends StatefulWidget {
   const MealFavoritesPage({super.key});
@@ -361,6 +366,44 @@ class _MealFavoritesPageState extends State<MealFavoritesPage> with SingleTicker
               foregroundColor: Colors.white,
             )
           : null,
+      bottomNavigationBar: AppBottomNav(
+        currentIndex: 2, // My Recipes tab
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              // Home
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MyHomePage(title: 'SmartDiet')),
+              );
+              break;
+            case 1:
+              // Plan
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MealPlannerPage()),
+              );
+              break;
+            case 2:
+              // Already on My Recipes
+              break;
+            case 3:
+              // Community
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const CommunityRecipesPage()),
+              );
+              break;
+            case 4:
+              // Account
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
+              );
+              break;
+          }
+        },
+      ),
     );
   }
 

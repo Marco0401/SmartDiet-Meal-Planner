@@ -11,6 +11,7 @@ import 'account_settings_page.dart';
 import 'shopping_list_generator_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/recipe_service.dart';
+import 'services/meal_time_service.dart';
 import 'services/google_signin_service.dart';
 import 'recipe_detail_page.dart';
 import 'recipe_search_page.dart';
@@ -19,6 +20,7 @@ import 'meal_suggestions_page.dart';
 import 'meal_favorites_page.dart';
 import 'notifications_page.dart';
 import 'widgets/notification_badge.dart';
+import 'widgets/app_bottom_nav.dart';
 import 'ingredient_scanner_page.dart';
 import 'about_smartdiet_page.dart';
 import 'community_recipes_page.dart';
@@ -118,11 +120,13 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isLoading = false;
   String? _error;
   Timer? _debounceTimer;
+  String _currentMealPeriod = MealTimeService.getCurrentMealPeriod();
+  bool _showMealTimeRecommendations = true; // Show time-based suggestions
 
   @override
   void initState() {
     super.initState();
-    _fetchRecipes('chicken'); // Default query for Filipino dishes
+    _fetchRecipes(''); // Default query for Filipino dishes
   }
 
   @override
@@ -137,9 +141,9 @@ class _MyHomePageState extends State<MyHomePage> {
       _error = null;
     });
     try {
-      // Get user's dietary preferences for filtering
+      // Get user's dietary preference for filtering (single selection)
       final user = FirebaseAuth.instance.currentUser;
-      List<String> dietaryPreferences = [];
+      String? dietaryPreference;
       
       if (user != null) {
         try {
@@ -149,28 +153,42 @@ class _MyHomePageState extends State<MyHomePage> {
               .get();
           if (userDoc.exists) {
             final userData = userDoc.data();
-            dietaryPreferences = List<String>.from(userData?['dietaryPreferences'] ?? []);
-            print('DEBUG: User document exists: ${userData?.keys}');
-            print('DEBUG: Raw dietary preferences: ${userData?['dietaryPreferences']}');
-            print('DEBUG: Parsed dietary preferences: $dietaryPreferences');
+            final prefs = List<String>.from(userData?['dietaryPreferences'] ?? []);
+            dietaryPreference = prefs.isNotEmpty && prefs.first != 'None' ? prefs.first : null;
+            print('DEBUG: User dietary preference: $dietaryPreference');
           } else {
             print('DEBUG: User document does not exist!');
           }
         } catch (e) {
-          print('Error fetching user dietary preferences: $e');
+          print('Error fetching user dietary preference: $e');
         }
       }
       
       // Use comprehensive recipe service for all sources (Spoonacular + TheMealDB + Filipino)
-      final recipes = await RecipeService.fetchRecipes(query, dietaryPreferences: dietaryPreferences);
+      final recipes = await RecipeService.fetchRecipes(
+        query, 
+        dietaryPreferences: dietaryPreference != null ? [dietaryPreference] : null,
+      );
       
       // Shuffle recipes based on current date for daily randomization
       final shuffledRecipes = _shuffleRecipesForToday(recipes);
       
       // Store all recipes before filtering
-      final filteredRecipes = _excludeIngredients.isEmpty 
+      var filteredRecipes = _excludeIngredients.isEmpty 
           ? shuffledRecipes 
           : _filterRecipesByExcludedIngredients(shuffledRecipes);
+      
+      // Apply meal time filtering if enabled
+      if (_showMealTimeRecommendations && filteredRecipes.isNotEmpty) {
+        print('DEBUG: Applying meal time filter for period: $_currentMealPeriod');
+        final timeFiltered = MealTimeService.filterRecipesByMealPeriod(
+          filteredRecipes.cast<Map<String, dynamic>>(),
+          _currentMealPeriod,
+          minSuitability: 0.3,
+        );
+        print('DEBUG: After meal time filtering: ${timeFiltered.length} recipes');
+        filteredRecipes = timeFiltered;
+      }
       
       setState(() {
         _allRecipes = shuffledRecipes;
@@ -574,9 +592,71 @@ class _MyHomePageState extends State<MyHomePage> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
+                        // Meal Period Greeting
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.orange[100]!, Colors.orange[200]!],
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.orange.withOpacity(0.2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  MealTimeService.getMealPeriodIcon(_currentMealPeriod),
+                                  style: const TextStyle(fontSize: 28),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        MealTimeService.getMealPeriodDisplayName(_currentMealPeriod),
+                                        style: TextStyle(
+                                          color: Colors.orange[900],
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                      Text(
+                                        MealTimeService.getMealPeriodGreeting(),
+                                        style: TextStyle(
+                                          color: Colors.orange[800],
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _showMealTimeRecommendations,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _showMealTimeRecommendations = value;
+                                    });
+                                    _fetchRecipes('');
+                                  },
+                                  activeColor: Colors.orange[700],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        
                         // Profile Header with Quick Actions
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
                           child: FutureBuilder<Map<String, dynamic>?>(
                             future: _fetchUserProfile(),
                             builder: (context, snapshot) {
@@ -1021,114 +1101,45 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white,
-              Colors.green[50]!,
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(25),
-            topRight: Radius.circular(25),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.green.withOpacity(0.1),
-              blurRadius: 20,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(25),
-            topRight: Radius.circular(25),
-          ),
-          child: BottomNavigationBar(
-            type: BottomNavigationBarType.fixed,
-            currentIndex: _currentBottomNavIndex,
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            onTap: (index) {
-              setState(() {
-                _currentBottomNavIndex = index;
-              });
-              
-              // Navigate to different pages based on selected tab
-              switch (index) {
-                case 0:
-                  // Reset to home page - reload default recipes
-                  setState(() {
-                    _isLoading = false;
-                    _error = null;
-                  });
-                  _fetchRecipes('chicken'); // Reload default recipes
-                  break;
-                case 1:
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MealPlannerPage()),
-                  );
-                  break;
-                case 2:
-                  // Navigate directly to Favorite Meals page
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
-                  );
-                  break;
-                case 3:
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const CommunityRecipesPage()),
-                  );
-                  break;
-                case 4:
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
-                  );
-                  break;
-              }
-            },
-            selectedItemColor: const Color(0xFF2E7D32),
-            unselectedItemColor: Colors.grey[600],
-            selectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-            unselectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.w500,
-              fontSize: 11,
-            ),
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.home, size: 24),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.calendar_today, size: 24),
-                label: 'Plan',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.restaurant, size: 24),
-                label: 'My Recipes',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.people, size: 24),
-                label: 'Community',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.account_circle, size: 24),
-                label: 'Account',
-              ),
-            ],
-          ),
-        ),
+      bottomNavigationBar: AppBottomNav(
+        currentIndex: _currentBottomNavIndex,
+        onTap: (index) {
+          if (index == 0) {
+            if (_currentBottomNavIndex != 0) {
+              setState(() => _currentBottomNavIndex = 0);
+            }
+            setState(() {
+              _isLoading = false;
+              _error = null;
+            });
+            _fetchRecipes('');
+            return;
+          }
+
+          Widget? destination;
+          switch (index) {
+            case 1:
+              destination = const MealPlannerPage();
+              break;
+            case 2:
+              destination = const MealFavoritesPage();
+              break;
+            case 3:
+              destination = const CommunityRecipesPage();
+              break;
+            case 4:
+              destination = const AccountSettingsPage();
+              break;
+          }
+
+          if (destination != null) {
+            setState(() => _currentBottomNavIndex = index);
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => destination!),
+            );
+          }
+        },
       ),
     );
   }

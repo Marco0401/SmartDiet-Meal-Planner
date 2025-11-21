@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'ingredient_analysis_service.dart';
 
 class AllergenService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -19,7 +20,7 @@ class AllergenService {
       'anchovies', 'trout', 'bass', 'snapper', 'grouper', 'tilapia',
       'catfish', 'flounder', 'sole', 'perch', 'carp', 'eel',
       'bangus', 'milkfish', 'bangus (milkfish)', 'lapu-lapu', 'galunggong', 
-      'tamban', 'tulingan', 'fish sauce', 'worcestershire'
+      'tamban', 'tulingan', 'fish sauce', 'worcestershire', 'worcestershire sauce',
     ],
     'shellfish': [
       'shrimp', 'prawn', 'crab', 'lobster', 'crayfish', 'crawfish',
@@ -38,7 +39,11 @@ class AllergenService {
     'wheat': [
       'wheat', 'flour', 'bread', 'pasta', 'noodles', 'couscous',
       'bulgur', 'farro', 'spelt', 'kamut', 'durum', 'semolina',
-      'wheat germ', 'wheat bran', 'wheat starch', 'gluten'
+      'wheat germ', 'wheat bran', 'wheat starch', 'gluten',
+      'macaroni', 'spaghetti', 'linguine', 'fettuccine', 'penne',
+      'rigatoni', 'rotini', 'orzo', 'lasagna', 'ravioli',
+      'tortellini', 'gnocchi', 'breadcrumbs', 'croutons', 'crackers',
+      'biscuit', 'muffin', 'pancake', 'waffle', 'pretzel'
     ],
     'soy': [
       'soy', 'soya', 'soybean', 'soy beans', 'tofu', 'tempeh',
@@ -105,6 +110,7 @@ class AllergenService {
 
   /// Check if a recipe contains allergens based on ingredients
   static Map<String, List<String>> checkAllergens(List<dynamic> ingredients) {
+    print('DEBUG: AllergenService.checkAllergens - Checking ${ingredients.length} ingredients');
     final foundAllergens = <String, List<String>>{};
     
     for (final ingredient in ingredients) {
@@ -136,41 +142,84 @@ class AllergenService {
         displayName = ingredient.toString();
       }
       
-      final ingredientText = ingredientName;
+      final ingredientText = ingredientName.trim();
       
-      // Skip common false positives
-      if (_isFalsePositive(ingredientText)) {
+      // Skip empty ingredients
+      if (ingredientText.isEmpty) {
+        print('DEBUG: AllergenService - Skipping empty ingredient');
         continue;
       }
       
-      for (final allergenEntry in _allergens.entries) {
-        final allergenType = allergenEntry.key;
-        final allergenKeywords = allergenEntry.value;
-        
-        for (final keyword in allergenKeywords) {
-          // Use word boundary matching to avoid false positives
-          final regex = RegExp(r'\b' + RegExp.escape(keyword.toLowerCase()) + r'\b');
-          if (regex.hasMatch(ingredientText)) {
-            if (!foundAllergens.containsKey(allergenType)) {
-              foundAllergens[allergenType] = [];
+      print('DEBUG: AllergenService - Checking: "$displayName" (text: "$ingredientText")');
+      
+      // Check false positives BEFORE checking allergens
+      if (_isFalsePositive(ingredientText)) {
+        print('DEBUG: AllergenService - Skipping false positive: $displayName');
+        continue;
+      }
+      
+      // NEW: Extract base ingredient for better matching
+      final baseIngredient = IngredientAnalysisService.extractBaseIngredient(ingredientText);
+      if (baseIngredient != ingredientText) {
+        print('DEBUG: AllergenService - Base ingredient: "$baseIngredient"');
+      }
+      
+      // Check both original and base ingredient
+      final textsToCheck = [ingredientText];
+      if (baseIngredient != ingredientText) {
+        textsToCheck.add(baseIngredient);
+      }
+      
+      for (final textToCheck in textsToCheck) {
+        for (final allergenEntry in _allergens.entries) {
+          final allergenType = allergenEntry.key;
+          final allergenKeywords = allergenEntry.value;
+          
+          for (final keyword in allergenKeywords) {
+            // Use word boundary matching to avoid false positives
+            final regex = RegExp(r'\b' + RegExp.escape(keyword.toLowerCase()) + r'\b');
+            if (regex.hasMatch(textToCheck)) {
+              if (!foundAllergens.containsKey(allergenType)) {
+                foundAllergens[allergenType] = [];
+              }
+              
+              if (!foundAllergens[allergenType]!.contains(displayName)) {
+                foundAllergens[allergenType]!.add(displayName);
+                print('DEBUG: AllergenService - ✓ Found $allergenType in "$displayName" (keyword: "$keyword" in "${textToCheck == baseIngredient ? 'base' : 'original'}")');
+              }
+              break; // Found this allergen in this ingredient, move to next allergen type
             }
-            
-            if (!foundAllergens[allergenType]!.contains(displayName)) {
-              foundAllergens[allergenType]!.add(displayName);
-            }
-            break;
           }
+        }
+      }
+      
+      // NEW: Check for hidden allergens using ingredient analysis
+      final hiddenAllergens = IngredientAnalysisService.detectHiddenAllergens(displayName);
+      for (final entry in hiddenAllergens.entries) {
+        final allergenType = entry.key;
+        final confidence = entry.value;
+        
+        if (!foundAllergens.containsKey(allergenType)) {
+          foundAllergens[allergenType] = [];
+        }
+        
+        if (!foundAllergens[allergenType]!.contains(displayName)) {
+          foundAllergens[allergenType]!.add(displayName);
+          print('DEBUG: AllergenService - ✓ Found hidden $allergenType in "$displayName" (confidence: ${(confidence * 100).toStringAsFixed(0)}%)');
         }
       }
     }
     
+    print('DEBUG: AllergenService - Final result: $foundAllergens');
     return foundAllergens;
   }
 
   /// Get substitution suggestions for a specific allergen
   static Future<List<String>> getSubstitutions(String allergenType) async {
     try {
-      print('DEBUG: Getting substitutions for allergen: "$allergenType"');
+      // Normalize allergen name first
+      final normalizedAllergen = normalizeAllergenName(allergenType);
+      print('DEBUG: Getting substitutions for allergen: "$allergenType" (normalized: "$normalizedAllergen")');
       
       // First try to get from Firestore
       final doc = await _firestore
@@ -184,18 +233,9 @@ class AllergenService {
         
         print('DEBUG: Available substitution categories: ${substitutions.keys.toList()}');
         
-        // Try both original case and lowercase
-        String searchKey = allergenType;
-        List<dynamic> allergenSubstitutions = substitutions[searchKey] as List<dynamic>? ?? [];
-        
-        if (allergenSubstitutions.isEmpty) {
-          // Try lowercase version
-          searchKey = allergenType.toLowerCase();
-          allergenSubstitutions = substitutions[searchKey] as List<dynamic>? ?? [];
-          print('DEBUG: Trying lowercase key "$searchKey", found ${allergenSubstitutions.length} substitutions');
-        } else {
-          print('DEBUG: Found ${allergenSubstitutions.length} substitutions with original key "$searchKey"');
-        }
+        // Use normalized allergen name
+        List<dynamic> allergenSubstitutions = substitutions[normalizedAllergen] as List<dynamic>? ?? [];
+        print('DEBUG: Found ${allergenSubstitutions.length} substitutions for normalized key "$normalizedAllergen"');
         
         // Handle both old format (List<String>) and new format (List<Map>)
         final substitutionStrings = <String>[];
@@ -212,8 +252,10 @@ class AllergenService {
           }
         }
         
-        print('DEBUG: Returning ${substitutionStrings.length} substitution strings: $substitutionStrings');
-        return substitutionStrings;
+        if (substitutionStrings.isNotEmpty) {
+          print('DEBUG: Returning ${substitutionStrings.length} substitution strings: $substitutionStrings');
+          return substitutionStrings;
+        }
       } else {
         print('DEBUG: No substitutions document found in Firestore');
       }
@@ -221,9 +263,10 @@ class AllergenService {
       print('Error getting substitutions from Firestore: $e');
     }
     
-    // Fallback to hardcoded data
-    final fallbackSubstitutions = _substitutions[allergenType] ?? [];
-    print('DEBUG: Using fallback substitutions: $fallbackSubstitutions');
+    // Fallback to hardcoded data using normalized name
+    final normalizedAllergen = normalizeAllergenName(allergenType);
+    final fallbackSubstitutions = _substitutions[normalizedAllergen] ?? [];
+    print('DEBUG: Using fallback substitutions for "$normalizedAllergen": $fallbackSubstitutions');
     return fallbackSubstitutions;
   }
 
@@ -328,9 +371,24 @@ class AllergenService {
     return _allergens.keys.toList();
   }
 
+  /// Normalize allergen name from user input to internal key
+  static String normalizeAllergenName(String allergen) {
+    final normalized = allergen.toLowerCase().trim();
+    
+    // Map user-facing names to internal keys
+    if (normalized == 'milk' || normalized == 'dairy') return 'dairy';
+    if (normalized == 'wheat' || normalized == 'wheat/gluten' || normalized == 'gluten') return 'wheat';
+    if (normalized == 'tree nuts' || normalized == 'tree_nuts') return 'tree_nuts';
+    
+    return normalized;
+  }
+
   /// Get allergen display names
   static String getDisplayName(String allergenType) {
-    switch (allergenType) {
+    // Normalize first
+    final normalized = normalizeAllergenName(allergenType);
+    
+    switch (normalized) {
       case 'dairy':
         return 'Dairy';
       case 'eggs':
@@ -354,7 +412,10 @@ class AllergenService {
 
   /// Get allergen icon
   static String getAllergenIcon(String allergenType) {
-    switch (allergenType) {
+    // Normalize first
+    final normalized = normalizeAllergenName(allergenType);
+    
+    switch (normalized) {
       case 'dairy':
         return '🥛';
       case 'eggs':
@@ -378,14 +439,18 @@ class AllergenService {
 
   /// Check if an ingredient is a false positive for allergen detection
   static bool _isFalsePositive(String ingredientText) {
+    final textLower = ingredientText.toLowerCase();
+    
     // Common false positives that contain allergen keywords but aren't actually allergens
     final falsePositives = [
       'eggplant', 'egg plants', 'egg plant', 'eggplants',
-      'egg noodles', 'egg pasta', // These might actually contain eggs, but let's be conservative
+      'nutmeg', 'coconut', 'butternut', 'donut', 'doughnut',
+      'cream of mushroom', 'cream of chicken', 'cream of celery', // Canned soups - may or may not have dairy
+      'almond milk', 'oat milk', 'coconut milk', 'soy milk', 'rice milk', // Milk alternatives
     ];
     
     for (final falsePositive in falsePositives) {
-      if (ingredientText.contains(falsePositive)) {
+      if (textLower.contains(falsePositive.toLowerCase())) {
         return true;
       }
     }

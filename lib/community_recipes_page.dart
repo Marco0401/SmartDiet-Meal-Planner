@@ -13,6 +13,11 @@ import 'messages_page.dart';
 import 'chat_page.dart';
 import 'user_search_page.dart';
 import 'widgets/allergen_warning_dialog.dart';
+import 'widgets/app_bottom_nav.dart';
+import 'main.dart';
+import 'meal_planner_page.dart';
+import 'meal_favorites_page.dart';
+  import 'account_settings_page.dart';
 
 class CommunityRecipesPage extends StatefulWidget {
   const CommunityRecipesPage({super.key});
@@ -202,6 +207,44 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
           _buildDiscoverTab(),
           _buildMySharedTab(),
         ],
+      ),
+      bottomNavigationBar: AppBottomNav(
+        currentIndex: 3, // Community tab
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              // Home
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MyHomePage(title: 'SmartDiet')),
+              );
+              break;
+            case 1:
+              // Plan
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MealPlannerPage()),
+              );
+              break;
+            case 2:
+              // My Recipes
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MealFavoritesPage()),
+              );
+              break;
+            case 3:
+              // Already on Community
+              break;
+            case 4:
+              // Account
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const AccountSettingsPage()),
+              );
+              break;
+          }
+        },
       ),
     );
   }
@@ -1483,7 +1526,7 @@ class _CommunityRecipesPageState extends State<CommunityRecipesPage> with Ticker
             ],
           ),
         ),
-      ),
+        ),
     );
   }
 

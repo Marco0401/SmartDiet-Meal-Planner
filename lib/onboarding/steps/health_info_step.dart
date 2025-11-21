@@ -105,19 +105,6 @@ class _HealthInfoStepState extends State<HealthInfoStep> {
                   _notifyChange();
                 },
               )),
-          CheckboxListTile(
-            value: otherConditionController.text.isNotEmpty,
-            title: const Text('Other'),
-            onChanged: (v) {},
-            secondary: SizedBox(
-              width: 180,
-              child: TextField(
-                controller: otherConditionController,
-                decoration: const InputDecoration(hintText: 'Specify'),
-                onChanged: (val) => setState(_notifyChange),
-              ),
-            ),
-          ),
           const SizedBox(height: 16),
           const Text('Known Food Allergies?'),
           ...HealthInfoStep.allergiesList.map((a) => CheckboxListTile(
@@ -142,38 +129,6 @@ class _HealthInfoStepState extends State<HealthInfoStep> {
                   _notifyChange();
                 },
               )),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: customAllergyController,
-                  decoration: const InputDecoration(hintText: 'Add your own'),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: () {
-                  if (customAllergyController.text.isNotEmpty) {
-                    setState(() {
-                      selectedAllergies.add(customAllergyController.text);
-                      customAllergyController.clear();
-                    });
-                    _notifyChange();
-                  }
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Text('Are you taking any medication that affects your diet?'),
-          TextField(
-            controller: medicationController,
-            decoration: InputDecoration(
-              labelText: 'Medication (optional)',
-            ),
-            onChanged: (val) => setState(_notifyChange),
-            textInputAction: TextInputAction.next,
-          ),
           const SizedBox(height: 16),
         ],
       ),

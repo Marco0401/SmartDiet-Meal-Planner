@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/allergen_service.dart';
+import '../services/allergen_detection_service.dart';
+import '../services/ingredient_analysis_service.dart';
 import '../services/substitution_nutrition_service.dart';
 import 'multi_substitution_dialog.dart';
 
@@ -32,6 +34,7 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
   }
 
   void _findSubstitutableIngredients() async {
+    print('DEBUG: IngredientSubstitutionDialog - Received detectedAllergens: ${widget.detectedAllergens}');
     
     // Get ingredients from the recipe
     List<dynamic> ingredients = [];
@@ -41,7 +44,7 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
       ingredients = widget.recipe['ingredients'] as List<dynamic>;
     }
     
-    print('DEBUG: Raw ingredients: $ingredients');
+    print('DEBUG: IngredientSubstitutionDialog - Raw ingredients: ${ingredients.length} items');
     
     // Find ingredients that contain allergens
     _substitutableIngredients = [];
@@ -62,22 +65,33 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
       print('DEBUG: Found allergens in $ingredientName: ${foundAllergens.keys.toList()}');
       
       for (final allergen in widget.detectedAllergens) {
-        // Convert display name to allergen type if needed
-        String allergenType = allergen.toLowerCase().replaceAll(' ', '_');
-        if (allergen == 'Eggs') allergenType = 'eggs';
-        if (allergen == 'Dairy') allergenType = 'dairy';
-        if (allergen == 'Fish') allergenType = 'fish';
-        if (allergen == 'Shellfish') allergenType = 'shellfish';
-        if (allergen == 'Tree Nuts') allergenType = 'tree_nuts';
-        if (allergen == 'Peanuts') allergenType = 'peanuts';
-        if (allergen == 'Wheat/Gluten') allergenType = 'wheat';
-        if (allergen == 'Soy') allergenType = 'soy';
+        // Normalize allergen name to match AllergenService keys
+        String allergenType = AllergenService.normalizeAllergenName(allergen);
+        print('DEBUG: Checking allergen "$allergen" (normalized: "$allergenType")');
         
         if (foundAllergens.containsKey(allergenType)) {
           if (!_substitutableIngredients.contains(ingredientName)) {
             _substitutableIngredients.add(ingredientName);
-            // Use the new method that includes admin substitutions
-            _substitutionOptions[ingredientName] = await AllergenService.getSubstitutionsWithAdmin(allergenType);
+            print('DEBUG: Getting substitutions for $allergenType');
+            
+            // NEW: Get safe substitutions that avoid user's other allergens
+            final userAllergens = await AllergenDetectionService.getUserAllergens();
+            final safeSubs = IngredientAnalysisService.getSafeSubstitutions(
+              ingredientName,
+              userAllergens,
+            );
+            
+            // Also get admin substitutions
+            final adminSubs = await AllergenService.getSubstitutionsWithAdmin(allergenType);
+            
+            // Combine and validate all substitutions
+            final allSubs = [...safeSubs, ...adminSubs];
+            final validatedSubs = allSubs.where((sub) {
+              return IngredientAnalysisService.isSubstitutionSafe(sub, userAllergens);
+            }).toSet().toList(); // Remove duplicates
+            
+            print('DEBUG: Got ${validatedSubs.length} safe substitutions: $validatedSubs');
+            _substitutionOptions[ingredientName] = validatedSubs;
           }
         }
       }
@@ -87,20 +101,29 @@ class _IngredientSubstitutionDialogState extends State<IngredientSubstitutionDia
     if (_substitutableIngredients.isEmpty) {
       print('DEBUG: No specific ingredients found, adding allergens as substitutable');
       for (final allergen in widget.detectedAllergens) {
-        // Convert display name to allergen type if needed
-        String allergenType = allergen.toLowerCase().replaceAll(' ', '_');
-        if (allergen == 'Eggs') allergenType = 'eggs';
-        if (allergen == 'Dairy') allergenType = 'dairy';
-        if (allergen == 'Fish') allergenType = 'fish';
-        if (allergen == 'Shellfish') allergenType = 'shellfish';
-        if (allergen == 'Tree Nuts') allergenType = 'tree_nuts';
-        if (allergen == 'Peanuts') allergenType = 'peanuts';
-        if (allergen == 'Wheat/Gluten') allergenType = 'wheat';
-        if (allergen == 'Soy') allergenType = 'soy';
+        // Normalize allergen name to match AllergenService keys
+        String allergenType = AllergenService.normalizeAllergenName(allergen);
+        print('DEBUG: Adding allergen "$allergen" (normalized: "$allergenType") as substitutable');
         
         final allergenName = AllergenService.getDisplayName(allergenType);
         _substitutableIngredients.add(allergenName);
-        _substitutionOptions[allergenName] = await AllergenService.getSubstitutionsWithAdmin(allergenType);
+        print('DEBUG: Getting substitutions for $allergenType');
+        
+        // NEW: Get safe substitutions
+        final userAllergens = await AllergenDetectionService.getUserAllergens();
+        final safeSubs = IngredientAnalysisService.getSafeSubstitutions(
+          allergenName,
+          userAllergens,
+        );
+        
+        final adminSubs = await AllergenService.getSubstitutionsWithAdmin(allergenType);
+        final allSubs = [...safeSubs, ...adminSubs];
+        final validatedSubs = allSubs.where((sub) {
+          return IngredientAnalysisService.isSubstitutionSafe(sub, userAllergens);
+        }).toSet().toList();
+        
+        print('DEBUG: Got ${validatedSubs.length} safe substitutions: $validatedSubs');
+        _substitutionOptions[allergenName] = validatedSubs;
       }
     }
     

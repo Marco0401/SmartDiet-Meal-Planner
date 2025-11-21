@@ -667,23 +667,100 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _viewSharedRecipe(Map<String, dynamic> recipeData) {
-    // Navigate to recipe detail page
+    final normalizedRecipe = _normalizeSharedRecipe(recipeData);
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => RecipeDetailPage(
-          recipe: recipeData,
+          recipe: normalizedRecipe,
         ),
       ),
     );
   }
 
   void _addSharedRecipeToMealPlan(Map<String, dynamic> recipeData) {
-    // Show dialog to select date and meal type for adding to meal plan
+    final normalizedRecipe = _normalizeSharedRecipe(recipeData);
+
     showDialog(
       context: context,
-      builder: (context) => _AddToMealPlanDialog(recipe: recipeData),
+      builder: (context) => _AddToMealPlanDialog(recipe: normalizedRecipe),
     );
+  }
+
+  Map<String, dynamic> _normalizeSharedRecipe(Map<String, dynamic> recipeData) {
+    final normalized = Map<String, dynamic>.from(recipeData);
+
+    // Ensure instructions exist as a human readable string
+    final instructions = normalized['instructions'];
+    if (instructions == null ||
+        (instructions is String && instructions.trim().isEmpty) ||
+        (instructions is List && instructions.isEmpty)) {
+      final analyzed = normalized['analyzedInstructions'];
+      final buffer = <String>[];
+
+      if (analyzed is List) {
+        for (final block in analyzed) {
+          if (block is Map && block['steps'] is List) {
+            final steps = block['steps'] as List;
+            for (final step in steps) {
+              if (step is Map && step['step'] != null) {
+                buffer.add(step['step'].toString().trim());
+              } else if (step != null) {
+                buffer.add(step.toString().trim());
+              }
+            }
+          }
+        }
+      }
+
+      if (buffer.isNotEmpty) {
+        normalized['instructions'] = buffer
+            .asMap()
+            .entries
+            .map((entry) => '${entry.key + 1}. ${entry.value}')
+            .join('\n');
+      }
+    } else if (instructions is List) {
+      normalized['instructions'] = instructions
+          .where((step) => step != null && step.toString().trim().isNotEmpty)
+          .map((step) => step.toString().trim())
+          .toList()
+          .asMap()
+          .entries
+          .map((entry) => '${entry.key + 1}. ${entry.value}')
+          .join('\n');
+    }
+
+    // Ensure ingredients list exists; fall back to extendedIngredients if needed
+    if (normalized['ingredients'] == null && normalized['extendedIngredients'] != null) {
+      final extendedIngredients = normalized['extendedIngredients'];
+      if (extendedIngredients is List) {
+        normalized['ingredients'] = extendedIngredients
+            .map((ingredient) {
+              if (ingredient is Map<String, dynamic>) {
+                return ingredient['original']?.toString() ??
+                    ingredient['name']?.toString() ??
+                    '';
+              }
+              return ingredient?.toString() ?? '';
+            })
+            .where((ing) => ing.isNotEmpty)
+            .toList();
+      }
+    }
+
+    // Guarantee ingredients is a list for downstream usage
+    if (normalized['ingredients'] is! List) {
+      final ingredient = normalized['ingredients'];
+      if (ingredient != null) {
+        normalized['ingredients'] = [ingredient];
+      } else {
+        normalized['ingredients'] = [];
+      }
+    }
+
+    return normalized;
   }
 }
 

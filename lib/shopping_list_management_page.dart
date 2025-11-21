@@ -325,6 +325,8 @@ class _ShoppingListManagementPageState extends State<ShoppingListManagementPage>
                         DropdownMenuItem(value: 'ml', child: Text('ml')),
                         DropdownMenuItem(value: 'L', child: Text('L')),
                         DropdownMenuItem(value: 'slice', child: Text('slice')),
+                        DropdownMenuItem(value: 'serving', child: Text('serving')),
+                        DropdownMenuItem(value: 'servings', child: Text('servings')),
                         DropdownMenuItem(value: 'can', child: Text('can')),
                         DropdownMenuItem(value: 'jar', child: Text('jar')),
                         DropdownMenuItem(value: 'bottle', child: Text('bottle')),
@@ -333,6 +335,7 @@ class _ShoppingListManagementPageState extends State<ShoppingListManagementPage>
                         DropdownMenuItem(value: 'box', child: Text('box')),
                         DropdownMenuItem(value: 'head', child: Text('head')),
                         DropdownMenuItem(value: 'clove', child: Text('clove')),
+
                       ],
                       onChanged: (value) {
                         if (value != null) {
@@ -439,6 +442,8 @@ class _ShoppingListManagementPageState extends State<ShoppingListManagementPage>
                         DropdownMenuItem(value: 'ml', child: Text('ml')),
                         DropdownMenuItem(value: 'L', child: Text('L')),
                         DropdownMenuItem(value: 'slice', child: Text('slice')),
+                        DropdownMenuItem(value: 'servings', child: Text('servings')),
+                        DropdownMenuItem(value: 'serving', child: Text('serving')),
                         DropdownMenuItem(value: 'can', child: Text('can')),
                         DropdownMenuItem(value: 'jar', child: Text('jar')),
                         DropdownMenuItem(value: 'bottle', child: Text('bottle')),

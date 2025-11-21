@@ -113,6 +113,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       // Check if this is a local recipe or API recipe
       // Use recipeId if available (for meals from meal planner), otherwise fall back to id
       final recipeId = widget.recipe['recipeId'] ?? widget.recipe['id'];
+      final source = widget.recipe['source']?.toString() ?? '';
+      final substituted = widget.recipe['substituted'] == true;
+      final isFromMealPlanner = widget.recipe['mealType'] != null;
+      final isManualRecipe = recipeId.toString().startsWith('manual_');
+      final isSharedRecipe = widget.recipe['sharedBy'] != null || widget.recipe['type'] == 'recipe_share';
       
       if (recipeId == null) {
         // No ID, use the recipe data directly (this is likely a manually entered meal)
@@ -124,20 +129,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         return;
       }
       
-      // Check if this is a local/manual recipe that should use data directly
-      final source = widget.recipe['source']?.toString().toLowerCase() ?? '';
-      final substituted = widget.recipe['substituted'];
       print('DEBUG: Recipe source: $source, recipeId: $recipeId, substituted: $substituted');
-      print('DEBUG: Meal data keys: ${widget.recipe.keys.toList()}');
-      print('DEBUG: Meal data summary: ${widget.recipe['summary']}');
-      print('DEBUG: Meal data description: ${widget.recipe['description']}');
       
-      // Use meal data directly if it has any of these conditions
-      final hasIngredients = widget.recipe['ingredients'] != null || widget.recipe['extendedIngredients'] != null;
-      final isFromMealPlanner = widget.recipe['date'] != null; // Meals in planner have date field
-      
-      if (recipeId.toString().startsWith('local_') || 
-          recipeId.toString().startsWith('admin_filipino_') ||
+      if (recipeId.toString().startsWith('admin_filipino_') ||
           recipeId.toString().startsWith('firestore_filipino_') ||
           source == 'favorite' ||
           source == 'community' ||
@@ -154,7 +148,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           source == 'admin created' ||
           source == 'admin' ||
           substituted == true ||
-          isFromMealPlanner) { // Also use data directly for planned meals
+          isFromMealPlanner ||
+          isManualRecipe ||
+          isSharedRecipe ||
+          source == 'manual' ||
+          source == 'shared') { // Also use data directly for shared/manual recipes
         // This is a local recipe, community recipe, manually entered meal, substituted recipe, expert plan meal, meal from planner, or scanned product - use the data directly
         print('DEBUG: Local/manual/substituted/expert_plan/meal_planner/scanned recipe, using data directly');
         print('DEBUG: Using meal data directly - summary: ${widget.recipe['summary']}, description: ${widget.recipe['description']}');
@@ -653,6 +651,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         } else if (warningResult == 'substitute') {
           // User chose to substitute, show substitution dialog
           print('DEBUG: User chose to substitute, showing substitution dialog');
+          print('DEBUG: Passing detectedAllergens to dialog: $detectedAllergens');
           final substitutionResult = await SubstitutionDialogHelper.showSubstitutionDialog(
             context,
             recipe,
@@ -1617,116 +1616,117 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     print('DEBUG: ingredients type: ${details['ingredients']?.runtimeType}');
     print('DEBUG: ingredients content: ${details['ingredients']}');
     
-    if (details['extendedIngredients'] != null) {
+    final extendedIngredients = details['extendedIngredients'];
+
+    if (extendedIngredients is List && extendedIngredients.isNotEmpty) {
       // API recipe format - convert to simple format like local recipes
-      final extendedIngredients = details['extendedIngredients'];
-      if (extendedIngredients is List) {
-        print('DEBUG: Processing extendedIngredients with ${extendedIngredients.length} items');
-        ingredients = extendedIngredients.map((ingredient) {
-          print('DEBUG: Processing API ingredient: $ingredient (type: ${ingredient.runtimeType})');
+      print('DEBUG: Processing extendedIngredients with ${extendedIngredients.length} items');
+      ingredients = extendedIngredients.map((ingredient) {
+        print('DEBUG: Processing API ingredient: $ingredient (type: ${ingredient.runtimeType})');
+        
+        if (ingredient is Map) {
+          // Convert API format to simple format like local recipes
+          String name = '';
+          String original = '';
           
-          if (ingredient is Map) {
-            // Convert API format to simple format like local recipes
-            String name = '';
-            String original = '';
+          // Handle name field - it might be a string or a Map
+          if (ingredient['name'] is Map) {
+            // If name is a Map, it might contain the entire ingredient object
+            final nameMap = ingredient['name'] as Map;
+            print('DEBUG: name is a Map with keys: ${nameMap.keys.toList()}');
             
-            // Handle name field - it might be a string or a Map
-            if (ingredient['name'] is Map) {
-              // If name is a Map, it might contain the entire ingredient object
-              final nameMap = ingredient['name'] as Map;
-              print('DEBUG: name is a Map with keys: ${nameMap.keys.toList()}');
-              
-              // Check if this Map has a 'name' field (nested ingredient)
-              if (nameMap.containsKey('name') && nameMap['name'] is String) {
-                name = nameMap['name'].toString();
-                print('DEBUG: Extracted nested name: $name');
-              } else if (nameMap.containsKey('name') && nameMap['name'] is Map) {
-                // If name field is also a Map, extract the string from it
-                final nestedNameMap = nameMap['name'] as Map;
-                name = nestedNameMap['name']?.toString() ?? '';
-                print('DEBUG: Extracted deeply nested name: $name');
-              } else {
-                // If no nested name, use the Map as string (fallback)
-                name = nameMap.toString();
-                print('DEBUG: Using Map as string: $name');
-              }
+            // Check if this Map has a 'name' field (nested ingredient)
+            if (nameMap.containsKey('name') && nameMap['name'] is String) {
+              name = nameMap['name'].toString();
+              print('DEBUG: Extracted nested name: $name');
+            } else if (nameMap.containsKey('name') && nameMap['name'] is Map) {
+              // If name field is also a Map, extract the string from it
+              final nestedNameMap = nameMap['name'] as Map;
+              name = nestedNameMap['name']?.toString() ?? '';
+              print('DEBUG: Extracted deeply nested name: $name');
             } else {
-              // Name is a string - ensure we only get the string value
-              name = ingredient['name']?.toString() ?? '';
-              print('DEBUG: Using name as string: $name');
+              // If no nested name, use the Map as string (fallback)
+              name = nameMap.toString();
+              print('DEBUG: Using Map as string: $name');
             }
-            
-            // CRITICAL FIX: If name is still a Map (toString() of Map), extract the actual name
-            if (name.startsWith('{') && name.contains('name:')) {
-              print('DEBUG: name is still a Map string, extracting actual name');
-              // Extract the name from the Map string using regex
-              final nameMatch = RegExp(r'name:\s*([^,}]+)').firstMatch(name);
-              if (nameMatch != null) {
-                name = nameMatch.group(1)?.trim() ?? name;
-                print('DEBUG: Extracted name from Map string: $name');
-              }
+          } else {
+            // Name is a string - ensure we only get the string value
+            name = ingredient['name']?.toString() ?? '';
+            print('DEBUG: Using name as string: $name');
+          }
+          
+          // CRITICAL FIX: If name is still a Map (toString() of Map), extract the actual name
+          if (name.startsWith('{') && name.contains('name:')) {
+            print('DEBUG: name is still a Map string, extracting actual name');
+            // Extract the name from the Map string using regex
+            final nameMatch = RegExp(r'name:\s*([^,}]+)').firstMatch(name);
+            if (nameMatch != null) {
+              name = nameMatch.group(1)?.trim() ?? name;
+              print('DEBUG: Extracted name from Map string: $name');
             }
-            
-            // ULTIMATE FIX: If name is still a Map object (not string), extract directly
-            if (ingredient['name'] is Map) {
-              final nameMap = ingredient['name'] as Map;
-              // Try to get the actual name from the Map
-              if (nameMap.containsKey('name') && nameMap['name'] is String) {
-                name = nameMap['name'].toString();
-                print('DEBUG: ULTIMATE FIX - Extracted name from Map: $name');
-              } else {
-                // If no 'name' field, try to get the first string value
-                for (var key in nameMap.keys) {
-                  if (nameMap[key] is String && nameMap[key].toString().isNotEmpty) {
-                    name = nameMap[key].toString();
-                    print('DEBUG: ULTIMATE FIX - Using first string value: $name');
-                    break;
-                  }
+          }
+          
+          // ULTIMATE FIX: If name is still a Map object (not string), extract directly
+          if (ingredient['name'] is Map) {
+            final nameMap = ingredient['name'] as Map;
+            // Try to get the actual name from the Map
+            if (nameMap.containsKey('name') && nameMap['name'] is String) {
+              name = nameMap['name'].toString();
+              print('DEBUG: ULTIMATE FIX - Extracted name from Map: $name');
+            } else {
+              // If no 'name' field, try to get the first string value
+              for (var key in nameMap.keys) {
+                if (nameMap[key] is String && nameMap[key].toString().isNotEmpty) {
+                  name = nameMap[key].toString();
+                  print('DEBUG: ULTIMATE FIX - Using first string value: $name');
+                  break;
                 }
               }
             }
-            
-            // FINAL SAFETY CHECK: Ensure name is always a string, not an object
-            if (name is Map) {
-              print('DEBUG: ERROR - name is still a Map object, converting to string');
-              name = name.toString();
-            }
-            
-            // Handle original field - it might be a string or a Map
-            if (ingredient['original'] is Map) {
-              // If original is a Map, extract the actual original
-              final originalMap = ingredient['original'] as Map;
-              original = originalMap['original']?.toString() ?? '';
-              print('DEBUG: Extracted original from Map: $original');
-            } else {
-              original = ingredient['original']?.toString() ?? '';
-              print('DEBUG: Using original as string: $original');
-            }
-            
-            print('DEBUG: Final name value: $name (type: ${name.runtimeType})');
-            print('DEBUG: Final original value: $original (type: ${original.runtimeType})');
-            
-            return {
-              'amount': _safeDouble(ingredient['amount']) ?? 1.0,
-              'unit': ingredient['unit']?.toString() ?? '',
-              'name': name,
-              'original': original,
-              'substituted': ingredient['substituted'] ?? false,
-            };
-          } else {
-            // Fallback for non-object ingredients
-            return {
-              'amount': 1.0,
-              'unit': '',
-              'name': ingredient.toString(),
-              'original': ingredient.toString(),
-              'substituted': false,
-            };
           }
-        }).toList();
-        print('DEBUG: Converted API ingredients: $ingredients');
-      }
-    } else if (details['ingredients'] != null) {
+          
+          // FINAL SAFETY CHECK: Ensure name is always a string, not an object
+          if (name is Map) {
+            print('DEBUG: ERROR - name is still a Map object, converting to string');
+            name = name.toString();
+          }
+          
+          // Handle original field - it might be a string or a Map
+          if (ingredient['original'] is Map) {
+            // If original is a Map, extract the actual original
+            final originalMap = ingredient['original'] as Map;
+            original = originalMap['original']?.toString() ?? '';
+            print('DEBUG: Extracted original from Map: $original');
+          } else {
+            original = ingredient['original']?.toString() ?? '';
+            print('DEBUG: Using original as string: $original');
+          }
+          
+          print('DEBUG: Final name value: $name (type: ${name.runtimeType})');
+          print('DEBUG: Final original value: $original (type: ${original.runtimeType})');
+          
+          return {
+            'amount': _safeDouble(ingredient['amount']) ?? 1.0,
+            'unit': ingredient['unit']?.toString() ?? '',
+            'name': name,
+            'original': original,
+            'substituted': ingredient['substituted'] ?? false,
+          };
+        } else {
+          // Fallback for non-object ingredients
+          return {
+            'amount': 1.0,
+            'unit': '',
+            'name': ingredient.toString(),
+            'original': ingredient.toString(),
+            'substituted': false,
+          };
+        }
+      }).toList();
+      print('DEBUG: Converted API ingredients: $ingredients');
+    }
+
+    if ((ingredients == null || ingredients.isEmpty) && details['ingredients'] != null) {
       // Local recipe format - convert to API-like format
       final localIngredients = details['ingredients'];
       print('DEBUG: localIngredients type: ${localIngredients.runtimeType}');

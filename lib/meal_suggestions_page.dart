@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/recipe_service.dart';
 import 'services/filipino_recipe_service.dart';
+import 'services/dietary_filter_service.dart';
+import 'services/meal_time_service.dart';
 import 'meal_favorites_page.dart';
 import 'recipe_detail_page.dart';
 import 'dart:convert';
@@ -21,8 +23,11 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
   String? _error;
   String _selectedCategory = 'Quick & Easy';
   Map<String, dynamic>? _userProfile;
+  String? _userDietaryPreference;
   String _searchQuery = '';
   TextEditingController _searchController = TextEditingController();
+  String _currentMealPeriod = MealTimeService.getCurrentMealPeriod();
+  bool _filterByMealTime = true; // Toggle for time-based filtering
 
   final List<Map<String, dynamic>> _categories = [
     {
@@ -99,13 +104,18 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
             .doc(user.uid)
             .get();
         if (doc.exists) {
+          final data = doc.data();
           setState(() {
-            _userProfile = doc.data();
+            _userProfile = data;
+            // Get dietary preference
+            final prefs = List<String>.from(data?['dietaryPreferences'] ?? []);
+            _userDietaryPreference = prefs.isNotEmpty && prefs.first != 'None' ? prefs.first : null;
           });
+          print('DEBUG: User dietary preference: $_userDietaryPreference');
         }
       }
     } catch (e) {
-      // Handle error silently for now
+      print('Error loading user profile: $e');
     }
   }
 
@@ -253,7 +263,10 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
         // If no results from TheMealDB, try RecipeService
         if (suggestions.isEmpty) {
           try {
-            final recipes = await RecipeService.fetchRecipes(_searchQuery);
+            final recipes = await RecipeService.fetchRecipes(
+              _searchQuery,
+              dietaryPreferences: _userDietaryPreference != null ? [_userDietaryPreference!] : null,
+            );
             suggestions = recipes.take(8).toList().cast<Map<String, dynamic>>();
           } catch (e) {
             print('RecipeService failed, using Filipino recipes as fallback: $e');
@@ -261,6 +274,9 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
             suggestions = filipinoRecipes.cast<Map<String, dynamic>>();
           }
         }
+        
+        // Apply dietary filtering
+        suggestions = DietaryFilterService.filterRecipesByDiet(suggestions, _userDietaryPreference);
       } else {
       // Load Filipino recipes for Filipino Favorites category
       if (_selectedCategory == 'Filipino Favorites') {
@@ -281,7 +297,10 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
           // If no results from TheMealDB, try RecipeService
           if (suggestions.isEmpty) {
             try {
-        final recipes = await RecipeService.fetchRecipes(query);
+              final recipes = await RecipeService.fetchRecipes(
+                query,
+                dietaryPreferences: _userDietaryPreference != null ? [_userDietaryPreference!] : null,
+              );
               suggestions = recipes.take(8).toList().cast<Map<String, dynamic>>();
             } catch (e) {
               print('RecipeService failed for ${_selectedCategory}, using Filipino recipes as fallback: $e');
@@ -290,6 +309,9 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
             }
           }
         }
+        
+        // Apply dietary filtering to all suggestions
+        suggestions = DietaryFilterService.filterRecipesByDiet(suggestions, _userDietaryPreference);
       }
 
       // If we still have no suggestions, try to get any Filipino recipes
@@ -299,9 +321,20 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
         suggestions = filipinoRecipes.cast<Map<String, dynamic>>();
       }
 
-      // Filter based on user preferences if available
+      // Filter based on user allergies if available
       if (_userProfile != null) {
-        suggestions = _filterByUserPreferences(suggestions);
+        suggestions = _filterByUserAllergies(suggestions);
+      }
+
+      // NEW: Filter by meal time if enabled
+      if (_filterByMealTime && suggestions.isNotEmpty) {
+        print('DEBUG: Filtering ${suggestions.length} recipes by meal period: $_currentMealPeriod');
+        suggestions = MealTimeService.filterRecipesByMealPeriod(
+          suggestions,
+          _currentMealPeriod,
+          minSuitability: 0.3, // Show recipes with at least 30% suitability
+        );
+        print('DEBUG: After time filtering: ${suggestions.length} recipes');
       }
 
       setState(() {
@@ -356,32 +389,25 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
     }
   }
 
-  List<Map<String, dynamic>> _filterByUserPreferences(
+  List<Map<String, dynamic>> _filterByUserAllergies(
     List<Map<String, dynamic>> recipes,
   ) {
     if (_userProfile == null) return recipes;
 
     final allergies = _userProfile!['allergies'] as List<dynamic>? ?? [];
-    final dietaryRestrictions = _userProfile!['dietaryRestrictions'] as List<dynamic>? ?? [];
+    if (allergies.isEmpty) return recipes;
 
     return recipes.where((recipe) {
-      // Basic filtering - in a real app, you'd want more sophisticated filtering
       final title = (recipe['title'] ?? '').toString().toLowerCase();
+      final description = (recipe['description'] ?? '').toString().toLowerCase();
+      final summary = (recipe['summary'] ?? '').toString().toLowerCase();
+      final searchText = '$title $description $summary';
       
       // Filter out recipes with known allergens
       for (final allergy in allergies) {
-        if (title.contains(allergy.toString().toLowerCase())) {
-          return false;
-        }
-      }
-
-      // Filter based on dietary restrictions
-      for (final restriction in dietaryRestrictions) {
-        final restrictionLower = restriction.toString().toLowerCase();
-        if (restrictionLower == 'vegetarian' && title.contains('meat')) {
-          return false;
-        }
-        if (restrictionLower == 'vegan' && (title.contains('cheese') || title.contains('milk'))) {
+        final allergyLower = allergy.toString().toLowerCase();
+        if (allergyLower != 'none' && searchText.contains(allergyLower)) {
+          print('DEBUG: Recipe "${recipe['title']}" excluded - contains allergen: $allergy');
           return false;
         }
       }
@@ -437,6 +463,53 @@ class _MealSuggestionsPageState extends State<MealSuggestionsPage> {
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
+                // NEW: Meal Period Indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        MealTimeService.getMealPeriodIcon(_currentMealPeriod),
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        MealTimeService.getMealPeriodDisplayName(_currentMealPeriod),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        MealTimeService.getMealPeriodTimeRange(_currentMealPeriod),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Switch(
+                        value: _filterByMealTime,
+                        onChanged: (value) {
+                          setState(() {
+                            _filterByMealTime = value;
+                          });
+                          _loadSuggestions();
+                        },
+                        activeColor: Colors.white,
+                        activeTrackColor: Colors.green.shade300,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Row(
                   children: [
                     Container(

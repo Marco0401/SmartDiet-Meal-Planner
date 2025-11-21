@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/allergen_service.dart';
+import '../services/allergen_detection_service.dart';
+import '../services/ingredient_analysis_service.dart';
 import '../services/substitution_nutrition_service.dart';
 
 class MultiSubstitutionDialog extends StatefulWidget {
@@ -33,6 +35,11 @@ class _MultiSubstitutionDialogState extends State<MultiSubstitutionDialog> {
   void initState() {
     super.initState();
     _initializeAllergenData();
+  }
+
+  /// Normalize allergen name to match AllergenService keys
+  String _normalizeAllergenName(String allergen) {
+    return AllergenService.normalizeAllergenName(allergen);
   }
 
   /// Get hardcoded substitution fallback data
@@ -127,6 +134,11 @@ class _MultiSubstitutionDialogState extends State<MultiSubstitutionDialog> {
       _substitutionOptions[allergen] = [];
       
       // Find ingredients containing this allergen
+      // Normalize allergen name to match AllergenService keys
+      String normalizedAllergen = _normalizeAllergenName(allergen);
+      print('DEBUG: Multi-sub - Checking for allergen "$allergen" (normalized: "$normalizedAllergen")');
+      print('DEBUG: Multi-sub - Total ingredients to check: ${ingredients.length}');
+      
       for (final ingredient in ingredients) {
         String ingredientName;
         if (ingredient is Map<String, dynamic>) {
@@ -134,6 +146,13 @@ class _MultiSubstitutionDialogState extends State<MultiSubstitutionDialog> {
         } else {
           ingredientName = ingredient.toString();
         }
+        
+        // Skip empty ingredients
+        if (ingredientName.trim().isEmpty) {
+          continue;
+        }
+        
+        print('DEBUG: Multi-sub - Checking ingredient: "$ingredientName"');
         
         // Convert ingredient to the format expected by AllergenService
         final ingredientForCheck = {
@@ -143,28 +162,49 @@ class _MultiSubstitutionDialogState extends State<MultiSubstitutionDialog> {
         };
         
         final foundAllergens = await AllergenService.checkAllergens([ingredientForCheck]);
-        if (foundAllergens.containsKey(allergen.toLowerCase())) {
+        print('DEBUG: Multi-sub - Ingredient "$ingredientName" contains allergens: ${foundAllergens.keys.toList()}');
+        
+        // Check if this ingredient contains the allergen we're looking for
+        if (foundAllergens.containsKey(normalizedAllergen)) {
           _allergenIngredients[allergen]!.add(ingredientName);
-          print('DEBUG: Found allergen "$allergen" in ingredient "$ingredientName"');
+          print('DEBUG: Multi-sub - ✓ Found allergen "$allergen" in ingredient "$ingredientName"');
         }
       }
       
+      print('DEBUG: Multi-sub - Found ${_allergenIngredients[allergen]!.length} ingredients with $allergen');
+      
       // Get substitution options for this allergen
       try {
-        final substitutions = await AllergenService.getSubstitutions(allergen);
-        print('DEBUG: Got ${substitutions.length} substitutions for $allergen: $substitutions');
+        // NEW: Get safe substitutions that avoid user's other allergens
+        final userAllergens = await AllergenDetectionService.getUserAllergens();
+        final safeSubs = IngredientAnalysisService.getSafeSubstitutions(
+          allergen,
+          userAllergens,
+        );
+        
+        final substitutions = await AllergenService.getSubstitutions(normalizedAllergen);
+        print('DEBUG: Got ${substitutions.length} substitutions for $allergen (normalized: $normalizedAllergen): $substitutions');
+        
+        // Combine safe and regular substitutions
+        final allSubs = [...safeSubs, ...substitutions];
+        
+        // Validate all substitutions
+        final validatedSubs = allSubs.where((sub) {
+          return IngredientAnalysisService.isSubstitutionSafe(sub, userAllergens);
+        }).toSet().toList(); // Remove duplicates
         
         // If no substitutions found, use hardcoded fallback
-        if (substitutions.isEmpty) {
-          print('DEBUG: No substitutions found, using hardcoded fallback for $allergen');
-          final fallbackSubstitutions = _getHardcodedSubstitutions(allergen);
+        if (validatedSubs.isEmpty) {
+          print('DEBUG: No safe substitutions found, using hardcoded fallback for $allergen');
+          final fallbackSubstitutions = _getHardcodedSubstitutions(normalizedAllergen);
           _substitutionOptions[allergen] = fallbackSubstitutions;
         } else {
-          _substitutionOptions[allergen] = substitutions;
+          print('DEBUG: Got ${validatedSubs.length} safe substitutions');
+          _substitutionOptions[allergen] = validatedSubs;
         }
       } catch (e) {
         print('DEBUG: Error getting substitutions for $allergen: $e');
-        final fallbackSubstitutions = _getHardcodedSubstitutions(allergen);
+        final fallbackSubstitutions = _getHardcodedSubstitutions(normalizedAllergen);
         _substitutionOptions[allergen] = fallbackSubstitutions;
       }
     }

@@ -1407,6 +1407,7 @@ class _ShoppingListGeneratorPageState extends State<ShoppingListGeneratorPage> {
     if (lowerName.contains('box') || lowerName.contains('boxes')) return 'box';
     if (lowerName.contains('head') || lowerName.contains('heads')) return 'head';
     if (lowerName.contains('clove') || lowerName.contains('cloves')) return 'clove';
+    if (lowerName.contains('serving') || lowerName.contains('servings')) return 'serving';
     if (lowerName.contains('slice') || lowerName.contains('slices')) return 'slice';
     if (lowerName.contains('piece') || lowerName.contains('pieces')) return 'piece';
     
