@@ -7,13 +7,12 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'user_profile_page.dart';
-import 'health_insights_page.dart';
-import 'debug_user_data_page.dart';
 import 'widgets/app_bottom_nav.dart';
 import 'main.dart';
 import 'meal_planner_page.dart';
 import 'meal_favorites_page.dart';
 import 'community_recipes_page.dart';
+import 'pages/goal_progress_summary_page.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -31,6 +30,11 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   String? _gender;
   final TextEditingController _heightController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
+  
+  // Weight tracking
+  double? _initialWeight;
+  double? _targetWeight;
+  DateTime? _goalStartDate;
 
   // Health Information
   List<String> _healthConditions = [];
@@ -166,6 +170,13 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             _gender = data['gender'];
             _heightController.text = data['height']?.toString() ?? '';
             _weightController.text = data['weight']?.toString() ?? '';
+            
+            // Weight tracking
+            _initialWeight = data['initialWeight']?.toDouble();
+            _targetWeight = data['targetWeight']?.toDouble();
+            if (data['goalStartDate'] != null) {
+              _goalStartDate = DateTime.tryParse(data['goalStartDate']);
+            }
 
             // Health Information
       _healthConditions = List<String>.from(data['healthConditions'] ?? []);
@@ -210,12 +221,24 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        final newWeight = double.tryParse(_weightController.text);
+        final oldWeight = _initialWeight;
+        
+        // Check if weight changed and goal might be achieved
+        bool shouldCheckGoal = false;
+        if (newWeight != null && oldWeight != null && newWeight != oldWeight) {
+          shouldCheckGoal = await _checkGoalAchievement(oldWeight, newWeight);
+        }
+        
         final profileData = {
           'fullName': _fullNameController.text.trim(),
             'birthday': _birthday?.toIso8601String(),
           'gender': _gender,
           'height': double.tryParse(_heightController.text),
-          'weight': double.tryParse(_weightController.text),
+          'weight': newWeight,
+          'initialWeight': _initialWeight ?? newWeight, // Set initial weight if not set
+          'targetWeight': _targetWeight,
+          'goalStartDate': _goalStartDate?.toIso8601String(),
             'healthConditions': _healthConditions,
             'allergies': _allergies,
           'otherCondition': _otherConditionController.text.trim(),
@@ -229,6 +252,22 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
           'email': user.email,
           'lastUpdated': FieldValue.serverTimestamp(),
         };
+        
+        // Save weight history if weight changed
+        if (newWeight != null && oldWeight != null && newWeight != oldWeight) {
+          final today = DateTime.now();
+          final dateKey = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('weightHistory')
+              .doc(dateKey)
+              .set({
+            'weight': newWeight,
+            'timestamp': FieldValue.serverTimestamp(),
+            'date': dateKey,
+          });
+        }
 
         // Calculate age if birthday is provided
         if (_birthday != null) {
@@ -282,6 +321,89 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
       years--;
     }
     return years;
+  }
+
+  Future<bool> _checkGoalAchievement(double oldWeight, double newWeight) async {
+    if (_goal == null || _targetWeight == null) return false;
+    
+    bool goalAchieved = false;
+    
+    switch (_goal) {
+      case 'Lose weight':
+        if (newWeight <= _targetWeight!) {
+          goalAchieved = true;
+        }
+        break;
+      case 'Gain weight':
+      case 'Build muscle':
+        if (newWeight >= _targetWeight!) {
+          goalAchieved = true;
+        }
+        break;
+      case 'Maintain current weight':
+        // Check if maintained for 30 days (implement later)
+        break;
+    }
+    
+    if (goalAchieved && mounted) {
+      // Show achievement dialog
+      await _showGoalAchievementDialog();
+      return true;
+    }
+    
+    return false;
+  }
+
+  Future<void> _showGoalAchievementDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Column(
+          children: [
+            Icon(Icons.emoji_events, size: 64, color: Colors.amber[600]),
+            const SizedBox(height: 16),
+            const Text(
+              '🎉 Congratulations!',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        content: const Text(
+          'You\'ve reached your goal! View your progress summary to see your amazing journey.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToProgressSummary();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4CAF50),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('View Progress'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToProgressSummary() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const GoalProgressSummaryPage(),
+      ),
+    );
   }
 
   Future<void> _pickBirthday() async {
@@ -492,77 +614,13 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             ),
           ),
           const SizedBox(height: 16),
-          // View Public Profile Button
+          // Progress Summary Button
           OutlinedButton.icon(
-            onPressed: () {
-              final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-              if (currentUserId != null) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => UserProfilePage(
-                      userId: currentUserId,
-                      isOwnProfile: true,
-                    ),
-                  ),
-                );
-              }
-            },
-            icon: const Icon(Icons.person, color: Colors.white),
+            onPressed: _navigateToProgressSummary,
+            icon: const Icon(Icons.emoji_events, color: Colors.white),
             label: const Text(
-              'View Public Profile',
-              style: TextStyle(color: Colors.white),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.white, width: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          
-          // Health Insights Button
-          OutlinedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const HealthInsightsPage(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.psychology, color: Colors.white),
-            label: const Text(
-              '🤖 Health Insights',
-              style: TextStyle(color: Colors.white),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.white, width: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Debug User Data Button
-          OutlinedButton.icon(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const DebugUserDataPage(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.bug_report, color: Colors.white),
-            label: const Text(
-              '🔧 Debug User Data',
-              style: TextStyle(color: Colors.white),
+              '🏆 Progress Summary',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Colors.white, width: 2),
@@ -624,6 +682,26 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                 ],
               ),
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.person, color: Colors.white),
+                tooltip: 'View Public Profile',
+                onPressed: () {
+                  final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                  if (currentUserId != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => UserProfilePage(
+                          userId: currentUserId,
+                          isOwnProfile: true,
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
           ),
         ),
       ),
@@ -702,7 +780,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                     Expanded(
                       child: _buildTextField(
                         controller: _weightController,
-                        label: 'Weight (kg)',
+                        label: 'Current Weight (kg)',
                         icon: Icons.monitor_weight,
                         keyboardType: TextInputType.number,
                       ),
@@ -812,7 +890,15 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                 DropdownButtonFormField<String>(
                   value: _goal,
                   items: goals.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                  onChanged: (v) => setState(() => _goal = v),
+                  onChanged: (v) {
+                    setState(() {
+                      _goal = v;
+                      // Set goal start date when goal is first set
+                      if (_goalStartDate == null && v != 'None') {
+                        _goalStartDate = DateTime.now();
+                      }
+                    });
+                  },
                   decoration: const InputDecoration(
                     labelText: 'Goal',
                     prefixIcon: Icon(Icons.flag, color: Color(0xFF4CAF50)),
@@ -820,15 +906,40 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                if (_goal != null && _goal != 'None' && (_goal == 'Lose weight' || _goal == 'Gain weight' || _goal == 'Build muscle')) ...[
+                  TextField(
+                    controller: TextEditingController(text: _targetWeight?.toString() ?? ''),
+                    keyboardType: TextInputType.number,
+                    onChanged: (v) => _targetWeight = double.tryParse(v),
+                    decoration: InputDecoration(
+                      labelText: 'Target Weight (kg)',
+                      prefixIcon: const Icon(Icons.track_changes, color: Color(0xFF4CAF50)),
+                      border: const OutlineInputBorder(),
+                      helperText: _goal == 'Lose weight' 
+                          ? 'Enter your desired weight (lower than current)'
+                          : 'Enter your desired weight (higher than current)',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 DropdownButtonFormField<String>(
                   value: _activityLevel,
-                  items: activityLevels.map((a) => DropdownMenuItem(value: a, child: Text(a, style: const TextStyle(fontSize: 13)))).toList(),
+                  items: activityLevels.map((a) => DropdownMenuItem(
+                    value: a, 
+                    child: Text(
+                      a, 
+                      style: const TextStyle(fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
+                  )).toList(),
                   onChanged: (v) => setState(() => _activityLevel = v),
                   decoration: const InputDecoration(
                     labelText: 'Activity Level',
                     prefixIcon: Icon(Icons.directions_run, color: Color(0xFF4CAF50)),
                     border: OutlineInputBorder(),
                   ),
+                  isExpanded: true,
                 ),
               ],
             ),

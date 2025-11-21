@@ -21,9 +21,9 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
   
   String? _selectedCuisine;
   String? _selectedMealType;
+  String? _selectedMealTime; // User can select specific meal time or use current
   int? _maxReadyTime;
   String _currentMealPeriod = MealTimeService.getCurrentMealPeriod();
-  bool _filterByMealTime = false; // Default off for search (user controls it)
 
   @override
   void initState() {
@@ -147,6 +147,7 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
     print('DEBUG: Applying client-side filters to ${recipes.length} recipes');
     print('DEBUG: MaxTime filter: $_maxReadyTime');
     print('DEBUG: User dietary preference: $_userDietaryPreference');
+    print('DEBUG: Selected meal time: $_selectedMealTime');
 
     final filtered = recipes.where((recipe) {
       // Filter by max ready time
@@ -164,12 +165,13 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
 
     print('DEBUG: Recipes after client-side filtering: ${filtered.length}');
     
-    // Apply meal time filtering if enabled
-    if (_filterByMealTime && filtered.isNotEmpty) {
-      print('DEBUG: Applying meal time filter for period: $_currentMealPeriod');
+    // Always apply meal time filtering based on selected or current period
+    if (filtered.isNotEmpty) {
+      final mealPeriod = _selectedMealTime ?? _currentMealPeriod;
+      print('DEBUG: Applying meal time filter for period: $mealPeriod');
       final timeFiltered = MealTimeService.filterRecipesByMealPeriod(
         filtered,
-        _currentMealPeriod,
+        mealPeriod,
         minSuitability: 0.3,
       );
       print('DEBUG: After meal time filtering: ${timeFiltered.length} recipes');
@@ -183,6 +185,7 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
     int count = 0;
     if (_selectedCuisine != null) count++;
     if (_selectedMealType != null) count++;
+    if (_selectedMealTime != null) count++; // Count custom meal time selection
     if (_maxReadyTime != null) count++;
     return count;
   }
@@ -252,7 +255,7 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
               child: Row(
                 children: [
                   Text(
-                    MealTimeService.getMealPeriodIcon(_currentMealPeriod),
+                    MealTimeService.getMealPeriodIcon(_selectedMealTime ?? _currentMealPeriod),
                     style: const TextStyle(fontSize: 20),
                   ),
                   const SizedBox(width: 8),
@@ -261,7 +264,9 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          MealTimeService.getMealPeriodDisplayName(_currentMealPeriod),
+                          _selectedMealTime != null 
+                              ? 'Filtering: ${MealTimeService.getMealPeriodDisplayName(_selectedMealTime!)}'
+                              : 'Current: ${MealTimeService.getMealPeriodDisplayName(_currentMealPeriod)}',
                           style: TextStyle(
                             color: Colors.green[800],
                             fontWeight: FontWeight.bold,
@@ -269,7 +274,7 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                           ),
                         ),
                         Text(
-                          MealTimeService.getMealPeriodTimeRange(_currentMealPeriod),
+                          MealTimeService.getMealPeriodTimeRange(_selectedMealTime ?? _currentMealPeriod),
                           style: TextStyle(
                             color: Colors.green[600],
                             fontSize: 11,
@@ -278,27 +283,25 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                       ],
                     ),
                   ),
-                  Text(
-                    'Filter by time',
-                    style: TextStyle(
-                      color: Colors.green[700],
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                  if (_selectedMealTime != null)
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedMealTime = null;
+                        });
+                        if (_hasSearched) {
+                          _performSearch();
+                        }
+                      },
+                      child: Text(
+                        'Reset',
+                        style: TextStyle(
+                          color: Colors.green[700],
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: _filterByMealTime,
-                    onChanged: (value) {
-                      setState(() {
-                        _filterByMealTime = value;
-                      });
-                      if (_hasSearched) {
-                        _performSearch();
-                      }
-                    },
-                    activeColor: Colors.green[700],
-                  ),
                 ],
               ),
             ),
@@ -698,6 +701,7 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                       setState(() {
                         _selectedCuisine = null;
                         _selectedMealType = null;
+                        _selectedMealTime = null;
                         _maxReadyTime = null;
                       });
                       Navigator.pop(context);
@@ -764,6 +768,21 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
                       (value) => setState(() => _selectedMealType = value),
                     ),
                     const SizedBox(height: 16),
+                    _buildFilterDropdown(
+                      'Meal Time',
+                      _selectedMealTime,
+                      ['breakfast', 'morning_snack', 'lunch', 'afternoon_snack', 'dinner', 'evening_snack'],
+                      (value) => setState(() => _selectedMealTime = value),
+                      displayNames: {
+                        'breakfast': 'Breakfast (6AM-10AM)',
+                        'morning_snack': 'Morning Snack (10AM-12PM)',
+                        'lunch': 'Lunch (12PM-2PM)',
+                        'afternoon_snack': 'Afternoon Snack (2PM-6PM)',
+                        'dinner': 'Dinner (6PM-9PM)',
+                        'evening_snack': 'Evening Snack (9PM-12AM)',
+                      },
+                    ),
+                    const SizedBox(height: 16),
                     _buildReadyTimeFilter(),
                   ],
                 ),
@@ -797,7 +816,13 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
     );
   }
 
-  Widget _buildFilterDropdown(String label, String? value, List<String> items, Function(String?) onChanged) {
+  Widget _buildFilterDropdown(
+    String label, 
+    String? value, 
+    List<String> items, 
+    Function(String?) onChanged,
+    {Map<String, String>? displayNames}
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -823,7 +848,10 @@ class _RecipeSearchPageState extends State<RecipeSearchPage> {
             items: items.map((item) {
               return DropdownMenuItem(
                 value: item,
-                child: Text(item),
+                child: Text(
+                  displayNames?[item] ?? item,
+                  style: const TextStyle(fontSize: 13),
+                ),
               );
             }).toList(),
             onChanged: onChanged,
