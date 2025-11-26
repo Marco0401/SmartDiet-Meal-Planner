@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:csv/csv.dart';
+import 'dart:html' as html;
+import 'dart:convert';
 
 class UsersManagementPage extends StatefulWidget {
   const UsersManagementPage({super.key});
@@ -13,6 +16,7 @@ class UsersManagementPage extends StatefulWidget {
 class _UsersManagementPageState extends State<UsersManagementPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  final Set<String> _selectedUserIds = {};
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +27,17 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
         elevation: 0,
         automaticallyImplyLeading: false,
         actions: [
+          if (_selectedUserIds.isNotEmpty)
+            IconButton(
+              onPressed: _exportSelectedUsers,
+              icon: const Icon(Icons.download),
+              tooltip: 'Export Selected Users',
+            ),
+          IconButton(
+            onPressed: _exportAllUsers,
+            icon: const Icon(Icons.file_download),
+            tooltip: 'Export All Users',
+          ),
           IconButton(
             onPressed: _fixMissingEmails,
             icon: const Icon(Icons.healing),
@@ -158,6 +173,19 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
                           ),
                           child: Row(
                             children: [
+                              Checkbox(
+                                value: _selectedUserIds.length == filteredUsers.length && filteredUsers.isNotEmpty,
+                                tristate: true,
+                                onChanged: (value) {
+                                  setState(() {
+                                    if (value == true) {
+                                      _selectedUserIds.addAll(filteredUsers.map((doc) => doc.id));
+                                    } else {
+                                      _selectedUserIds.clear();
+                                    }
+                                  });
+                                },
+                              ),
                               const Expanded(flex: 2, child: Text('Name', style: TextStyle(fontWeight: FontWeight.bold))),
                               const Expanded(flex: 2, child: Text('Email', style: TextStyle(fontWeight: FontWeight.bold))),
                               const Expanded(flex: 1, child: Text('Role', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -185,6 +213,20 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
                                 ),
                                 child: Row(
                                   children: [
+                                    // Checkbox
+                                    Checkbox(
+                                      value: _selectedUserIds.contains(doc.id),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          if (value == true) {
+                                            _selectedUserIds.add(doc.id);
+                                          } else {
+                                            _selectedUserIds.remove(doc.id);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    
                                     // Name
                                     Expanded(
                                       flex: 2,
@@ -294,25 +336,39 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
                                     
                                     // Actions
                                     SizedBox(
-                                      width: 100,
+                                      width: 140,
                                       child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.start,
                                         children: [
+                                          IconButton(
+                                            onPressed: () => _exportSingleUser(doc.id, data),
+                                            icon: const Icon(Icons.download, size: 18),
+                                            tooltip: 'Export User',
+                                            padding: const EdgeInsets.all(4),
+                                            constraints: const BoxConstraints(),
+                                          ),
                                           IconButton(
                                             onPressed: () => _showUserDetails(doc.id, data),
                                             icon: const Icon(Icons.visibility, size: 18),
                                             tooltip: 'View Details',
+                                            padding: const EdgeInsets.all(4),
+                                            constraints: const BoxConstraints(),
                                           ),
                                           if ((data['fullName'] != null || data['name'] != null) && data['email'] != null)
                                             IconButton(
                                               onPressed: () => _showEditUserDialog(doc.id, data),
                                               icon: const Icon(Icons.edit, size: 18),
                                               tooltip: 'Edit User',
+                                              padding: const EdgeInsets.all(4),
+                                              constraints: const BoxConstraints(),
                                             ),
                                           if ((data['fullName'] == null && data['name'] == null) || data['email'] == null)
                                             IconButton(
                                               onPressed: () => _deleteIncompleteUser(doc.id),
                                               icon: const Icon(Icons.delete, size: 18, color: Colors.red),
                                               tooltip: 'Delete Incomplete User',
+                                              padding: const EdgeInsets.all(4),
+                                              constraints: const BoxConstraints(),
                                             ),
                                         ],
                                       ),
@@ -671,6 +727,537 @@ class _UsersManagementPageState extends State<UsersManagementPage> {
         ],
       ),
     );
+  }
+
+  // Export single user
+  void _exportSingleUser(String userId, Map<String, dynamic> userData) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export User Details'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.table_chart, color: Colors.green),
+                title: const Text('Export as CSV'),
+                subtitle: const Text('Download spreadsheet file'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _exportUserAsCSV([userId], [userData]);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.description, color: Colors.blue),
+                title: const Text('Download Word Document'),
+                subtitle: const Text('Download .doc file (printable)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _exportUserAsWord([userId], [userData]);
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Export all users
+  void _exportAllUsers() async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export All Users'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.table_chart, color: Colors.green),
+                title: const Text('Export as CSV'),
+                subtitle: const Text('Download spreadsheet file'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _exportAllUsersData('csv');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.description, color: Colors.blue),
+                title: const Text('Download Word Document'),
+                subtitle: const Text('Download .doc file (printable)'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _exportAllUsersData('word');
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Export selected users
+  void _exportSelectedUsers() async {
+    if (_selectedUserIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No users selected'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Export ${_selectedUserIds.length} Selected Users'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.table_chart, color: Colors.green),
+                title: const Text('Export as CSV'),
+                subtitle: const Text('Download spreadsheet file'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _exportSelectedUsersData('csv');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.description, color: Colors.blue),
+                title: const Text('Download Word Document'),
+                subtitle: const Text('Download .doc file (printable)'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _exportSelectedUsersData('word');
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportAllUsersData(String format) async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Fetching all users...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .get();
+
+      final userIds = usersSnapshot.docs.map((doc) => doc.id).toList();
+      final usersData = usersSnapshot.docs.map((doc) => doc.data()).toList();
+
+      Navigator.pop(context); // Close loading dialog
+
+      if (format == 'csv') {
+        await _exportUserAsCSV(userIds, usersData);
+      } else {
+        await _exportUserAsWord(userIds, usersData);
+      }
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error exporting users: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _exportSelectedUsersData(String format) async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text('Fetching ${_selectedUserIds.length} users...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final List<String> userIds = [];
+      final List<Map<String, dynamic>> usersData = [];
+
+      for (final userId in _selectedUserIds) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .get();
+        
+        if (userDoc.exists) {
+          userIds.add(userId);
+          usersData.add(userDoc.data()!);
+        }
+      }
+
+      Navigator.pop(context); // Close loading dialog
+
+      if (format == 'csv') {
+        await _exportUserAsCSV(userIds, usersData);
+      } else {
+        await _exportUserAsWord(userIds, usersData);
+      }
+
+      setState(() {
+        _selectedUserIds.clear();
+      });
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error exporting users: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _exportUserAsCSV(List<String> userIds, List<Map<String, dynamic>> usersData) async {
+    try {
+      final List<List<dynamic>> rows = [];
+
+      // Header
+      rows.add(['SmartDiet User Export']);
+      rows.add(['Generated: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}']);
+      rows.add(['Total Users: ${usersData.length}']);
+      rows.add([]);
+
+      // Column headers
+      rows.add([
+        'User ID',
+        'Full Name',
+        'Email',
+        'Gender',
+        'Age',
+        'Birthday',
+        'Height (cm)',
+        'Weight (kg)',
+        'Goal',
+        'Activity Level',
+        'Role',
+        'Allergies',
+        'Dietary Preferences',
+        'Health Conditions',
+        'Medication',
+        'Notifications',
+        'Account Created',
+        'Last Updated',
+      ]);
+
+      // User data rows
+      for (int i = 0; i < userIds.length; i++) {
+        final userId = userIds[i];
+        final data = usersData[i];
+        
+        rows.add([
+          userId,
+          data['fullName'] ?? data['name'] ?? 'N/A',
+          data['email'] ?? 'N/A',
+          data['gender'] ?? 'N/A',
+          data['age']?.toString() ?? 'N/A',
+          data['birthday']?.toString().split('T')[0] ?? 'N/A',
+          data['height']?.toString() ?? 'N/A',
+          data['weight']?.toString() ?? 'N/A',
+          data['goal'] ?? 'N/A',
+          data['activityLevel'] ?? 'N/A',
+          data['role'] ?? 'User',
+          (data['allergies'] as List?)?.join(', ') ?? 'None',
+          (data['dietaryPreferences'] as List?)?.where((p) => p != 'None').join(', ') ?? 'None',
+          (data['healthConditions'] as List?)?.where((c) => c != 'None').join(', ') ?? 'None',
+          data['medication'] ?? 'None',
+          (data['notifications'] as List?)?.join(', ') ?? 'Default',
+          _formatDate(data['createdAt']),
+          _formatDate(data['lastUpdated']),
+        ]);
+      }
+
+      // Convert to CSV
+      String csv = const ListToCsvConverter().convert(rows);
+      final bytes = utf8.encode(csv);
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', 'SmartDiet_Users_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv')
+        ..click();
+      html.Url.revokeObjectUrl(url);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Text('${usersData.length} user(s) exported successfully!'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error exporting CSV: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _exportUserAsWord(List<String> userIds, List<Map<String, dynamic>> usersData) async {
+    try {
+      final buffer = StringBuffer();
+      
+      // Generate individual user profiles
+      for (int i = 0; i < userIds.length; i++) {
+        final userId = userIds[i];
+        final data = usersData[i];
+        
+        buffer.write(_generateUserProfile(userId, data));
+        
+        // Add page break between users (except for last user)
+        if (i < userIds.length - 1) {
+          buffer.write('<div style="page-break-after: always;"></div>');
+        }
+      }
+      
+      final htmlContent = '''
+<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>SmartDiet User Export</title>
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #333; }
+    .user-card { margin-bottom: 30pt; }
+    .user-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20pt; border-radius: 10pt 10pt 0 0; }
+    .user-name { font-size: 24pt; font-weight: bold; margin: 0; }
+    .user-id { font-size: 10pt; opacity: 0.9; margin-top: 5pt; }
+    .section { background: white; border: 1px solid #e0e0e0; border-top: none; padding: 15pt; }
+    .section-title { font-size: 14pt; font-weight: bold; color: #667eea; margin: 15pt 0 10pt 0; padding-bottom: 5pt; border-bottom: 2px solid #667eea; }
+    .section-title:first-child { margin-top: 0; }
+    .info-row { display: table; width: 100%; margin: 8pt 0; }
+    .info-label { display: table-cell; width: 180pt; font-weight: 600; color: #555; padding-right: 10pt; }
+    .info-value { display: table-cell; color: #333; word-wrap: break-word; }
+    .badge { display: inline-block; padding: 4pt 10pt; border-radius: 12pt; font-size: 9pt; font-weight: bold; margin: 2pt; }
+    .badge-admin { background-color: #ffebee; color: #c62828; }
+    .badge-user { background-color: #e3f2fd; color: #1565c0; }
+    .badge-nutritionist { background-color: #f3e5f5; color: #6a1b9a; }
+    .footer { margin-top: 20pt; padding-top: 10pt; border-top: 1px solid #e0e0e0; text-align: center; color: #999; font-size: 9pt; }
+  </style>
+</head>
+<body>
+  <div style="text-align: center; margin-bottom: 30pt;">
+    <h1 style="color: #667eea; font-size: 28pt; margin: 0;">🍽️ SmartDiet User Export</h1>
+    <p style="color: #666; margin: 10pt 0;">Generated: ${DateFormat('MMMM dd, yyyy - hh:mm a').format(DateTime.now())}</p>
+    <p style="color: #666; margin: 0;">Total Users: ${usersData.length}</p>
+  </div>
+  
+  ${buffer.toString()}
+  
+  <div class="footer">
+    🍽️ SmartDiet User Management - Confidential Report
+  </div>
+</body>
+</html>
+      ''';
+
+      final bytes = utf8.encode(htmlContent);
+      final blob = html.Blob([bytes], 'application/msword');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', 'SmartDiet_Users_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.doc')
+        ..click();
+      html.Url.revokeObjectUrl(url);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Text('${usersData.length} user(s) exported as Word document!'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error exporting Word: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _generateUserProfile(String userId, Map<String, dynamic> data) {
+    final role = data['role'] ?? 'User';
+    final roleClass = role == 'admin' ? 'badge-admin' : role == 'Nutritionist' ? 'badge-nutritionist' : 'badge-user';
+    final userName = data['fullName'] ?? data['name'] ?? 'Unknown User';
+    
+    // Format lists
+    final allergies = (data['allergies'] as List?)?.where((a) => a != 'None').join(', ');
+    final dietaryPrefs = (data['dietaryPreferences'] as List?)?.where((p) => p != 'None').join(', ');
+    final healthConditions = (data['healthConditions'] as List?)?.where((c) => c != 'None').join(', ');
+    final notifications = (data['notifications'] as List?)?.join(', ');
+    
+    return '''
+  <div class="user-card">
+    <div class="user-header">
+      <div class="user-name">$userName</div>
+      <div class="user-id">User ID: $userId</div>
+    </div>
+    <div class="section">
+      <div class="section-title">📋 Basic Information</div>
+      <div class="info-row">
+        <div class="info-label">Email:</div>
+        <div class="info-value">${data['email'] ?? 'N/A'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Gender:</div>
+        <div class="info-value">${data['gender'] ?? 'N/A'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Age:</div>
+        <div class="info-value">${data['age'] ?? 'N/A'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Birthday:</div>
+        <div class="info-value">${data['birthday']?.toString().split('T')[0] ?? 'N/A'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Height:</div>
+        <div class="info-value">${data['height'] != null ? '${data['height']} cm' : 'N/A'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Weight:</div>
+        <div class="info-value">${data['weight'] != null ? '${data['weight']} kg' : 'N/A'}</div>
+      </div>
+      
+      <div class="section-title">💪 Health & Fitness</div>
+      <div class="info-row">
+        <div class="info-label">Goal:</div>
+        <div class="info-value">${data['goal'] ?? 'N/A'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Activity Level:</div>
+        <div class="info-value">${data['activityLevel'] ?? 'N/A'}</div>
+      </div>
+      
+      <div class="section-title">🍽️ Dietary Information</div>
+      <div class="info-row">
+        <div class="info-label">Allergies:</div>
+        <div class="info-value">${allergies?.isNotEmpty == true ? allergies : 'None'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Dietary Preferences:</div>
+        <div class="info-value">${dietaryPrefs?.isNotEmpty == true ? dietaryPrefs : 'None'}</div>
+      </div>
+      ${data['otherDiet'] != null && data['otherDiet'].toString().isNotEmpty ? '''
+      <div class="info-row">
+        <div class="info-label">Other Dietary Info:</div>
+        <div class="info-value">${data['otherDiet']}</div>
+      </div>
+      ''' : ''}
+      
+      <div class="section-title">🏥 Health Conditions</div>
+      <div class="info-row">
+        <div class="info-label">Conditions:</div>
+        <div class="info-value">${healthConditions?.isNotEmpty == true ? healthConditions : 'None'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Medication:</div>
+        <div class="info-value">${data['medication'] ?? 'None'}</div>
+      </div>
+      ${data['otherCondition'] != null && data['otherCondition'].toString().isNotEmpty ? '''
+      <div class="info-row">
+        <div class="info-label">Other Conditions:</div>
+        <div class="info-value">${data['otherCondition']}</div>
+      </div>
+      ''' : ''}
+      
+      <div class="section-title">⚙️ Account Settings</div>
+      <div class="info-row">
+        <div class="info-label">Role:</div>
+        <div class="info-value"><span class="badge $roleClass">${role.toUpperCase()}</span></div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Notifications:</div>
+        <div class="info-value">${notifications?.isNotEmpty == true ? notifications : 'None'}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Account Created:</div>
+        <div class="info-value">${_formatDate(data['createdAt'])}</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Last Updated:</div>
+        <div class="info-value">${_formatDate(data['lastUpdated'])}</div>
+      </div>
+    </div>
+  </div>
+    ''';
   }
 }
 

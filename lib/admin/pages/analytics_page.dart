@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:csv/csv.dart';
+import 'dart:html' as html;
+import 'dart:convert';
 
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
@@ -705,21 +708,449 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   void _exportReport() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Export Report'),
-        content: const Text('Export functionality will be implemented here.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Export'),
-          ),
-        ],
+      builder: (context) => _ExportOptionsDialog(
+        onExport: (format, sections) {
+          if (format == 'csv') {
+            _exportAsCSV(sections);
+          } else {
+            _downloadWordDocument(sections);
+          }
+        },
       ),
     );
+  }
+
+  Future<void> _exportAsCSV(Set<String> sections) async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Generating CSV report...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final analyticsData = await _getAnalyticsData();
+      final topRecipes = await _getTopRecipes();
+      final allergenStats = await _getAllergenStats();
+      final registrationTrends = await _getUserRegistrationTrends();
+
+      final List<List<dynamic>> rows = [];
+
+      // Header
+      rows.add(['SmartDiet Analytics Report']);
+      rows.add(['Generated: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}']);
+      rows.add(['Time Range: $_selectedTimeRange']);
+      rows.add([]);
+
+      // Key Metrics
+      if (sections.contains('metrics')) {
+        rows.add(['KEY METRICS']);
+        rows.add(['Metric', 'Total', 'New', 'Growth']);
+        
+        final userMetrics = analyticsData['users'] as Map<String, dynamic>? ?? {};
+        rows.add(['Users', userMetrics['total'] ?? 0, userMetrics['new'] ?? 0, _calculateGrowth(userMetrics['growth'])]);
+        
+        final recipeMetrics = analyticsData['recipes'] as Map<String, dynamic>? ?? {};
+        rows.add(['Recipes', recipeMetrics['total'] ?? 0, recipeMetrics['new'] ?? 0, _calculateGrowth(recipeMetrics['growth'])]);
+        
+        final mealPlanMetrics = analyticsData['mealPlans'] as Map<String, dynamic>? ?? {};
+        rows.add(['Meal Plans', mealPlanMetrics['total'] ?? 0, mealPlanMetrics['new'] ?? 0, _calculateGrowth(mealPlanMetrics['growth'])]);
+        
+        final nutritionMetrics = analyticsData['nutrition'] as Map<String, dynamic>? ?? {};
+        rows.add(['Nutrition', nutritionMetrics['total'] ?? 0, nutritionMetrics['new'] ?? 0, _calculateGrowth(nutritionMetrics['growth'])]);
+        
+        rows.add([]);
+      }
+
+      // Top Recipes
+      if (sections.contains('recipes')) {
+        rows.add(['TOP RECIPES']);
+        rows.add(['Rank', 'Recipe', 'Type', 'Count']);
+        for (var i = 0; i < topRecipes.length; i++) {
+          final recipe = topRecipes[i];
+          rows.add([i + 1, recipe['title'], recipe['type'], recipe['count']]);
+        }
+        rows.add([]);
+      }
+
+      // Allergens
+      if (sections.contains('allergens')) {
+        rows.add(['ALLERGEN STATISTICS']);
+        rows.add(['Allergen', 'Count']);
+        for (final allergen in allergenStats) {
+          rows.add([allergen['name'], allergen['count']]);
+        }
+        rows.add([]);
+      }
+
+      // Registration Trends
+      if (sections.contains('trends')) {
+        rows.add(['REGISTRATION TRENDS']);
+        rows.add(['Date', 'New Users']);
+        for (final trend in registrationTrends) {
+          rows.add([trend['date'], trend['count']]);
+        }
+      }
+
+      // Convert to CSV and download
+      String csv = const ListToCsvConverter().convert(rows);
+      final bytes = utf8.encode(csv);
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', 'smartdiet_analytics_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv')
+        ..click();
+      html.Url.revokeObjectUrl(url);
+
+      Navigator.pop(context); // Close loading dialog
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Report exported successfully!'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error exporting: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _downloadWordDocument(Set<String> sections) async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Generating Word document...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final analyticsData = await _getAnalyticsData();
+      final topRecipes = await _getTopRecipes();
+      final allergenStats = await _getAllergenStats();
+      final registrationTrends = await _getUserRegistrationTrends();
+
+      final userMetrics = analyticsData['users'] as Map<String, dynamic>? ?? {};
+      final recipeMetrics = analyticsData['recipes'] as Map<String, dynamic>? ?? {};
+      final mealPlanMetrics = analyticsData['mealPlans'] as Map<String, dynamic>? ?? {};
+      final nutritionMetrics = analyticsData['nutrition'] as Map<String, dynamic>? ?? {};
+
+      final htmlContent = '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SmartDiet Analytics Report</title>
+  <style>
+    @page { size: A4; margin: 1.5cm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+    .header { text-align: center; border-bottom: 3px solid #4CAF50; padding-bottom: 15px; margin-bottom: 20px; }
+    .header h1 { margin: 0; color: #2E7D32; font-size: 28px; }
+    .header h2 { margin: 5px 0 0 0; color: #666; font-size: 16px; font-weight: normal; }
+    .metadata { background: #f5f5f5; padding: 10px; border-radius: 5px; margin-bottom: 20px; font-size: 13px; }
+    .section { margin: 25px 0; }
+    .section-title { background: #E8F5E9; padding: 10px; border-left: 4px solid #4CAF50; font-size: 18px; font-weight: bold; color: #1B5E20; margin-bottom: 15px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; }
+    .metric-card { background: linear-gradient(135deg, #e3f2fd, #bbdefb); border: 1px solid #90caf9; border-radius: 10px; padding: 15px; }
+    .metric-label { font-size: 13px; color: #666; margin-bottom: 5px; }
+    .metric-value { font-size: 28px; font-weight: bold; color: #1e293b; }
+    .metric-change { display: inline-block; background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-top: 5px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    thead { background: #4CAF50; color: white; }
+    th { padding: 10px; text-align: left; font-size: 13px; }
+    td { padding: 8px; font-size: 12px; border-bottom: 1px solid #e5e7eb; }
+    tbody tr:nth-child(even) { background: #f9fafb; }
+    .footer { margin-top: 30px; padding-top: 15px; border-top: 2px solid #e5e7eb; text-align: center; color: #9ca3af; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🍽️ SmartDiet</h1>
+    <h2>Analytics Report</h2>
+  </div>
+  
+  <div class="metadata">
+    📅 Generated: ${DateFormat('MMMM dd, yyyy - hh:mm a').format(DateTime.now())} | 
+    ⏰ Time Range: $_selectedTimeRange
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Key Performance Metrics</div>
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="metric-label">Total Users</div>
+        <div class="metric-value">${userMetrics['total'] ?? 0}</div>
+        <span class="metric-change">${_calculateGrowth(userMetrics['growth'])}</span>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Favorite Recipes</div>
+        <div class="metric-value">${recipeMetrics['total'] ?? 0}</div>
+        <span class="metric-change">${_calculateGrowth(recipeMetrics['growth'])}</span>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Meal Plans</div>
+        <div class="metric-value">${mealPlanMetrics['total'] ?? 0}</div>
+        <span class="metric-change">${_calculateGrowth(mealPlanMetrics['growth'])}</span>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Nutrition Entries</div>
+        <div class="metric-value">${nutritionMetrics['total'] ?? 0}</div>
+        <span class="metric-change">${_calculateGrowth(nutritionMetrics['growth'])}</span>
+      </div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Top 10 Recipes</div>
+    <table>
+      <thead><tr><th>Rank</th><th>Recipe</th><th>Type</th><th>Count</th></tr></thead>
+      <tbody>
+        ${topRecipes.take(10).toList().asMap().entries.map((e) => '<tr><td>${e.key + 1}</td><td>${e.value['title']}</td><td>${e.value['type']}</td><td>${e.value['count']}</td></tr>').join()}
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Allergen Statistics</div>
+    <table>
+      <thead><tr><th>Allergen</th><th>User Count</th></tr></thead>
+      <tbody>
+        ${allergenStats.take(10).map((a) => '<tr><td>${a['icon']} ${a['name']}</td><td>${a['count']}</td></tr>').join()}
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Registration Trends</div>
+    <table>
+      <thead><tr><th>Date</th><th>New Users</th></tr></thead>
+      <tbody>
+        ${registrationTrends.map((t) => '<tr><td>${t['date']}</td><td>${t['count']}</td></tr>').join()}
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="footer">
+    🍽️ SmartDiet Analytics - Confidential Report
+  </div>
+</body>
+</html>
+      ''';
+
+      Navigator.pop(context); // Close loading dialog
+
+      // Create Word-compatible HTML document
+      final wordHtml = '''
+<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>SmartDiet Analytics Report</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>90</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.5; }
+    h1 { color: #2E7D32; font-size: 24pt; text-align: center; margin-bottom: 10pt; }
+    h2 { color: #4CAF50; font-size: 16pt; margin-top: 20pt; margin-bottom: 10pt; border-bottom: 2px solid #4CAF50; padding-bottom: 5pt; }
+    table { width: 100%; border-collapse: collapse; margin: 15pt 0; }
+    th { background-color: #4CAF50; color: white; padding: 8pt; text-align: left; font-weight: bold; }
+    td { padding: 6pt; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    .header { text-align: center; margin-bottom: 20pt; }
+    .metadata { background-color: #f5f5f5; padding: 10pt; margin-bottom: 20pt; border-radius: 5pt; }
+    .metric-grid { display: table; width: 100%; margin-bottom: 20pt; }
+    .metric-row { display: table-row; }
+    .metric-cell { display: table-cell; width: 50%; padding: 10pt; }
+    .metric-box { background-color: #e3f2fd; border: 1px solid #90caf9; padding: 15pt; border-radius: 5pt; }
+    .metric-label { font-size: 10pt; color: #666; margin-bottom: 5pt; }
+    .metric-value { font-size: 24pt; font-weight: bold; color: #1e293b; }
+    .metric-change { background-color: #dcfce7; color: #166534; padding: 3pt 8pt; border-radius: 10pt; font-size: 9pt; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🍽️ SmartDiet Analytics Report</h1>
+    <div class="metadata">
+      <strong>Generated:</strong> ${DateFormat('MMMM dd, yyyy - hh:mm a').format(DateTime.now())}<br>
+      <strong>Time Range:</strong> $_selectedTimeRange
+    </div>
+  </div>
+
+  ${sections.contains('metrics') ? '''
+  <h2>Key Performance Metrics</h2>
+  <div class="metric-grid">
+    <div class="metric-row">
+      <div class="metric-cell">
+        <div class="metric-box">
+          <div class="metric-label">Total Users</div>
+          <div class="metric-value">${userMetrics['total'] ?? 0}</div>
+          <span class="metric-change">${_calculateGrowth(userMetrics['growth'])}</span>
+        </div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-box">
+          <div class="metric-label">Favorite Recipes</div>
+          <div class="metric-value">${recipeMetrics['total'] ?? 0}</div>
+          <span class="metric-change">${_calculateGrowth(recipeMetrics['growth'])}</span>
+        </div>
+      </div>
+    </div>
+    <div class="metric-row">
+      <div class="metric-cell">
+        <div class="metric-box">
+          <div class="metric-label">Meal Plans</div>
+          <div class="metric-value">${mealPlanMetrics['total'] ?? 0}</div>
+          <span class="metric-change">${_calculateGrowth(mealPlanMetrics['growth'])}</span>
+        </div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-box">
+          <div class="metric-label">Nutrition Entries</div>
+          <div class="metric-value">${nutritionMetrics['total'] ?? 0}</div>
+          <span class="metric-change">${_calculateGrowth(nutritionMetrics['growth'])}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  ''' : ''}
+
+  ${sections.contains('recipes') ? '''
+  <h2>Top 10 Recipes</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 10%;">Rank</th>
+        <th style="width: 50%;">Recipe Name</th>
+        <th style="width: 20%;">Type</th>
+        <th style="width: 20%;">Usage Count</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${topRecipes.take(10).toList().asMap().entries.map((e) => 
+        '<tr><td>${e.key + 1}</td><td>${e.value['title']}</td><td>${e.value['type']}</td><td>${e.value['count']}</td></tr>'
+      ).join()}
+    </tbody>
+  </table>
+  ''' : ''}
+
+  ${sections.contains('allergens') ? '''
+  <h2>Allergen Statistics</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 70%;">Allergen</th>
+        <th style="width: 30%;">User Count</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${allergenStats.take(10).map((a) => 
+        '<tr><td>${a['icon']} ${a['name']}</td><td>${a['count']}</td></tr>'
+      ).join()}
+    </tbody>
+  </table>
+  ''' : ''}
+
+  ${sections.contains('trends') ? '''
+  <h2>User Registration Trends</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 50%;">Date</th>
+        <th style="width: 50%;">New Users</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${registrationTrends.map((t) => 
+        '<tr><td>${t['date']}</td><td>${t['count']}</td></tr>'
+      ).join()}
+    </tbody>
+  </table>
+  ''' : ''}
+
+  <div style="margin-top: 30pt; padding-top: 15pt; border-top: 2px solid #ddd; text-align: center; color: #999; font-size: 9pt;">
+    🍽️ SmartDiet Analytics - Confidential Report
+  </div>
+</body>
+</html>
+      ''';
+
+      // Download as .doc file (HTML format that Word can open)
+      final bytes = utf8.encode(wordHtml);
+      final blob = html.Blob([bytes], 'application/msword');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', 'SmartDiet_Analytics_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.doc')
+        ..click();
+      html.Url.revokeObjectUrl(url);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Word document downloaded! Open it and press Ctrl+P to print.'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error printing: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   // Real Analytics Data Methods
@@ -1516,5 +1947,203 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         'averageUpdatesPerUser': '0',
       };
     }
+  }
+}
+
+// Export Options Dialog Widget
+class _ExportOptionsDialog extends StatefulWidget {
+  final Function(String format, Set<String> sections) onExport;
+
+  const _ExportOptionsDialog({required this.onExport});
+
+  @override
+  State<_ExportOptionsDialog> createState() => _ExportOptionsDialogState();
+}
+
+class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
+  String _selectedFormat = 'word';
+  final Set<String> _selectedSections = {'metrics', 'recipes', 'allergens', 'trends'};
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Export Analytics Report'),
+      content: SizedBox(
+        width: 450,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Select Format:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<String>(
+                    value: 'csv',
+                    groupValue: _selectedFormat,
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedFormat = value!;
+                      });
+                    },
+                    title: const Row(
+                      children: [
+                        Icon(Icons.table_chart, color: Colors.green, size: 20),
+                        SizedBox(width: 8),
+                        Text('CSV'),
+                      ],
+                    ),
+                    subtitle: const Text('Spreadsheet'),
+                    dense: true,
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<String>(
+                    value: 'word',
+                    groupValue: _selectedFormat,
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedFormat = value!;
+                      });
+                    },
+                    title: const Row(
+                      children: [
+                        Icon(Icons.description, color: Colors.blue, size: 20),
+                        SizedBox(width: 8),
+                        Text('Word'),
+                      ],
+                    ),
+                    subtitle: const Text('Document'),
+                    dense: true,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Select Sections to Include:',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            CheckboxListTile(
+              value: _selectedSections.contains('metrics'),
+              onChanged: (value) {
+                setState(() {
+                  if (value == true) {
+                    _selectedSections.add('metrics');
+                  } else {
+                    _selectedSections.remove('metrics');
+                  }
+                });
+              },
+              title: const Row(
+                children: [
+                  Icon(Icons.analytics, size: 20, color: Colors.purple),
+                  SizedBox(width: 8),
+                  Text('Key Performance Metrics'),
+                ],
+              ),
+              subtitle: const Text('Users, Recipes, Meal Plans, Nutrition'),
+              dense: true,
+            ),
+            CheckboxListTile(
+              value: _selectedSections.contains('recipes'),
+              onChanged: (value) {
+                setState(() {
+                  if (value == true) {
+                    _selectedSections.add('recipes');
+                  } else {
+                    _selectedSections.remove('recipes');
+                  }
+                });
+              },
+              title: const Row(
+                children: [
+                  Icon(Icons.restaurant_menu, size: 20, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Top Recipes'),
+                ],
+              ),
+              subtitle: const Text('Most popular recipes'),
+              dense: true,
+            ),
+            CheckboxListTile(
+              value: _selectedSections.contains('allergens'),
+              onChanged: (value) {
+                setState(() {
+                  if (value == true) {
+                    _selectedSections.add('allergens');
+                  } else {
+                    _selectedSections.remove('allergens');
+                  }
+                });
+              },
+              title: const Row(
+                children: [
+                  Icon(Icons.warning, size: 20, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Allergen Statistics'),
+                ],
+              ),
+              subtitle: const Text('Most common allergens'),
+              dense: true,
+            ),
+            CheckboxListTile(
+              value: _selectedSections.contains('trends'),
+              onChanged: (value) {
+                setState(() {
+                  if (value == true) {
+                    _selectedSections.add('trends');
+                  } else {
+                    _selectedSections.remove('trends');
+                  }
+                });
+              },
+              title: const Row(
+                children: [
+                  Icon(Icons.trending_up, size: 20, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text('Registration Trends'),
+                ],
+              ),
+              subtitle: const Text('User growth over time'),
+              dense: true,
+            ),
+            if (_selectedSections.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Please select at least one section',
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _selectedSections.isEmpty
+              ? null
+              : () {
+                  Navigator.pop(context);
+                  widget.onExport(_selectedFormat, _selectedSections);
+                },
+          icon: const Icon(Icons.download),
+          label: const Text('Export'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green.shade600,
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ],
+    );
   }
 }

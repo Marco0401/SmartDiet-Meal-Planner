@@ -10,6 +10,9 @@ import 'services/nutrition_service.dart';
 import 'services/nutrition_progress_notifier.dart';
 import 'services/allergen_detection_service.dart';
 import 'services/allergen_service.dart';
+import 'services/meal_validation_service.dart';
+import 'services/health_warning_service.dart';
+import 'widgets/health_warning_dialog.dart';
 import 'meal_favorites_page.dart';
 
 class ManualMealEntryPage extends StatefulWidget {
@@ -1297,6 +1300,8 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
 
     setState(() => _isLoading = true);
 
+    String? validationRequestId;
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
@@ -1428,8 +1433,9 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
       } else {
         // CREATE NEW RECIPE
         print('DEBUG: Creating new meal, saveToFavoritesOnly: ${widget.saveToFavoritesOnly}');
-        
-        // Prepare custom recipe for favorites
+        String? localValidationId;
+        final submissionTimestamp = DateTime.now();
+
         final customRecipe = <String, dynamic>{
           'id': 'manual_${DateTime.now().millisecondsSinceEpoch}',
           'title': _foodNameController.text.trim(),
@@ -1445,53 +1451,117 @@ class _ManualMealEntryPageState extends State<ManualMealEntryPage> {
           'mealType': _selectedMealType.toLowerCase(),
           'goal': _selectedGoal,
           'dietType': _selectedDietType,
+          'targetDate': dateString,
         };
         
         if (!widget.saveToFavoritesOnly) {
-          // Save to meal planner with health check
-          final saved = await NutritionService.saveMealWithNutrition(
-            context: context,
-            title: _foodNameController.text.trim(),
-            date: dateString,
-            mealType: _selectedMealType.toLowerCase(),
-            ingredients: ingredientsList,
-            instructions: instructionsText,
-            customNutrition: nutritionData,
-            image: imageBase64,
+          final mealDataForValidation = <String, dynamic>{
+            'name': _foodNameController.text.trim(),
+            'mealType': _selectedMealType.toLowerCase(),
+            'targetDate': dateString,
+            'servingSize': servingSize,
+            'ingredients': List<String>.from(ingredientsList),
+            'instructions': instructionsText,
+            'nutrition': Map<String, double>.from(nutritionData),
+            'image': imageBase64,
+            'goal': _selectedGoal,
+            'dietType': _selectedDietType,
+            'submittedFrom': 'manual_meal_entry',
+            'createdAt': submissionTimestamp.toIso8601String(),
+          };
+
+          final healthCheckMealData = Map<String, dynamic>.from(mealDataForValidation)
+            ..['title'] = _foodNameController.text.trim();
+
+          final healthWarnings = await HealthWarningService.checkMealHealth(
+            mealData: healthCheckMealData,
+            customTitle: _foodNameController.text.trim(),
           );
-          
-          // If health warnings caused cancellation, don't continue
-          if (!saved) {
-            setState(() => _isLoading = false);
-            return;
+
+          if (healthWarnings.isNotEmpty) {
+            final shouldContinue = await showHealthWarningDialog(
+              context: context,
+              warnings: healthWarnings,
+              mealTitle: _foodNameController.text.trim(),
+            );
+
+            if (shouldContinue != true) {
+              if (mounted) {
+                setState(() => _isLoading = false);
+              }
+              return;
+            }
           }
+
+          String resolvedName = user.displayName?.trim().isNotEmpty == true
+              ? user.displayName!.trim()
+              : 'SmartDiet User';
+          String resolvedEmail = user.email ?? '';
+
+          try {
+            final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+            final userData = userDoc.data();
+            if (userData != null) {
+              final fullName = userData['fullName']?.toString().trim();
+              if (fullName != null && fullName.isNotEmpty) {
+                resolvedName = fullName;
+              }
+              final profileEmail = userData['email']?.toString().trim();
+              if (profileEmail != null && profileEmail.isNotEmpty) {
+                resolvedEmail = profileEmail;
+              }
+            }
+          } catch (e) {
+            print('DEBUG: Unable to fetch user profile for validation submission: $e');
+          }
+
+          localValidationId = await MealValidationService.submitMealForValidation(
+            mealData: mealDataForValidation,
+            userId: user.uid,
+            userName: resolvedName,
+            userEmail: resolvedEmail,
+          );
+
+          print('DEBUG: Meal submitted for validation with id: $localValidationId');
+
+          customRecipe.addAll({
+            'validationStatus': 'pending',
+            'validationId': localValidationId,
+            'validationSubmittedAt': submissionTimestamp.toIso8601String(),
+          });
         }
 
-        // Always save to favorites
+        validationRequestId = localValidationId;
+
         await FavoriteService.addToFavorites(
           context,
           customRecipe,
           notes: widget.saveToFavoritesOnly 
-              ? 'Manual entry recipe created on ${DateFormat('MMM dd, yyyy').format(DateTime.now())}'
-              : 'Custom recipe created on ${DateFormat('MMM dd, yyyy').format(_selectedDate)}',
+              ? 'Manual entry recipe created on ${DateFormat('MMM dd, yyyy').format(submissionTimestamp)}'
+              : localValidationId != null
+                  ? 'Awaiting nutritionist validation (submitted ${DateFormat('MMM dd, yyyy').format(submissionTimestamp)}).'
+                  : 'Custom recipe created on ${DateFormat('MMM dd, yyyy').format(_selectedDate)}',
         );
       }
 
       if (mounted) {
-        // Show success message
+        final successMessage = widget.saveToFavoritesOnly
+            ? 'Recipe saved to favorites!'
+            : _isEditMode
+                ? 'Meal updated successfully!'
+                : validationRequestId != null
+                    ? 'Meal submitted for nutritionist validation!'
+                    : 'Meal added successfully!';
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.saveToFavoritesOnly 
-                ? 'Recipe saved to favorites!' 
-                : _isEditMode 
-                    ? 'Meal updated successfully!' 
-                    : 'Meal added successfully!'),
+            content: Text(successMessage),
             backgroundColor: Colors.green,
           ),
         );
         
         // Show progress notification only when adding to meal planner
-        if (!widget.saveToFavoritesOnly && !_isEditMode) {
+        if (!widget.saveToFavoritesOnly && !_isEditMode && validationRequestId == null) {
           await NutritionProgressNotifier.showProgressNotification(
             context,
             nutritionData,
